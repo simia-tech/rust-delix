@@ -14,6 +14,7 @@ pub enum State {
 }
 
 pub struct Node {
+    transport: Arc<Mutex<Box<Transport>>>,
     thread: Option<JoinHandle<()>>,
 }
 
@@ -46,11 +47,18 @@ impl Node {
             }
         });
 
-        Node { thread: Some(thread) }
+        Node {
+            transport: transport,
+            thread: Some(thread),
+        }
     }
 
     pub fn state(&self) -> State {
-        State::Joined
+        if (*self.transport.lock().unwrap()).connection_count() == 0 {
+            State::Discovering
+        } else {
+            State::Joined
+        }
     }
 
 }
@@ -59,7 +67,6 @@ impl Drop for Node {
 
     fn drop(&mut self) {
         self.thread.take().unwrap().join().unwrap();
-        println!("joined thread");
     }
 
 }

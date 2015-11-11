@@ -1,0 +1,5 @@
+package message;
+
+message NodeAdd {
+  optional bytes address = 1;
+}

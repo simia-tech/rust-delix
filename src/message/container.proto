@@ -1,0 +1,10 @@
+package message;
+
+enum Kind {
+  NodeAddMessage = 1;
+}
+
+message Container {
+  optional Kind kind = 1;
+  optional bytes payload = 2;
+}

@@ -2,3 +2,6 @@
 name = "delix"
 version = "0.1.0"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
+
+[dependencies]
+protobuf = "1.0.4"

@@ -1,19 +1,21 @@
 
+use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
 use transport::Transport;
+use transport::direct::Connection;
 
 pub struct Direct {
-    connections: Arc<Mutex<usize>>,
+    connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,
 }
 
 impl Direct {
 
     pub fn new() -> Direct {
-        Direct { connections: Arc::new(Mutex::new(0)) }
+        Direct { connections: Arc::new(Mutex::new(HashMap::new())) }
     }
 
 }
@@ -26,10 +28,12 @@ impl Transport for Direct {
 
         let connections = self.connections.clone();
         spawn(move || {
-            for connection in tcp_listener.incoming() {
-                let connection = connection.unwrap();
-                println!("got connection {}", connection.peer_addr().unwrap());
-                *connections.lock().unwrap() += 1;
+            for stream in tcp_listener.incoming() {
+                let stream = stream.unwrap();
+                let connection = Connection::new(stream);
+                println!("got connection {}", connection);
+
+                connections.lock().unwrap().insert(connection.peer_addr(), connection);
             }
         });
 
@@ -39,12 +43,13 @@ impl Transport for Direct {
     fn join(&mut self, address: SocketAddr) -> Result<(), io::Error> {
         println!("join address {:?}", address);
         let stream = TcpStream::connect(address).unwrap();
-        *self.connections.lock().unwrap() += 1;
+        let connection = Connection::new(stream);
+        self.connections.lock().unwrap().insert(connection.peer_addr(), connection);
         Ok(())
     }
 
     fn connection_count(&self) -> usize {
-        *self.connections.lock().unwrap()
+        self.connections.lock().unwrap().len()
     }
 
 }
