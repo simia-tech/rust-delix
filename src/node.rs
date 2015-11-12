@@ -1,9 +1,12 @@
 
+use std::io;
 use std::net::ToSocketAddrs;
+use std::result;
 use std::sync::{Arc, Mutex};
 use std::thread::{JoinHandle, spawn, sleep_ms};
 
 use discovery::Discovery;
+use transport;
 use transport::Transport;
 
 #[derive(Debug, Copy, Clone, PartialEq)]
@@ -18,11 +21,24 @@ pub struct Node {
     thread: Option<JoinHandle<()>>,
 }
 
+pub type Result<T> = result::Result<T, Error>;
+
+#[derive(Debug)]
+pub enum Error {
+    NoSocketAddr,
+    IO(io::Error),
+    Transport(transport::Error),
+}
+
 impl Node {
 
-    pub fn new<A: ToSocketAddrs>(a: A, d: Box<Discovery>, t: Box<Transport>) -> Node {
-        let address = a.to_socket_addrs().unwrap().next().expect("no socket addr");
-        t.bind(address).unwrap();
+    pub fn new<A: ToSocketAddrs>(a: A, d: Box<Discovery>, t: Box<Transport>) -> Result<Node> {
+        let mut socket_addrs = try!(a.to_socket_addrs());
+        let address = match socket_addrs.next() {
+            Some(s) => s,
+            None => { return Err(Error::NoSocketAddr) },
+        };
+        try!(t.bind(address));
 
         let discovery = Arc::new(Mutex::new(d));
         let transport = Arc::new(Mutex::new(t));
@@ -47,10 +63,10 @@ impl Node {
             }
         });
 
-        Node {
+        Ok(Node {
             transport: transport,
             thread: Some(thread),
-        }
+        })
     }
 
     pub fn state(&self) -> State {
@@ -67,6 +83,22 @@ impl Drop for Node {
 
     fn drop(&mut self) {
         self.thread.take().unwrap().join().unwrap();
+    }
+
+}
+
+impl From<transport::Error> for Error {
+
+    fn from(error: transport::Error) -> Self {
+        Error::Transport(error)
+    }
+
+}
+
+impl From<io::Error> for Error {
+
+    fn from(error: io::Error) -> Self {
+        Error::IO(error)
     }
 
 }

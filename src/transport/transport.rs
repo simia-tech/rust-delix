@@ -1,21 +1,25 @@
 
 use std::net::SocketAddr;
 use std::io;
+use std::result;
 
 pub trait Transport : Send {
-    fn bind(&self, SocketAddr) -> Result<(), io::Error>;
-    fn join(&mut self, SocketAddr) -> Result<(), io::Error>;
+    fn bind(&self, SocketAddr) -> Result<()>;
+    fn join(&mut self, SocketAddr) -> Result<()>;
     fn connection_count(&self) -> usize;
 }
 
-/*
-type Result<T> = Result<T, Error>;
+pub type Result<T> = result::Result<T, Error>;
 
+#[derive(Debug)]
 pub enum Error {
-    IOError(io::Error)
+    IO(io::Error)
 }
 
 impl From<io::Error> for Error {
 
+    fn from(error: io::Error) -> Self {
+        Error::IO(error)
+    }
+
 }
-*/

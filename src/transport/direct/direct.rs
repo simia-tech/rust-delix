@@ -1,11 +1,10 @@
 
 use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::io;
 use std::sync::{Arc, Mutex};
 use std::thread::spawn;
 
-use transport::Transport;
+use transport::{Result, Transport};
 use transport::direct::Connection;
 
 pub struct Direct {
@@ -22,7 +21,7 @@ impl Direct {
 
 impl Transport for Direct {
 
-    fn bind(&self, address: SocketAddr) -> Result<(), io::Error> {
+    fn bind(&self, address: SocketAddr) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(address));
         println!("bound to address {:?}", address);
 
@@ -40,9 +39,9 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn join(&mut self, address: SocketAddr) -> Result<(), io::Error> {
+    fn join(&mut self, address: SocketAddr) -> Result<()> {
         println!("join address {:?}", address);
-        let stream = TcpStream::connect(address).unwrap();
+        let stream = try!(TcpStream::connect(address));
         let connection = Connection::new(stream);
         self.connections.lock().unwrap().insert(connection.peer_addr(), connection);
         Ok(())
