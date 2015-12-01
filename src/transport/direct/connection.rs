@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 use std::fmt;
+use std::io::Write;
 use std::net::{SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex};
 use std::thread::{JoinHandle, spawn};
@@ -39,11 +40,7 @@ impl Connection {
             node_add.set_address(vec![0, 1, 2, 3]);
             node_add.write_to_vec(&mut buffer).unwrap();
 
-            let mut container = Container::new();
-            container.set_kind(Kind::NodeAddMessage);
-            container.set_payload(buffer);
-
-            container.write_to_writer(&mut *stream.lock().unwrap()).unwrap();
+            write_container(&mut *stream.lock().unwrap(), Kind::NodeAddMessage, buffer);
         });
 
         Connection {
@@ -72,4 +69,11 @@ impl Drop for Connection {
         self.thread.take().unwrap().join().unwrap();
     }
 
+}
+
+fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) {
+    let mut container = Container::new();
+    container.set_kind(kind);
+    container.set_payload(data);
+    container.write_to_writer(w).unwrap();
 }

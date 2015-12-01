@@ -14,11 +14,9 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-extern crate rand;
-extern crate rustc_serialize;
-extern crate protobuf;
-
-pub mod discovery;
-pub mod message;
-pub mod node;
-pub mod transport;
+#[derive(Debug, Copy, Clone, PartialEq)]
+pub enum State {
+    Started,
+    Discovering,
+    Joined,
+}

@@ -14,11 +14,10 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-extern crate rand;
-extern crate rustc_serialize;
-extern crate protobuf;
+mod id;
+mod node;
+mod state;
 
-pub mod discovery;
-pub mod message;
-pub mod node;
-pub mod transport;
+pub use node::id::ID;
+pub use node::node::Node;
+pub use node::state::State;

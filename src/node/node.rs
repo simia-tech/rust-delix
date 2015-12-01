@@ -21,17 +21,12 @@ use std::sync::{Arc, Mutex};
 use std::thread::{JoinHandle, spawn, sleep_ms};
 
 use discovery::Discovery;
+use node::{ID, State};
 use transport;
 use transport::Transport;
 
-#[derive(Debug, Copy, Clone, PartialEq)]
-pub enum State {
-    Started,
-    Discovering,
-    Joined,
-}
-
 pub struct Node {
+    id: ID,
     transport: Arc<Mutex<Box<Transport>>>,
     thread: Option<JoinHandle<()>>,
 }
@@ -79,6 +74,7 @@ impl Node {
         });
 
         Ok(Node {
+            id: ID::new_random(),
             transport: transport,
             thread: Some(thread),
         })
@@ -90,6 +86,10 @@ impl Node {
         } else {
             State::Joined
         }
+    }
+
+    pub fn connection_count(&self) -> usize {
+        self.transport.lock().unwrap().connection_count()
     }
 
 }

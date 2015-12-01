@@ -4,4 +4,6 @@ version = "0.1.0"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
 
 [dependencies]
+rand = "0.3"
+rustc-serialize = "0.3"
 protobuf = "1.0.4"
