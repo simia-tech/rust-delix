@@ -22,6 +22,8 @@ use std::thread::spawn;
 use transport::{Result, Transport};
 use transport::direct::Connection;
 
+use node::ID;
+
 pub struct Direct {
     connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,
 }
@@ -29,14 +31,16 @@ pub struct Direct {
 impl Direct {
 
     pub fn new() -> Direct {
-        Direct { connections: Arc::new(Mutex::new(HashMap::new())) }
+        Direct {
+            connections: Arc::new(Mutex::new(HashMap::new())),
+        }
     }
 
 }
 
 impl Transport for Direct {
 
-    fn bind(&self, address: SocketAddr) -> Result<()> {
+    fn bind(&self, address: SocketAddr, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(address));
         println!("bound to address {:?}", address);
 
@@ -44,8 +48,8 @@ impl Transport for Direct {
         spawn(move || {
             for stream in tcp_listener.incoming() {
                 let stream = stream.unwrap();
-                let connection = Connection::new(stream);
-                println!("got connection {}", connection);
+                let connection = Connection::new(stream, node_id);
+                println!("inbound connection {}", connection);
 
                 connections.lock().unwrap().insert(connection.peer_addr(), connection);
             }
@@ -54,10 +58,10 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn join(&mut self, address: SocketAddr) -> Result<()> {
-        println!("join address {:?}", address);
+    fn join(&mut self, address: SocketAddr, node_id: ID) -> Result<()> {
         let stream = try!(TcpStream::connect(address));
-        let connection = Connection::new(stream);
+        let connection = Connection::new(stream, node_id);
+        println!("outbound connection {}", connection);
         self.connections.lock().unwrap().insert(connection.peer_addr(), connection);
         Ok(())
     }

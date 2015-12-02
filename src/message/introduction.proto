@@ -1,0 +1,7 @@
+package message;
+
+// Introduction is a packet that can be send by any node to identify itself against
+// other nodes. The only property is the sending node's id.
+message Introduction {
+  optional bytes id = 1;
+}

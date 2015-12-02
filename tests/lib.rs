@@ -32,7 +32,7 @@ fn discovery_with_two_nodes() {
     let transport_two = Box::new(Direct::new());
     let node_two = Node::new("127.0.0.1:3002", discovery_two, transport_two).unwrap();
 
-    sleep_ms(100);
+    sleep_ms(1000);
 
     assert_eq!(State::Joined, node_one.state());
     assert_eq!(1, node_one.connection_count());
@@ -40,8 +40,9 @@ fn discovery_with_two_nodes() {
     assert_eq!(State::Joined, node_two.state());
     assert_eq!(1, node_two.connection_count());
 }
-/*
+
 #[test]
+#[ignore]
 fn discovery_with_three_nodes() {
     let discovery_one = Box::new(Constant::new(&[] as &[&str]));
     let transport_one = Box::new(Direct::new());
@@ -66,4 +67,3 @@ fn discovery_with_three_nodes() {
     assert_eq!(State::Joined, node_three.state());
     assert_eq!(2, node_three.connection_count());
 }
-*/

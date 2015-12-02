@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::fmt;
 use std::str::FromStr;
 use rand::random;
 use rustc_serialize::hex::{FromHex, FromHexError, ToHex};
@@ -51,6 +52,14 @@ impl ID {
         ID { value: random::<[u8; ID_BYTES]>() }
     }
 
+    pub fn to_vec(&self) -> Vec<u8> {
+        let mut result = Vec::new();
+        for item in self.value.iter() {
+            result.push(*item);
+        }
+        result
+    }
+
 }
 
 impl FromStr for ID {
@@ -71,6 +80,14 @@ impl ToHex for ID {
 
 }
 
+impl fmt::Display for ID {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{}", self.to_hex())
+    }
+
+}
+
 impl From<FromHexError> for Error {
 
     fn from(error: FromHexError) -> Self {
@@ -83,8 +100,7 @@ impl From<FromHexError> for Error {
 mod tests {
 
     use super::ID;
-    use super::Error;
-    use rustc_serialize::hex::{ToHex};
+    use rustc_serialize::hex::ToHex;
 
     #[test]
     fn test_random_id() {

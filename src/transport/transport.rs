@@ -18,9 +18,11 @@ use std::net::SocketAddr;
 use std::io;
 use std::result;
 
+use node::ID;
+
 pub trait Transport : Send {
-    fn bind(&self, SocketAddr) -> Result<()>;
-    fn join(&mut self, SocketAddr) -> Result<()>;
+    fn bind(&self, SocketAddr, ID) -> Result<()>;
+    fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
 }
 

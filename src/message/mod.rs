@@ -1,6 +1,8 @@
 
 mod container;
-mod node;
+mod introduction;
+pub mod kind;
 
-pub use message::container::{Container, Kind};
-pub use message::node::NodeAdd;
+pub use message::container::Container;
+pub use message::introduction::Introduction;
+pub use message::kind::Kind;

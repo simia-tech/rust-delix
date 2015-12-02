@@ -48,7 +48,10 @@ impl Node {
             Some(s) => s,
             None => { return Err(Error::NoSocketAddr) },
         };
-        try!(t.bind(address));
+
+        let node_id = ID::new_random();
+
+        try!(t.bind(address, node_id));
 
         let discovery = Arc::new(Mutex::new(d));
         let transport = Arc::new(Mutex::new(t));
@@ -63,7 +66,7 @@ impl Node {
             while transport.connection_count() == 0 {
                 match discovery.discover() {
                     Some(address) => {
-                        transport.join(address).unwrap();
+                        transport.join(address, node_id).unwrap();
                     },
                     None => {
                         println!("no address discovered - sleep 2s");
@@ -74,7 +77,7 @@ impl Node {
         });
 
         Ok(Node {
-            id: ID::new_random(),
+            id: node_id,
             transport: transport,
             thread: Some(thread),
         })

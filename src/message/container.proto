@@ -1,8 +1,6 @@
 package message;
 
-enum Kind {
-  NodeAddMessage = 1;
-}
+import "kind.proto";
 
 message Container {
   optional Kind kind = 1;

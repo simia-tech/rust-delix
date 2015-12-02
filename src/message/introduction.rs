@@ -11,28 +11,28 @@ use protobuf::Message as Message_imported_for_functions;
 use protobuf::ProtobufEnum as ProtobufEnum_imported_for_functions;
 
 #[derive(Clone,Default)]
-pub struct NodeAdd {
+pub struct Introduction {
     // message fields
-    address: ::protobuf::SingularField<::std::vec::Vec<u8>>,
+    id: ::protobuf::SingularField<::std::vec::Vec<u8>>,
     // special fields
     unknown_fields: ::protobuf::UnknownFields,
     cached_size: ::std::cell::Cell<u32>,
 }
 
-impl NodeAdd {
-    pub fn new() -> NodeAdd {
+impl Introduction {
+    pub fn new() -> Introduction {
         ::std::default::Default::default()
     }
 
-    pub fn default_instance() -> &'static NodeAdd {
-        static mut instance: ::protobuf::lazy::Lazy<NodeAdd> = ::protobuf::lazy::Lazy {
+    pub fn default_instance() -> &'static Introduction {
+        static mut instance: ::protobuf::lazy::Lazy<Introduction> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
-            ptr: 0 as *const NodeAdd,
+            ptr: 0 as *const Introduction,
         };
         unsafe {
             instance.get(|| {
-                NodeAdd {
-                    address: ::protobuf::SingularField::none(),
+                Introduction {
+                    id: ::protobuf::SingularField::none(),
                     unknown_fields: ::protobuf::UnknownFields::new(),
                     cached_size: ::std::cell::Cell::new(0),
                 }
@@ -40,44 +40,44 @@ impl NodeAdd {
         }
     }
 
-    // optional bytes address = 1;
+    // optional bytes id = 1;
 
-    pub fn clear_address(&mut self) {
-        self.address.clear();
+    pub fn clear_id(&mut self) {
+        self.id.clear();
     }
 
-    pub fn has_address(&self) -> bool {
-        self.address.is_some()
+    pub fn has_id(&self) -> bool {
+        self.id.is_some()
     }
 
     // Param is passed by value, moved
-    pub fn set_address(&mut self, v: ::std::vec::Vec<u8>) {
-        self.address = ::protobuf::SingularField::some(v);
+    pub fn set_id(&mut self, v: ::std::vec::Vec<u8>) {
+        self.id = ::protobuf::SingularField::some(v);
     }
 
     // Mutable pointer to the field.
     // If field is not initialized, it is initialized with default value first.
-    pub fn mut_address<'a>(&'a mut self) -> &'a mut ::std::vec::Vec<u8> {
-        if self.address.is_none() {
-            self.address.set_default();
+    pub fn mut_id<'a>(&'a mut self) -> &'a mut ::std::vec::Vec<u8> {
+        if self.id.is_none() {
+            self.id.set_default();
         };
-        self.address.as_mut().unwrap()
+        self.id.as_mut().unwrap()
     }
 
     // Take field
-    pub fn take_address(&mut self) -> ::std::vec::Vec<u8> {
-        self.address.take().unwrap_or_else(|| ::std::vec::Vec::new())
+    pub fn take_id(&mut self) -> ::std::vec::Vec<u8> {
+        self.id.take().unwrap_or_else(|| ::std::vec::Vec::new())
     }
 
-    pub fn get_address<'a>(&'a self) -> &'a [u8] {
-        match self.address.as_ref() {
+    pub fn get_id<'a>(&'a self) -> &'a [u8] {
+        match self.id.as_ref() {
             Some(v) => &v,
             None => &[],
         }
     }
 }
 
-impl ::protobuf::Message for NodeAdd {
+impl ::protobuf::Message for Introduction {
     fn is_initialized(&self) -> bool {
         true
     }
@@ -90,7 +90,7 @@ impl ::protobuf::Message for NodeAdd {
                     if wire_type != ::protobuf::wire_format::WireTypeLengthDelimited {
                         return ::std::result::Result::Err(::protobuf::ProtobufError::WireError("unexpected wire type".to_string()));
                     };
-                    let tmp = self.address.set_default();
+                    let tmp = self.id.set_default();
                     try!(is.read_bytes_into(tmp))
                 },
                 _ => {
@@ -106,7 +106,7 @@ impl ::protobuf::Message for NodeAdd {
     #[allow(unused_variables)]
     fn compute_size(&self) -> u32 {
         let mut my_size = 0;
-        for value in self.address.iter() {
+        for value in self.id.iter() {
             my_size += ::protobuf::rt::bytes_size(1, &value);
         };
         my_size += ::protobuf::rt::unknown_fields_size(self.get_unknown_fields());
@@ -115,7 +115,7 @@ impl ::protobuf::Message for NodeAdd {
     }
 
     fn write_to_with_cached_sizes(&self, os: &mut ::protobuf::CodedOutputStream) -> ::protobuf::ProtobufResult<()> {
-        if let Some(v) = self.address.as_ref() {
+        if let Some(v) = self.id.as_ref() {
             try!(os.write_bytes(1, &v));
         };
         try!(os.write_unknown_fields(self.get_unknown_fields()));
@@ -135,7 +135,7 @@ impl ::protobuf::Message for NodeAdd {
     }
 
     fn type_id(&self) -> ::std::any::TypeId {
-        ::std::any::TypeId::of::<NodeAdd>()
+        ::std::any::TypeId::of::<Introduction>()
     }
 
     fn as_any(&self) -> &::std::any::Any {
@@ -147,12 +147,12 @@ impl ::protobuf::Message for NodeAdd {
     }
 }
 
-impl ::protobuf::MessageStatic for NodeAdd {
-    fn new() -> NodeAdd {
-        NodeAdd::new()
+impl ::protobuf::MessageStatic for Introduction {
+    fn new() -> Introduction {
+        Introduction::new()
     }
 
-    fn descriptor_static(_: ::std::option::Option<NodeAdd>) -> &'static ::protobuf::reflect::MessageDescriptor {
+    fn descriptor_static(_: ::std::option::Option<Introduction>) -> &'static ::protobuf::reflect::MessageDescriptor {
         static mut descriptor: ::protobuf::lazy::Lazy<::protobuf::reflect::MessageDescriptor> = ::protobuf::lazy::Lazy {
             lock: ::protobuf::lazy::ONCE_INIT,
             ptr: 0 as *const ::protobuf::reflect::MessageDescriptor,
@@ -161,12 +161,12 @@ impl ::protobuf::MessageStatic for NodeAdd {
             descriptor.get(|| {
                 let mut fields = ::std::vec::Vec::new();
                 fields.push(::protobuf::reflect::accessor::make_singular_bytes_accessor(
-                    "address",
-                    NodeAdd::has_address,
-                    NodeAdd::get_address,
+                    "id",
+                    Introduction::has_id,
+                    Introduction::get_id,
                 ));
-                ::protobuf::reflect::MessageDescriptor::new::<NodeAdd>(
-                    "NodeAdd",
+                ::protobuf::reflect::MessageDescriptor::new::<Introduction>(
+                    "Introduction",
                     fields,
                     file_descriptor_proto()
                 )
@@ -175,38 +175,47 @@ impl ::protobuf::MessageStatic for NodeAdd {
     }
 }
 
-impl ::protobuf::Clear for NodeAdd {
+impl ::protobuf::Clear for Introduction {
     fn clear(&mut self) {
-        self.clear_address();
+        self.clear_id();
         self.unknown_fields.clear();
     }
 }
 
-impl ::std::cmp::PartialEq for NodeAdd {
-    fn eq(&self, other: &NodeAdd) -> bool {
-        self.address == other.address &&
+impl ::std::cmp::PartialEq for Introduction {
+    fn eq(&self, other: &Introduction) -> bool {
+        self.id == other.id &&
         self.unknown_fields == other.unknown_fields
     }
 }
 
-impl ::std::fmt::Debug for NodeAdd {
+impl ::std::fmt::Debug for Introduction {
     fn fmt(&self, f: &mut ::std::fmt::Formatter) -> ::std::fmt::Result {
         ::protobuf::text_format::fmt(self, f)
     }
 }
 
 static file_descriptor_proto_data: &'static [u8] = &[
-    0x0a, 0x16, 0x73, 0x72, 0x63, 0x2f, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x2f, 0x6e, 0x6f,
-    0x64, 0x65, 0x2e, 0x70, 0x72, 0x6f, 0x74, 0x6f, 0x12, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67,
-    0x65, 0x22, 0x1a, 0x0a, 0x07, 0x4e, 0x6f, 0x64, 0x65, 0x41, 0x64, 0x64, 0x12, 0x0f, 0x0a, 0x07,
-    0x61, 0x64, 0x64, 0x72, 0x65, 0x73, 0x73, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x4a, 0x6f, 0x0a,
-    0x06, 0x12, 0x04, 0x00, 0x00, 0x04, 0x01, 0x0a, 0x08, 0x0a, 0x01, 0x02, 0x12, 0x03, 0x00, 0x08,
-    0x0f, 0x0a, 0x0a, 0x0a, 0x02, 0x04, 0x00, 0x12, 0x04, 0x02, 0x00, 0x04, 0x01, 0x0a, 0x0a, 0x0a,
-    0x03, 0x04, 0x00, 0x01, 0x12, 0x03, 0x02, 0x08, 0x0f, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x00, 0x02,
-    0x00, 0x12, 0x03, 0x03, 0x02, 0x1d, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x04, 0x12,
-    0x03, 0x03, 0x02, 0x0a, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x05, 0x12, 0x03, 0x03,
-    0x0b, 0x10, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x01, 0x12, 0x03, 0x03, 0x11, 0x18,
-    0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x03, 0x12, 0x03, 0x03, 0x1b, 0x1c,
+    0x0a, 0x12, 0x69, 0x6e, 0x74, 0x72, 0x6f, 0x64, 0x75, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x2e, 0x70,
+    0x72, 0x6f, 0x74, 0x6f, 0x12, 0x07, 0x6d, 0x65, 0x73, 0x73, 0x61, 0x67, 0x65, 0x22, 0x1a, 0x0a,
+    0x0c, 0x49, 0x6e, 0x74, 0x72, 0x6f, 0x64, 0x75, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x12, 0x0a, 0x0a,
+    0x02, 0x69, 0x64, 0x18, 0x01, 0x20, 0x01, 0x28, 0x0c, 0x4a, 0xff, 0x01, 0x0a, 0x06, 0x12, 0x04,
+    0x00, 0x00, 0x06, 0x01, 0x0a, 0x08, 0x0a, 0x01, 0x02, 0x12, 0x03, 0x00, 0x08, 0x0f, 0x0a, 0x99,
+    0x01, 0x0a, 0x02, 0x04, 0x00, 0x12, 0x04, 0x04, 0x00, 0x06, 0x01, 0x1a, 0x8c, 0x01, 0x20, 0x49,
+    0x6e, 0x74, 0x72, 0x6f, 0x64, 0x75, 0x63, 0x74, 0x69, 0x6f, 0x6e, 0x20, 0x69, 0x73, 0x20, 0x61,
+    0x20, 0x70, 0x61, 0x63, 0x6b, 0x65, 0x74, 0x20, 0x74, 0x68, 0x61, 0x74, 0x20, 0x63, 0x61, 0x6e,
+    0x20, 0x62, 0x65, 0x20, 0x73, 0x65, 0x6e, 0x64, 0x20, 0x62, 0x79, 0x20, 0x61, 0x6e, 0x79, 0x20,
+    0x6e, 0x6f, 0x64, 0x65, 0x20, 0x74, 0x6f, 0x20, 0x69, 0x64, 0x65, 0x6e, 0x74, 0x69, 0x66, 0x79,
+    0x20, 0x69, 0x74, 0x73, 0x65, 0x6c, 0x66, 0x20, 0x61, 0x67, 0x61, 0x69, 0x6e, 0x73, 0x74, 0x0a,
+    0x20, 0x6f, 0x74, 0x68, 0x65, 0x72, 0x20, 0x6e, 0x6f, 0x64, 0x65, 0x73, 0x2e, 0x20, 0x54, 0x68,
+    0x65, 0x20, 0x6f, 0x6e, 0x6c, 0x79, 0x20, 0x70, 0x72, 0x6f, 0x70, 0x65, 0x72, 0x74, 0x79, 0x20,
+    0x69, 0x73, 0x20, 0x74, 0x68, 0x65, 0x20, 0x73, 0x65, 0x6e, 0x64, 0x69, 0x6e, 0x67, 0x20, 0x6e,
+    0x6f, 0x64, 0x65, 0x27, 0x73, 0x20, 0x69, 0x64, 0x2e, 0x0a, 0x0a, 0x0a, 0x0a, 0x03, 0x04, 0x00,
+    0x01, 0x12, 0x03, 0x04, 0x08, 0x14, 0x0a, 0x0b, 0x0a, 0x04, 0x04, 0x00, 0x02, 0x00, 0x12, 0x03,
+    0x05, 0x02, 0x18, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x04, 0x12, 0x03, 0x05, 0x02,
+    0x0a, 0x0a, 0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x05, 0x12, 0x03, 0x05, 0x0b, 0x10, 0x0a,
+    0x0c, 0x0a, 0x05, 0x04, 0x00, 0x02, 0x00, 0x01, 0x12, 0x03, 0x05, 0x11, 0x13, 0x0a, 0x0c, 0x0a,
+    0x05, 0x04, 0x00, 0x02, 0x00, 0x03, 0x12, 0x03, 0x05, 0x16, 0x17,
 ];
 
 static mut file_descriptor_proto_lazy: ::protobuf::lazy::Lazy<::protobuf::descriptor::FileDescriptorProto> = ::protobuf::lazy::Lazy {
