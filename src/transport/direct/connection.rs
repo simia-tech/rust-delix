@@ -17,35 +17,56 @@ limitations under the License.
 use std::fmt;
 use std::io::{Cursor, Read, Write};
 use std::net::{SocketAddr, TcpStream};
+use std::sync::mpsc;
 use std::thread::{JoinHandle, spawn};
 
 use protobuf::Message as Message_imported_for_functions;
 use protobuf::error::ProtobufError;
 use protobuf::parse_from_reader;
 use message::{Container, Kind, Introduction};
+use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use node::ID;
 
 pub struct Connection {
     stream: TcpStream,
     thread: Option<JoinHandle<()>>,
+    peer_node_id_receiver: mpsc::Receiver<ID>,
+    peer_node_id: Option<ID>,
 }
 
 impl Connection {
 
     pub fn new(s: TcpStream, node_id: ID) -> Connection {
         let mut stream = s.try_clone().unwrap();
+        let (sender, receiver) = mpsc::channel();
         let thread = spawn(move || {
             write_introduction(&mut stream, node_id).unwrap();
+            println!("send introduction {}", node_id);
 
-            let mut intro = read_introduction(&mut stream).unwrap();
-            println!("got introduction {}", ID::new(intro.take_id()).unwrap());
+            let mut introduction = read_introduction(&mut stream).unwrap();
+            let peer_node_id = ID::new(introduction.take_id()).unwrap();
+            println!("got introduction {}", peer_node_id);
+
+            sender.send(peer_node_id).unwrap();
         });
 
         Connection {
             stream: s,
             thread: Some(thread),
+            peer_node_id_receiver: receiver,
+            peer_node_id: None,
         }
+    }
+
+    pub fn peer_node_id(&mut self) -> ID {
+        if let Some(node_id) = self.peer_node_id {
+            return node_id;
+        }
+
+        let peer_node_id = self.peer_node_id_receiver.recv().unwrap();
+        self.peer_node_id = Some(peer_node_id);
+        peer_node_id
     }
 
     pub fn peer_addr(&self) -> SocketAddr {
@@ -75,8 +96,6 @@ impl Drop for Connection {
 }
 
 fn write_introduction(w: &mut Write, node_id: ID) -> Result<(), ProtobufError> {
-    println!("send introduction {}", node_id);
-
     let mut buffer = Vec::new();
     let mut introduction = Introduction::new();
     introduction.set_id(node_id.to_vec());
@@ -88,26 +107,27 @@ fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<(), Proto
     let mut container = Container::new();
     container.set_kind(kind);
     container.set_payload(data);
+
     let container_bytes = try!(container.write_to_bytes());
-    w.write(&[container_bytes.len() as u8]).unwrap();
+    let container_size = container_bytes.len() as u64;
+
+    w.write_u64::<BigEndian>(container_size).unwrap();
     w.write(&container_bytes).unwrap();
+
     Ok(())
 }
 
 fn read_introduction(r: &mut Read) -> Result<Introduction, ProtobufError> {
     let mut container = try!(read_container(r));
-    println!("got container {:?}", container);
     let mut payload_cursor = Cursor::new(container.take_payload());
     parse_from_reader::<Introduction>(&mut payload_cursor)
 }
 
 fn read_container(r: &mut Read) -> Result<Container, ProtobufError> {
-    let mut size_buffer = [0; 1];
-    r.read(&mut size_buffer).unwrap();
-    let size = size_buffer[0] as usize;
+    let container_size = r.read_u64::<BigEndian>().unwrap() as usize;
 
-    let mut buffer = Vec::with_capacity(size);
-    unsafe { buffer.set_len(size); }
+    let mut buffer = Vec::with_capacity(container_size);
+    unsafe { buffer.set_len(container_size); }
     r.read(&mut buffer).unwrap();
 
     parse_from_reader::<Container>(&mut Cursor::new(buffer))

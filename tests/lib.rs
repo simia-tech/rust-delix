@@ -32,7 +32,7 @@ fn discovery_with_two_nodes() {
     let transport_two = Box::new(Direct::new());
     let node_two = Node::new("127.0.0.1:3002", discovery_two, transport_two).unwrap();
 
-    sleep_ms(1000);
+    sleep_ms(100);
 
     assert_eq!(State::Joined, node_one.state());
     assert_eq!(1, node_one.connection_count());

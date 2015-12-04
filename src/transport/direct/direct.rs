@@ -25,7 +25,7 @@ use transport::direct::Connection;
 use node::ID;
 
 pub struct Direct {
-    connections: Arc<Mutex<HashMap<SocketAddr, Connection>>>,
+    connections: Arc<Mutex<HashMap<ID, Connection>>>,
 }
 
 impl Direct {
@@ -48,10 +48,9 @@ impl Transport for Direct {
         spawn(move || {
             for stream in tcp_listener.incoming() {
                 let stream = stream.unwrap();
-                let connection = Connection::new(stream, node_id);
+                let mut connection = Connection::new(stream, node_id);
                 println!("inbound connection {}", connection);
-
-                connections.lock().unwrap().insert(connection.peer_addr(), connection);
+                connections.lock().unwrap().insert(connection.peer_node_id(), connection);
             }
         });
 
@@ -60,9 +59,9 @@ impl Transport for Direct {
 
     fn join(&mut self, address: SocketAddr, node_id: ID) -> Result<()> {
         let stream = try!(TcpStream::connect(address));
-        let connection = Connection::new(stream, node_id);
+        let mut connection = Connection::new(stream, node_id);
         println!("outbound connection {}", connection);
-        self.connections.lock().unwrap().insert(connection.peer_addr(), connection);
+        self.connections.lock().unwrap().insert(connection.peer_node_id(), connection);
         Ok(())
     }
 

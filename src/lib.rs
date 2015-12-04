@@ -17,6 +17,7 @@ limitations under the License.
 extern crate rand;
 extern crate rustc_serialize;
 extern crate protobuf;
+extern crate byteorder;
 
 pub mod discovery;
 pub mod message;

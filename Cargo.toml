@@ -7,3 +7,4 @@ authors = ["Philipp Brüll <bruell@simia.tech>"]
 rand = "0.3"
 rustc-serialize = "0.3"
 protobuf = "1.0.4"
+byteorder = "0.4.2"
