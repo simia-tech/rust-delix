@@ -14,9 +14,19 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::fmt;
+
 #[derive(Debug, Copy, Clone, PartialEq)]
 pub enum State {
     Started,
     Discovering,
     Joined,
+}
+
+impl fmt::Display for State {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?}", self)
+    }
+
 }

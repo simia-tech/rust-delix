@@ -42,7 +42,6 @@ fn discovery_with_two_nodes() {
 }
 
 #[test]
-#[ignore]
 fn discovery_with_three_nodes() {
     let discovery_one = Box::new(Constant::new(&[] as &[&str]));
     let transport_one = Box::new(Direct::new());

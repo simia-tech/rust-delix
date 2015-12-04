@@ -14,6 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+use std::fmt;
 use std::io;
 use std::net::ToSocketAddrs;
 use std::result;
@@ -93,6 +94,14 @@ impl Node {
 
     pub fn connection_count(&self) -> usize {
         self.transport.lock().unwrap().connection_count()
+    }
+
+}
+
+impl fmt::Display for Node {
+
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(Node {} {} {} connections)", self.id, self.state(), self.connection_count())
     }
 
 }
