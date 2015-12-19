@@ -20,7 +20,7 @@ use std::result;
 use node::ID;
 
 pub trait Transport : Send {
-    fn bind(&self, SocketAddr, ID) -> Result<()>;
+    fn bind(&self, ID) -> Result<()>;
     fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
 }

@@ -4,7 +4,9 @@ version = "0.1.0"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
 
 [dependencies]
+byteorder = "0.4.2"
+getopts = "0.2.14"
+protobuf = "1.0.4"
 rand = "0.3"
 rustc-serialize = "0.3"
-protobuf = "1.0.4"
-byteorder = "0.4.2"
+toml = "0.1.25"

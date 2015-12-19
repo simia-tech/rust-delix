@@ -14,7 +14,7 @@
 //
 
 use std::collections::HashMap;
-use std::net::{TcpListener, TcpStream, SocketAddr, ToSocketAddrs};
+use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::spawn;
 
@@ -24,26 +24,25 @@ use transport::direct::Connection;
 use node::ID;
 
 pub struct Direct {
+    local_address: SocketAddr,
     public_address: SocketAddr,
     connections: Arc<Mutex<HashMap<ID, Connection>>>,
 }
 
 impl Direct {
-    pub fn new<A: ToSocketAddrs>(a: A) -> Direct {
-        let mut socket_addrs = a.to_socket_addrs().unwrap();
-        let public_address = socket_addrs.next().unwrap();
-
+    pub fn new(local_address: SocketAddr, public_address: Option<SocketAddr>) -> Direct {
         Direct {
-            public_address: public_address,
+            local_address: local_address,
+            public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(Mutex::new(HashMap::new())),
         }
     }
 }
 
 impl Transport for Direct {
-    fn bind(&self, address: SocketAddr, node_id: ID) -> Result<()> {
-        let tcp_listener = try!(TcpListener::bind(address));
-        println!("bound to address {:?}", address);
+    fn bind(&self, node_id: ID) -> Result<()> {
+        let tcp_listener = try!(TcpListener::bind(self.local_address));
+        println!("bound to address {:?}", self.local_address);
 
         let connections = self.connections.clone();
         let public_address = self.public_address;
@@ -79,7 +78,7 @@ impl Transport for Direct {
             for peer in peers {
                 let (peer_node_id, peer_public_address) = peer;
                 if self.connections.lock().unwrap().contains_key(&peer_node_id) {
-                    continue
+                    continue;
                 }
 
                 pending_peers_count += 1;

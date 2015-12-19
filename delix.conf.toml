@@ -1,0 +1,9 @@
+
+[discovery]
+type = "constant"
+addresses = [ ]
+
+[transport]
+type = "direct"
+public_address = "127.0.0.1:4001"
+local_address = "127.0.0.1:4001"

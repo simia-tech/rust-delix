@@ -20,4 +20,5 @@ mod state;
 
 pub use node::id::ID;
 pub use node::node::Node;
+pub use node::node::Error;
 pub use node::state::State;

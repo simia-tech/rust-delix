@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 
 use discovery::Discovery;
 
@@ -25,13 +25,7 @@ pub struct Constant {
 
 impl Constant {
 
-    pub fn new<T: ToSocketAddrs>(inputs: &[T]) -> Constant {
-        let mut addresses = Vec::new();
-        for input in inputs {
-            for socket_addr in input.to_socket_addrs().unwrap() {
-                addresses.push(socket_addr);
-            }
-        }
+    pub fn new(addresses: Vec<SocketAddr>) -> Constant {
         Constant {
             addresses: addresses,
             current_index: 0,
@@ -48,10 +42,7 @@ impl Discovery for Constant {
         if self.current_index >= self.addresses.len() {
             self.current_index = 0;
         }
-        match result {
-            None => None,
-            Some(result) => Some(*result),
-        }
+        result.map(|address| *address)
     }
 
 }

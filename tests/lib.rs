@@ -15,6 +15,7 @@
 
 extern crate delix;
 
+use std::net::SocketAddr;
 use std::thread::sleep_ms;
 
 use delix::discovery::Constant;
@@ -23,13 +24,13 @@ use delix::transport::Direct;
 
 #[test]
 fn discovery_with_two_nodes() {
-    let discovery_one = Box::new(Constant::new(&[] as &[&str]));
-    let transport_one = Box::new(Direct::new("127.0.0.1:3001"));
-    let node_one = Node::new("127.0.0.1:3001", discovery_one, transport_one).unwrap();
+    let discovery_one = Box::new(Constant::new(vec![]));
+    let transport_one = Box::new(Direct::new("127.0.0.1:3001".parse::<SocketAddr>().unwrap(), None));
+    let node_one = Node::new(discovery_one, transport_one).unwrap();
 
-    let discovery_two = Box::new(Constant::new(&["127.0.0.1:3001"]));
-    let transport_two = Box::new(Direct::new("127.0.0.1:3002"));
-    let node_two = Node::new("127.0.0.1:3002", discovery_two, transport_two).unwrap();
+    let discovery_two = Box::new(Constant::new(vec!["127.0.0.1:3001".parse::<SocketAddr>().unwrap()]));
+    let transport_two = Box::new(Direct::new("127.0.0.1:3002".parse::<SocketAddr>().unwrap(), None));
+    let node_two = Node::new(discovery_two, transport_two).unwrap();
 
     sleep_ms(100);
 
@@ -42,17 +43,17 @@ fn discovery_with_two_nodes() {
 
 #[test]
 fn discovery_with_three_nodes() {
-    let discovery_one = Box::new(Constant::new(&[] as &[&str]));
-    let transport_one = Box::new(Direct::new("127.0.0.1:3011"));
-    let node_one = Node::new("127.0.0.1:3011", discovery_one, transport_one).unwrap();
+    let discovery_one = Box::new(Constant::new(vec![]));
+    let transport_one = Box::new(Direct::new("127.0.0.1:3011".parse::<SocketAddr>().unwrap(), None));
+    let node_one = Node::new(discovery_one, transport_one).unwrap();
 
-    let discovery_two = Box::new(Constant::new(&["127.0.0.1:3011"]));
-    let transport_two = Box::new(Direct::new("127.0.0.1:3012"));
-    let node_two = Node::new("127.0.0.1:3012", discovery_two, transport_two).unwrap();
+    let discovery_two = Box::new(Constant::new(vec!["127.0.0.1:3011".parse::<SocketAddr>().unwrap()]));
+    let transport_two = Box::new(Direct::new("127.0.0.1:3012".parse::<SocketAddr>().unwrap(), None));
+    let node_two = Node::new(discovery_two, transport_two).unwrap();
 
-    let discovery_three = Box::new(Constant::new(&["127.0.0.1:3011"]));
-    let transport_three = Box::new(Direct::new("127.0.0.1:3013"));
-    let node_three = Node::new("127.0.0.1:3013", discovery_three, transport_three).unwrap();
+    let discovery_three = Box::new(Constant::new(vec!["127.0.0.1:3011".parse::<SocketAddr>().unwrap()]));
+    let transport_three = Box::new(Direct::new("127.0.0.1:3013".parse::<SocketAddr>().unwrap(), None));
+    let node_three = Node::new(discovery_three, transport_three).unwrap();
 
     sleep_ms(100);
 

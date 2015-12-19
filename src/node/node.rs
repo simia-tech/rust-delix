@@ -15,7 +15,6 @@
 
 use std::fmt;
 use std::io;
-use std::net::ToSocketAddrs;
 use std::result;
 use std::sync::{Arc, Mutex};
 use std::thread::{JoinHandle, spawn, sleep_ms};
@@ -41,16 +40,10 @@ pub enum Error {
 }
 
 impl Node {
-    pub fn new<A: ToSocketAddrs>(a: A, d: Box<Discovery>, t: Box<Transport>) -> Result<Node> {
-        let mut socket_addrs = try!(a.to_socket_addrs());
-        let address = match socket_addrs.next() {
-            Some(s) => s,
-            None => return Err(Error::NoSocketAddr),
-        };
-
+    pub fn new(d: Box<Discovery>, t: Box<Transport>) -> Result<Node> {
         let node_id = ID::new_random();
 
-        try!(t.bind(address, node_id));
+        try!(t.bind(node_id));
 
         let discovery = Arc::new(Mutex::new(d));
         let transport = Arc::new(Mutex::new(t));
@@ -59,16 +52,12 @@ impl Node {
         let transport_mutex = transport.clone();
 
         let thread = spawn(move || {
-            let mut discovery = discovery_mutex.lock().unwrap();
-            let mut transport = transport_mutex.lock().unwrap();
-
-            while transport.connection_count() == 0 {
-                match discovery.discover() {
+            while transport_mutex.lock().unwrap().connection_count() == 0 {
+                match discovery_mutex.lock().unwrap().discover() {
                     Some(address) => {
-                        transport.join(address, node_id).unwrap();
+                        transport_mutex.lock().unwrap().join(address, node_id).unwrap();
                     }
                     None => {
-                        println!("no address discovered - sleep 2s");
                         sleep_ms(2000);
                     }
                 }
@@ -80,6 +69,10 @@ impl Node {
             transport: transport,
             thread: Some(thread),
         })
+    }
+
+    pub fn id(&self) -> ID {
+        self.id
     }
 
     pub fn state(&self) -> State {
