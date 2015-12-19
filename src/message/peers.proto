@@ -1,0 +1,9 @@
+package message;
+
+import "peer.proto";
+
+// Peers is the packet that is send to tell a node about other nodes in the
+// network.
+message Peers {
+  repeated Peer peers = 1;
+}

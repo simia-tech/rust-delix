@@ -2,4 +2,5 @@ package message;
 
 enum Kind {
   IntroductionMessage = 1;
+  PeersMessage = 2;
 }

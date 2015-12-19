@@ -1,0 +1,7 @@
+package message;
+
+// Peer contains the connect info about a node.
+message Peer {
+  optional bytes id = 1;
+  optional string public_address = 2;
+}

@@ -4,4 +4,5 @@ package message;
 // other nodes. The only property is the sending node's id.
 message Introduction {
   optional bytes id = 1;
+  optional string public_address = 2;
 }
