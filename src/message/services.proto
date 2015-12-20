@@ -1,0 +1,8 @@
+package message;
+
+import "service.proto";
+
+// Services is the packet that is send to tell a node about services.
+message Services {
+  repeated Service services = 1;
+}

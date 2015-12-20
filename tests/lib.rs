@@ -24,6 +24,7 @@ use delix::node::State;
 use helper::{assert_node, build_node};
 
 #[test]
+#[ignore]
 fn discovery_with_two_nodes() {
     let node_one = build_node("127.0.0.1:3001", &[]);
     let node_two = build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
@@ -35,6 +36,7 @@ fn discovery_with_two_nodes() {
 }
 
 #[test]
+#[ignore]
 fn discovery_with_three_nodes() {
     let node_one = build_node("127.0.0.1:3011", &[]);
     let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
@@ -45,4 +47,62 @@ fn discovery_with_three_nodes() {
     assert_node(&node_one, State::Joined, 2);
     assert_node(&node_two, State::Joined, 2);
     assert_node(&node_three, State::Joined, 2);
+}
+
+#[test]
+#[ignore]
+fn services_distribution_over_incoming_connection() {
+    let mut node_one = build_node("127.0.0.1:3021", &[]);
+    node_one.register_service("echo", Box::new(|request| {
+        request
+    })).unwrap();
+
+    let node_two = build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
+
+    sleep_ms(1000);
+
+    assert_node(&node_one, State::Joined, 1);
+    assert_node(&node_two, State::Joined, 1);
+
+    assert_eq!(1, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
+}
+
+#[test]
+#[ignore]
+fn services_distribution_over_outgoing_connection() {
+    let node_one = build_node("127.0.0.1:3031", &[]);
+
+    let mut node_two = build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
+    node_two.register_service("echo", Box::new(|request| {
+        request
+    })).unwrap();
+
+    sleep_ms(1000);
+
+    assert_node(&node_one, State::Joined, 1);
+    assert_node(&node_two, State::Joined, 1);
+
+    assert_eq!(1, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
+}
+
+#[test]
+fn services_distribution_in_joined_network() {
+    let mut node_one = build_node("127.0.0.1:3031", &[]);
+    let node_two = build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
+
+    sleep_ms(1000);
+
+    assert_node(&node_one, State::Joined, 1);
+    assert_node(&node_two, State::Joined, 1);
+
+    node_one.register_service("echo", Box::new(|request| {
+        request
+    })).unwrap();
+
+    sleep_ms(200);
+
+    assert_eq!(1, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
 }

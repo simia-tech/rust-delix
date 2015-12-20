@@ -13,30 +13,4 @@
 // limitations under the License.
 //
 
-use std::net::SocketAddr;
-use std::io;
-use std::result;
-
-use node::{ID, Service};
-
-pub trait Transport : Send {
-    fn bind(&self, ID) -> Result<()>;
-    fn join(&mut self, SocketAddr, ID) -> Result<()>;
-    fn connection_count(&self) -> usize;
-    fn register_service(&mut self, &str, Box<Service>) -> Result<()>;
-    fn service_count(&self) -> usize;
-}
-
-pub type Result<T> = result::Result<T, Error>;
-
-#[derive(Debug)]
-pub enum Error {
-    ServiceAlreadyRegistered,
-    IO(io::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Error::IO(error)
-    }
-}
+pub type Service = Fn(Vec<u8>) -> Vec<u8> + Send;

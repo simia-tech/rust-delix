@@ -22,7 +22,7 @@ use std::thread::{JoinHandle, spawn};
 use protobuf::Message as Message_imported_for_functions;
 use protobuf::error::ProtobufError;
 use protobuf::{parse_from_reader, parse_from_bytes};
-use message::{Container, Kind, Introduction, Peers, Peer};
+use message::{Container, Kind, Introduction, Peers, Peer, Services, Service};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use node::ID;
@@ -38,6 +38,7 @@ pub struct Connection {
     peer_public_address: Option<SocketAddr>,
 
     on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>>,
+    on_services: Arc<Mutex<Option<Box<Fn(Vec<String>) + Send>>>>,
 }
 
 impl Connection {
@@ -48,15 +49,20 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_peers_mutex = on_peers.clone();
 
+        let on_services: Arc<Mutex<Option<Box<Fn(Vec<String>) + Send>>>> =
+            Arc::new(Mutex::new(None));
+        let on_services_mutex = on_services.clone();
+
         let (peer_node_id_sender, peer_node_id_receiver) = mpsc::channel();
         let (peer_public_address_sender, peer_public_address_receiver) = mpsc::channel();
         let thread = spawn(move || {
             write_introduction(&mut stream, node_id, public_address).unwrap();
             // println!("send introduction {}", node_id);
 
-            let mut introduction = read_introduction(&mut stream).unwrap();
-            let peer_node_id = ID::new(introduction.take_id()).unwrap();
-            let peer_public_address = introduction.take_public_address()
+            let container = read_container(&mut stream).unwrap();
+            let introduction = read_introduction(&container).unwrap();
+            let peer_node_id = ID::new(introduction.get_id().to_vec()).unwrap();
+            let peer_public_address = introduction.get_public_address()
                                                   .parse::<SocketAddr>()
                                                   .unwrap();
             // println!("got introduction {} {}", peer_node_id, peer_public_address);
@@ -65,22 +71,32 @@ impl Connection {
             peer_public_address_sender.send(peer_public_address).unwrap();
 
             loop {
-                let mut container = read_container(&mut stream).unwrap();
+                let container = read_container(&mut stream).unwrap();
                 match container.get_kind() {
                     Kind::PeersMessage => {
-                        let mut peers_packet = read_peers(&mut container).unwrap();
-                        let mut peers = Vec::new();
-                        for peer_packet in peers_packet.mut_peers().iter_mut() {
-                            let peer_node_id = ID::new(peer_packet.take_id()).unwrap();
-                            let peer_public_address = peer_packet.take_public_address()
-                                                                 .parse::<SocketAddr>()
-                                                                 .unwrap();
-
-                            peers.push((peer_node_id, peer_public_address));
-                        }
-
                         if let Some(ref f) = *on_peers_mutex.lock().unwrap() {
-                            f(peers);
+                            let peers_packet = read_peers(&container).unwrap();
+                            f(peers_packet.get_peers()
+                                          .iter()
+                                          .map(|peer_packet| {
+                                              (ID::new(peer_packet.get_id().to_vec()).unwrap(),
+                                               peer_packet.get_public_address()
+                                                          .parse::<SocketAddr>()
+                                                          .unwrap())
+                                          })
+                                          .collect());
+                        }
+                    }
+                    Kind::ServicesMessage => {
+                        if let Some(ref f) = *on_services_mutex.lock().unwrap() {
+                            let services_packet = read_services(&container).unwrap();
+                            f(services_packet.get_services()
+                                             .to_vec()
+                                             .iter()
+                                             .map(|service_packet| {
+                                                 service_packet.get_name().to_string()
+                                             })
+                                             .collect());
                         }
                     }
                     _ => {
@@ -98,6 +114,7 @@ impl Connection {
             peer_public_address_receiver: peer_public_address_receiver,
             peer_public_address: None,
             on_peers: on_peers,
+            on_services: on_services,
         }
     }
 
@@ -140,6 +157,18 @@ impl Connection {
     pub fn set_on_peers(&mut self, f: Box<Fn(Vec<(ID, SocketAddr)>) + Send>) {
         *self.on_peers.lock().unwrap() = Some(f);
     }
+
+    pub fn send_services(&mut self, service_names: &[&str]) {
+        // Process peer node id first before sending peers. This ensures, that
+        // that the introduction sequence has been finished.
+        self.peer_node_id();
+
+        write_services(&mut self.stream, service_names).unwrap();
+    }
+
+    pub fn set_on_services(&mut self, f: Box<Fn(Vec<String>) + Send>) {
+        *self.on_services.lock().unwrap() = Some(f);
+    }
 }
 
 impl fmt::Display for Connection {
@@ -180,6 +209,18 @@ fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<(), Protobuf
     write_container(w, Kind::PeersMessage, buffer)
 }
 
+fn write_services(w: &mut Write, service_names: &[&str]) -> Result<(), ProtobufError> {
+    let mut buffer = Vec::new();
+    let mut services_packet = Services::new();
+    for service_name in service_names {
+        let mut service_packet = Service::new();
+        service_packet.set_name((*service_name).to_string());
+        services_packet.mut_services().push(service_packet);
+    }
+    try!(services_packet.write_to_vec(&mut buffer));
+    write_container(w, Kind::ServicesMessage, buffer)
+}
+
 fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<(), ProtobufError> {
     let mut container = Container::new();
     container.set_kind(kind);
@@ -195,14 +236,16 @@ fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<(), Proto
     Ok(())
 }
 
-fn read_introduction(r: &mut Read) -> Result<Introduction, ProtobufError> {
-    let mut container = try!(read_container(r));
-    let mut payload_cursor = Cursor::new(container.take_payload());
-    parse_from_reader::<Introduction>(&mut payload_cursor)
+fn read_introduction(container: &Container) -> Result<Introduction, ProtobufError> {
+    parse_from_reader::<Introduction>(&mut Cursor::new(container.get_payload()))
 }
 
-fn read_peers(container: &mut Container) -> Result<Peers, ProtobufError> {
-    parse_from_reader::<Peers>(&mut Cursor::new(container.take_payload()))
+fn read_peers(container: &Container) -> Result<Peers, ProtobufError> {
+    parse_from_reader::<Peers>(&mut Cursor::new(container.get_payload()))
+}
+
+fn read_services(container: &Container) -> Result<Services, ProtobufError> {
+    parse_from_reader::<Services>(&mut Cursor::new(container.get_payload()))
 }
 
 fn read_container(r: &mut Read) -> Result<Container, ProtobufError> {

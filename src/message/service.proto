@@ -1,0 +1,6 @@
+package message;
+
+// Service contains the info about a service.
+message Service {
+  optional string name = 1;
+}
