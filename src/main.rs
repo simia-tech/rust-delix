@@ -13,24 +13,28 @@
 // limitations under the License.
 //
 
+#[cfg(not(test))]
 extern crate delix;
 
+#[cfg(not(test))]
 extern crate getopts;
+#[cfg(not(test))]
+extern crate ctrlc;
+#[cfg(not(test))]
 extern crate toml;
 
+#[cfg(not(test))]
 mod arguments;
+#[cfg(not(test))]
 mod configuration;
+#[cfg(not(test))]
 mod loader;
-
-use std::thread::sleep_ms;
-
-use arguments::Arguments;
-use configuration::Configuration;
-use loader::Loader;
+#[cfg(not(test))]
+mod signal;
 
 #[cfg(not(test))]
 fn main() {
-    let arguments = match Arguments::parse() {
+    let arguments = match ::arguments::Arguments::parse() {
         Ok(arguments) => arguments,
         Err(err) => {
             println!("error while parsing arguments: {:?}", err);
@@ -38,7 +42,7 @@ fn main() {
         },
     };
 
-    let configuration = match Configuration::read_file(&arguments.configuration_path) {
+    let configuration = match ::configuration::Configuration::read_file(&arguments.configuration_path) {
         Ok(configuration) => configuration,
         Err(err) => {
             println!("error while reading configuration: {:?}", err);
@@ -46,7 +50,7 @@ fn main() {
         },
     };
 
-    let node = match Loader::load_node(&configuration) {
+    let node = match ::loader::Loader::load_node(&configuration) {
         Ok(node) => node,
         Err(err) => {
             println!("error while loading node: {:?}", err);
@@ -56,8 +60,9 @@ fn main() {
 
     println!("delix node {} loaded", node.id());
 
-    loop {
-        println!("state {:?}", node.state());
-        sleep_ms(2000);
+    let trap = ::signal::Trap::new();
+    while !trap.ctrlc() {
+        println!("state {}", node);
+        ::std::thread::sleep_ms(1000);
     }
 }

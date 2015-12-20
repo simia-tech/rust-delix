@@ -17,6 +17,7 @@ use std::fmt;
 use std::io;
 use std::result;
 use std::sync::{Arc, Mutex};
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{JoinHandle, spawn, sleep_ms};
 
 use discovery::Discovery;
@@ -28,6 +29,7 @@ pub struct Node {
     id: ID,
     transport: Arc<Mutex<Box<Transport>>>,
     thread: Option<JoinHandle<()>>,
+    running: Arc<AtomicBool>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -45,6 +47,9 @@ impl Node {
 
         try!(t.bind(node_id));
 
+        let running = Arc::new(AtomicBool::new(true));
+        let running_clone = running.clone();
+
         let discovery = Arc::new(Mutex::new(d));
         let transport = Arc::new(Mutex::new(t));
 
@@ -52,13 +57,18 @@ impl Node {
         let transport_mutex = transport.clone();
 
         let thread = spawn(move || {
-            while transport_mutex.lock().unwrap().connection_count() == 0 {
+            while running_clone.load(Ordering::SeqCst) &&
+                  transport_mutex.lock().unwrap().connection_count() == 0 {
                 match discovery_mutex.lock().unwrap().discover() {
                     Some(address) => {
-                        transport_mutex.lock().unwrap().join(address, node_id).unwrap();
+                        if let Err(err) = transport_mutex.lock().unwrap().join(address, node_id) {
+                            println!("{}: failed to connect to {}: {:?}", node_id, address, err);
+                        }
+                        sleep_ms(2000);
                     }
                     None => {
-                        sleep_ms(2000);
+                        println!("nothing to discover");
+                        break;
                     }
                 }
             }
@@ -68,6 +78,7 @@ impl Node {
             id: node_id,
             transport: transport,
             thread: Some(thread),
+            running: running,
         })
     }
 
@@ -100,6 +111,7 @@ impl fmt::Display for Node {
 
 impl Drop for Node {
     fn drop(&mut self) {
+        self.running.store(false, Ordering::SeqCst);
         self.thread.take().unwrap().join().unwrap();
     }
 }

@@ -21,7 +21,6 @@ use std::result;
 use getopts;
 
 pub struct Arguments {
-    pub program: String,
     pub configuration_path: String,
 }
 
@@ -60,10 +59,7 @@ impl Arguments {
             default_configuration_path
         };
 
-        Ok(Arguments {
-            program: program,
-            configuration_path: configuration_path,
-        })
+        Ok(Arguments { configuration_path: configuration_path })
     }
 }
 

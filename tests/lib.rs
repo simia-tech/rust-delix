@@ -25,14 +25,18 @@ use delix::transport::Direct;
 #[test]
 fn discovery_with_two_nodes() {
     let discovery_one = Box::new(Constant::new(vec![]));
-    let transport_one = Box::new(Direct::new("127.0.0.1:3001".parse::<SocketAddr>().unwrap(), None));
+    let transport_one = Box::new(Direct::new("127.0.0.1:3001".parse::<SocketAddr>().unwrap(),
+                                             None));
     let node_one = Node::new(discovery_one, transport_one).unwrap();
 
-    let discovery_two = Box::new(Constant::new(vec!["127.0.0.1:3001".parse::<SocketAddr>().unwrap()]));
-    let transport_two = Box::new(Direct::new("127.0.0.1:3002".parse::<SocketAddr>().unwrap(), None));
+    let discovery_two = Box::new(Constant::new(vec!["127.0.0.1:3001"
+                                                        .parse::<SocketAddr>()
+                                                        .unwrap()]));
+    let transport_two = Box::new(Direct::new("127.0.0.1:3002".parse::<SocketAddr>().unwrap(),
+                                             None));
     let node_two = Node::new(discovery_two, transport_two).unwrap();
 
-    sleep_ms(100);
+    sleep_ms(1000);
 
     assert_eq!(State::Joined, node_one.state());
     assert_eq!(1, node_one.connection_count());
@@ -44,18 +48,25 @@ fn discovery_with_two_nodes() {
 #[test]
 fn discovery_with_three_nodes() {
     let discovery_one = Box::new(Constant::new(vec![]));
-    let transport_one = Box::new(Direct::new("127.0.0.1:3011".parse::<SocketAddr>().unwrap(), None));
+    let transport_one = Box::new(Direct::new("127.0.0.1:3011".parse::<SocketAddr>().unwrap(),
+                                             None));
     let node_one = Node::new(discovery_one, transport_one).unwrap();
 
-    let discovery_two = Box::new(Constant::new(vec!["127.0.0.1:3011".parse::<SocketAddr>().unwrap()]));
-    let transport_two = Box::new(Direct::new("127.0.0.1:3012".parse::<SocketAddr>().unwrap(), None));
+    let discovery_two = Box::new(Constant::new(vec!["127.0.0.1:3011"
+                                                        .parse::<SocketAddr>()
+                                                        .unwrap()]));
+    let transport_two = Box::new(Direct::new("127.0.0.1:3012".parse::<SocketAddr>().unwrap(),
+                                             None));
     let node_two = Node::new(discovery_two, transport_two).unwrap();
 
-    let discovery_three = Box::new(Constant::new(vec!["127.0.0.1:3011".parse::<SocketAddr>().unwrap()]));
-    let transport_three = Box::new(Direct::new("127.0.0.1:3013".parse::<SocketAddr>().unwrap(), None));
+    let discovery_three = Box::new(Constant::new(vec!["127.0.0.1:3011"
+                                                          .parse::<SocketAddr>()
+                                                          .unwrap()]));
+    let transport_three = Box::new(Direct::new("127.0.0.1:3013".parse::<SocketAddr>().unwrap(),
+                                               None));
     let node_three = Node::new(discovery_three, transport_three).unwrap();
 
-    sleep_ms(100);
+    sleep_ms(1000);
 
     assert_eq!(State::Joined, node_one.state());
     assert_eq!(2, node_one.connection_count());
