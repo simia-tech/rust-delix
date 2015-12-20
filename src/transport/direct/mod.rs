@@ -16,6 +16,9 @@ limitations under the License.
 
 mod connection;
 mod direct;
+mod service_map;
 
 pub use transport::direct::connection::Connection;
 pub use transport::direct::direct::Direct;
+pub use transport::direct::service_map::ServiceMap;
+pub use transport::direct::service_map::Error as ServiceMapError;

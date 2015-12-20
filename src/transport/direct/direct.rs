@@ -18,8 +18,8 @@ use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::spawn;
 
-use transport::{Error, Result, Transport};
-use transport::direct::Connection;
+use transport::{Result, Transport};
+use transport::direct::{Connection, ServiceMap};
 
 use node::{ID, ServiceHandler};
 
@@ -27,7 +27,7 @@ pub struct Direct {
     local_address: SocketAddr,
     public_address: SocketAddr,
     connections: Arc<Mutex<HashMap<ID, Connection>>>,
-    services: Arc<Mutex<HashMap<String, Box<ServiceHandler>>>>,
+    services: Arc<Mutex<ServiceMap>>,
 }
 
 impl Direct {
@@ -36,7 +36,7 @@ impl Direct {
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(Mutex::new(HashMap::new())),
-            services: Arc::new(Mutex::new(HashMap::new())),
+            services: Arc::new(Mutex::new(ServiceMap::new())),
         }
     }
 }
@@ -54,20 +54,23 @@ impl Transport for Direct {
                 let stream = stream.unwrap();
                 let mut connection = Connection::new(stream, node_id, public_address);
 
+                let peer_node_id = connection.peer_node_id();
                 let services_clone_clone = services_clone.clone();
                 connection.set_on_services(Box::new(move |services| {
                     println!("{}: received {} services", node_id, services.len());
                     for service in services {
                         services_clone_clone.lock()
                                             .unwrap()
-                                            .insert(service, Box::new(|request| request));
+                                            .insert_remote(&service, peer_node_id)
+                                            .unwrap();
                     }
                 }));
 
                 connection.send_peers(&connection_pairs(&mut *connections_clone.lock().unwrap()))
                           .unwrap();
 
-                connection.send_services(&service_names(&*services_clone.lock().unwrap())).unwrap();
+                connection.send_services(&services_clone.lock().unwrap().local_service_names())
+                          .unwrap();
 
                 println!("{}: inbound connection {}", node_id, connection);
                 connections_clone.lock().unwrap().insert(connection.peer_node_id(), connection);
@@ -106,11 +109,17 @@ impl Transport for Direct {
                 connection.set_on_services(Box::new(move |services| {
                     println!("{}: received {} services", node_id, services.len());
                     for service in services {
-                        services_clone.lock().unwrap().insert(service, Box::new(|request| request));
+                        services_clone.lock()
+                                      .unwrap()
+                                      .insert_remote(&service, peer_node_id)
+                                      .unwrap();
                     }
                 }));
 
-                try!(connection.send_services(&service_names(&*self.services.lock().unwrap())));
+                try!(connection.send_services(&self.services
+                                                   .lock()
+                                                   .unwrap()
+                                                   .local_service_names()));
 
                 println!("{}: outbound connection {}", node_id, connection);
                 self.connections.lock().unwrap().insert(connection.peer_node_id(), connection);
@@ -127,13 +136,10 @@ impl Transport for Direct {
     }
 
     fn register_service(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
-        if self.services.lock().unwrap().contains_key(name) {
-            return Err(Error::ServiceAlreadyRegistered);
-        }
-        self.services.lock().unwrap().insert(name.to_string(), f);
+        try!(self.services.lock().unwrap().insert_local(name, f));
 
         for (_, connection) in self.connections.lock().unwrap().iter_mut() {
-            try!(connection.send_services(&service_names(&*self.services.lock().unwrap())));
+            try!(connection.send_services(&self.services.lock().unwrap().local_service_names()));
         }
 
         Ok(())
@@ -150,8 +156,4 @@ fn connection_pairs(connections: &mut HashMap<ID, Connection>) -> Vec<(ID, Socke
                    (*peer_node_id, peer_connection.peer_public_address())
                })
                .collect::<Vec<(ID, SocketAddr)>>()
-}
-
-fn service_names(services: &HashMap<String, Box<ServiceHandler>>) -> Vec<&str> {
-    services.keys().map(|k| k.as_ref()).collect::<Vec<&str>>()
 }

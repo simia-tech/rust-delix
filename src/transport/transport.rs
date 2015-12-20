@@ -20,6 +20,7 @@ use std::result;
 use protobuf::error::ProtobufError;
 
 use node::{ID, ServiceHandler};
+use transport::direct::ServiceMapError;
 
 pub trait Transport : Send {
     fn bind(&self, ID) -> Result<()>;
@@ -33,9 +34,9 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
-    ServiceAlreadyRegistered,
     IO(io::Error),
     ProtobufError(ProtobufError),
+    ServiceMapError(ServiceMapError),
 }
 
 impl From<io::Error> for Error {
@@ -47,5 +48,11 @@ impl From<io::Error> for Error {
 impl From<ProtobufError> for Error {
     fn from(error: ProtobufError) -> Self {
         Error::ProtobufError(error)
+    }
+}
+
+impl From<ServiceMapError> for Error {
+    fn from(error: ServiceMapError) -> Self {
+        Error::ServiceMapError(error)
     }
 }
