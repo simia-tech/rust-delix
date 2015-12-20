@@ -24,7 +24,6 @@ use delix::node::State;
 use helper::{assert_node, build_node};
 
 #[test]
-#[ignore]
 fn discovery_with_two_nodes() {
     let node_one = build_node("127.0.0.1:3001", &[]);
     let node_two = build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
@@ -36,7 +35,6 @@ fn discovery_with_two_nodes() {
 }
 
 #[test]
-#[ignore]
 fn discovery_with_three_nodes() {
     let node_one = build_node("127.0.0.1:3011", &[]);
     let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
@@ -50,7 +48,6 @@ fn discovery_with_three_nodes() {
 }
 
 #[test]
-#[ignore]
 fn services_distribution_over_incoming_connection() {
     let mut node_one = build_node("127.0.0.1:3021", &[]);
     node_one.register_service("echo", Box::new(|request| {
@@ -69,7 +66,6 @@ fn services_distribution_over_incoming_connection() {
 }
 
 #[test]
-#[ignore]
 fn services_distribution_over_outgoing_connection() {
     let node_one = build_node("127.0.0.1:3031", &[]);
 
@@ -89,8 +85,8 @@ fn services_distribution_over_outgoing_connection() {
 
 #[test]
 fn services_distribution_in_joined_network() {
-    let mut node_one = build_node("127.0.0.1:3031", &[]);
-    let node_two = build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
+    let mut node_one = build_node("127.0.0.1:3041", &[]);
+    let node_two = build_node("127.0.0.1:3042", &["127.0.0.1:3041"]);
 
     sleep_ms(1000);
 

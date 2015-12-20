@@ -20,12 +20,12 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{JoinHandle, spawn};
 
 use protobuf::Message as Message_imported_for_functions;
-use protobuf::error::ProtobufError;
 use protobuf::{parse_from_reader, parse_from_bytes};
 use message::{Container, Kind, Introduction, Peers, Peer, Services, Service};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
 
 use node::ID;
+use transport::Result;
 
 pub struct Connection {
     stream: TcpStream,
@@ -146,24 +146,26 @@ impl Connection {
         self.stream.local_addr().unwrap()
     }
 
-    pub fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) {
+    pub fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
         // Process peer node id first before sending peers. This ensures, that
         // that the introduction sequence has been finished.
         self.peer_node_id();
 
-        write_peers(&mut self.stream, peers).unwrap();
+        try!(write_peers(&mut self.stream, peers));
+        Ok(())
     }
 
     pub fn set_on_peers(&mut self, f: Box<Fn(Vec<(ID, SocketAddr)>) + Send>) {
         *self.on_peers.lock().unwrap() = Some(f);
     }
 
-    pub fn send_services(&mut self, service_names: &[&str]) {
+    pub fn send_services(&mut self, service_names: &[&str]) -> Result<()> {
         // Process peer node id first before sending peers. This ensures, that
         // that the introduction sequence has been finished.
         self.peer_node_id();
 
-        write_services(&mut self.stream, service_names).unwrap();
+        try!(write_services(&mut self.stream, service_names));
+        Ok(())
     }
 
     pub fn set_on_services(&mut self, f: Box<Fn(Vec<String>) + Send>) {
@@ -183,10 +185,7 @@ impl Drop for Connection {
     }
 }
 
-fn write_introduction(w: &mut Write,
-                      node_id: ID,
-                      public_address: SocketAddr)
-                      -> Result<(), ProtobufError> {
+fn write_introduction(w: &mut Write, node_id: ID, public_address: SocketAddr) -> Result<()> {
     let mut buffer = Vec::new();
     let mut introduction = Introduction::new();
     introduction.set_id(node_id.to_vec());
@@ -195,7 +194,7 @@ fn write_introduction(w: &mut Write,
     write_container(w, Kind::IntroductionMessage, buffer)
 }
 
-fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<(), ProtobufError> {
+fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut peers_packet = Peers::new();
     for peer in peers {
@@ -209,7 +208,7 @@ fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<(), Protobuf
     write_container(w, Kind::PeersMessage, buffer)
 }
 
-fn write_services(w: &mut Write, service_names: &[&str]) -> Result<(), ProtobufError> {
+fn write_services(w: &mut Write, service_names: &[&str]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut services_packet = Services::new();
     for service_name in service_names {
@@ -221,7 +220,7 @@ fn write_services(w: &mut Write, service_names: &[&str]) -> Result<(), ProtobufE
     write_container(w, Kind::ServicesMessage, buffer)
 }
 
-fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<(), ProtobufError> {
+fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<()> {
     let mut container = Container::new();
     container.set_kind(kind);
     container.set_payload(data);
@@ -236,19 +235,19 @@ fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<(), Proto
     Ok(())
 }
 
-fn read_introduction(container: &Container) -> Result<Introduction, ProtobufError> {
-    parse_from_reader::<Introduction>(&mut Cursor::new(container.get_payload()))
+fn read_introduction(container: &Container) -> Result<Introduction> {
+    Ok(try!(parse_from_reader::<Introduction>(&mut Cursor::new(container.get_payload()))))
 }
 
-fn read_peers(container: &Container) -> Result<Peers, ProtobufError> {
-    parse_from_reader::<Peers>(&mut Cursor::new(container.get_payload()))
+fn read_peers(container: &Container) -> Result<Peers> {
+    Ok(try!(parse_from_reader::<Peers>(&mut Cursor::new(container.get_payload()))))
 }
 
-fn read_services(container: &Container) -> Result<Services, ProtobufError> {
-    parse_from_reader::<Services>(&mut Cursor::new(container.get_payload()))
+fn read_services(container: &Container) -> Result<Services> {
+    Ok(try!(parse_from_reader::<Services>(&mut Cursor::new(container.get_payload()))))
 }
 
-fn read_container(r: &mut Read) -> Result<Container, ProtobufError> {
+fn read_container(r: &mut Read) -> Result<Container> {
     let container_size = r.read_u64::<BigEndian>().unwrap() as usize;
 
     let mut buffer = Vec::with_capacity(container_size);
@@ -257,5 +256,5 @@ fn read_container(r: &mut Read) -> Result<Container, ProtobufError> {
     }
     r.read(&mut buffer).unwrap();
 
-    parse_from_bytes::<Container>(&buffer)
+    Ok(try!(parse_from_bytes::<Container>(&buffer)))
 }

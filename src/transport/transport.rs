@@ -17,13 +17,15 @@ use std::net::SocketAddr;
 use std::io;
 use std::result;
 
-use node::{ID, Service};
+use protobuf::error::ProtobufError;
+
+use node::{ID, ServiceHandler};
 
 pub trait Transport : Send {
     fn bind(&self, ID) -> Result<()>;
     fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
-    fn register_service(&mut self, &str, Box<Service>) -> Result<()>;
+    fn register_service(&mut self, &str, Box<ServiceHandler>) -> Result<()>;
     fn service_count(&self) -> usize;
 }
 
@@ -33,10 +35,17 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     ServiceAlreadyRegistered,
     IO(io::Error),
+    ProtobufError(ProtobufError),
 }
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::IO(error)
+    }
+}
+
+impl From<ProtobufError> for Error {
+    fn from(error: ProtobufError) -> Self {
+        Error::ProtobufError(error)
     }
 }

@@ -21,7 +21,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread::{JoinHandle, spawn, sleep_ms};
 
 use discovery::Discovery;
-use node::{ID, Service, State};
+use node::{ID, ServiceHandler, State};
 use transport;
 use transport::Transport;
 
@@ -98,7 +98,7 @@ impl Node {
         self.transport.lock().unwrap().connection_count()
     }
 
-    pub fn register_service(&mut self, name: &str, f: Box<Service>) -> Result<()> {
+    pub fn register_service(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
         try!(self.transport.lock().unwrap().register_service(name, f));
         Ok(())
     }

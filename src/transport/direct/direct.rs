@@ -21,13 +21,13 @@ use std::thread::spawn;
 use transport::{Error, Result, Transport};
 use transport::direct::Connection;
 
-use node::{ID, Service};
+use node::{ID, ServiceHandler};
 
 pub struct Direct {
     local_address: SocketAddr,
     public_address: SocketAddr,
     connections: Arc<Mutex<HashMap<ID, Connection>>>,
-    services: Arc<Mutex<HashMap<String, Box<Service>>>>,
+    services: Arc<Mutex<HashMap<String, Box<ServiceHandler>>>>,
 }
 
 impl Direct {
@@ -64,9 +64,10 @@ impl Transport for Direct {
                     }
                 }));
 
-                connection.send_peers(&connection_pairs(&mut *connections_clone.lock().unwrap()));
+                connection.send_peers(&connection_pairs(&mut *connections_clone.lock().unwrap()))
+                          .unwrap();
 
-                connection.send_services(&service_names(&*services_clone.lock().unwrap()));
+                connection.send_services(&service_names(&*services_clone.lock().unwrap())).unwrap();
 
                 println!("{}: inbound connection {}", node_id, connection);
                 connections_clone.lock().unwrap().insert(connection.peer_node_id(), connection);
@@ -109,7 +110,7 @@ impl Transport for Direct {
                     }
                 }));
 
-                connection.send_services(&service_names(&*self.services.lock().unwrap()));
+                try!(connection.send_services(&service_names(&*self.services.lock().unwrap())));
 
                 println!("{}: outbound connection {}", node_id, connection);
                 self.connections.lock().unwrap().insert(connection.peer_node_id(), connection);
@@ -125,14 +126,14 @@ impl Transport for Direct {
         self.connections.lock().unwrap().len()
     }
 
-    fn register_service(&mut self, name: &str, f: Box<Service>) -> Result<()> {
+    fn register_service(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
         if self.services.lock().unwrap().contains_key(name) {
             return Err(Error::ServiceAlreadyRegistered);
         }
         self.services.lock().unwrap().insert(name.to_string(), f);
 
         for (_, connection) in self.connections.lock().unwrap().iter_mut() {
-            connection.send_services(&service_names(&*self.services.lock().unwrap()));
+            try!(connection.send_services(&service_names(&*self.services.lock().unwrap())));
         }
 
         Ok(())
@@ -151,6 +152,6 @@ fn connection_pairs(connections: &mut HashMap<ID, Connection>) -> Vec<(ID, Socke
                .collect::<Vec<(ID, SocketAddr)>>()
 }
 
-fn service_names(services: &HashMap<String, Box<Service>>) -> Vec<&str> {
+fn service_names(services: &HashMap<String, Box<ServiceHandler>>) -> Vec<&str> {
     services.keys().map(|k| k.as_ref()).collect::<Vec<&str>>()
 }
