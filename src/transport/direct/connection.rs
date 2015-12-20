@@ -130,7 +130,7 @@ impl Connection {
     }
 
     pub fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) {
-        // WORKAROUND: process peer node id first before sending peers. This ensures, that
+        // Process peer node id first before sending peers. This ensures, that
         // that the introduction sequence has been finished.
         self.peer_node_id();
 
