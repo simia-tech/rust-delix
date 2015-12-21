@@ -31,14 +31,11 @@ pub struct Connection {
     stream: TcpStream,
     thread: Option<JoinHandle<()>>,
 
-    peer_node_id_receiver: mpsc::Receiver<ID>,
-    peer_node_id: Option<ID>,
-
-    peer_public_address_receiver: mpsc::Receiver<SocketAddr>,
-    peer_public_address: Option<SocketAddr>,
+    peer_node_id: ID,
+    peer_public_address: SocketAddr,
 
     on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>>,
-    on_services: Arc<Mutex<Option<Box<Fn(Vec<String>) + Send>>>>,
+    on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
 }
 
 impl Connection {
@@ -47,11 +44,11 @@ impl Connection {
 
         let on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>> =
             Arc::new(Mutex::new(None));
-        let on_peers_mutex = on_peers.clone();
+        let on_peers_clone = on_peers.clone();
 
-        let on_services: Arc<Mutex<Option<Box<Fn(Vec<String>) + Send>>>> =
+        let on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
-        let on_services_mutex = on_services.clone();
+        let on_services_clone = on_services.clone();
 
         let (peer_node_id_sender, peer_node_id_receiver) = mpsc::channel();
         let (peer_public_address_sender, peer_public_address_receiver) = mpsc::channel();
@@ -74,7 +71,7 @@ impl Connection {
                 let container = read_container(&mut stream).unwrap();
                 match container.get_kind() {
                     Kind::PeersMessage => {
-                        if let Some(ref f) = *on_peers_mutex.lock().unwrap() {
+                        if let Some(ref f) = *on_peers_clone.lock().unwrap() {
                             let peers_packet = read_peers(&container).unwrap();
                             f(peers_packet.get_peers()
                                           .iter()
@@ -88,9 +85,10 @@ impl Connection {
                         }
                     }
                     Kind::ServicesMessage => {
-                        if let Some(ref f) = *on_services_mutex.lock().unwrap() {
+                        if let Some(ref f) = *on_services_clone.lock().unwrap() {
                             let services_packet = read_services(&container).unwrap();
-                            f(services_packet.get_services()
+                            f(peer_node_id,
+                              services_packet.get_services()
                                              .to_vec()
                                              .iter()
                                              .map(|service_packet| {
@@ -109,33 +107,19 @@ impl Connection {
         Connection {
             stream: s,
             thread: Some(thread),
-            peer_node_id_receiver: peer_node_id_receiver,
-            peer_node_id: None,
-            peer_public_address_receiver: peer_public_address_receiver,
-            peer_public_address: None,
+            peer_node_id: peer_node_id_receiver.recv().unwrap(),
+            peer_public_address: peer_public_address_receiver.recv().unwrap(),
             on_peers: on_peers,
             on_services: on_services,
         }
     }
 
-    pub fn peer_node_id(&mut self) -> ID {
-        if let Some(node_id) = self.peer_node_id {
-            return node_id;
-        }
-
-        let peer_node_id = self.peer_node_id_receiver.recv().unwrap();
-        self.peer_node_id = Some(peer_node_id);
-        peer_node_id
+    pub fn peer_node_id(&self) -> ID {
+        self.peer_node_id
     }
 
-    pub fn peer_public_address(&mut self) -> SocketAddr {
-        if let Some(public_address) = self.peer_public_address {
-            return public_address;
-        }
-
-        let peer_public_address = self.peer_public_address_receiver.recv().unwrap();
-        self.peer_public_address = Some(peer_public_address);
-        peer_public_address
+    pub fn peer_public_address(&self) -> SocketAddr {
+        self.peer_public_address
     }
 
     pub fn peer_addr(&self) -> SocketAddr {
@@ -147,10 +131,6 @@ impl Connection {
     }
 
     pub fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
-        // Process peer node id first before sending peers. This ensures, that
-        // that the introduction sequence has been finished.
-        self.peer_node_id();
-
         try!(write_peers(&mut self.stream, peers));
         Ok(())
     }
@@ -160,15 +140,11 @@ impl Connection {
     }
 
     pub fn send_services(&mut self, service_names: &[&str]) -> Result<()> {
-        // Process peer node id first before sending peers. This ensures, that
-        // that the introduction sequence has been finished.
-        self.peer_node_id();
-
         try!(write_services(&mut self.stream, service_names));
         Ok(())
     }
 
-    pub fn set_on_services(&mut self, f: Box<Fn(Vec<String>) + Send>) {
+    pub fn set_on_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
         *self.on_services.lock().unwrap() = Some(f);
     }
 }

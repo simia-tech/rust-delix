@@ -13,20 +13,19 @@
 // limitations under the License.
 //
 
-use std::collections::HashMap;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::spawn;
 
 use transport::{Result, Transport};
-use transport::direct::{Connection, ServiceMap};
+use transport::direct::{Connection, ConnectionMap, ServiceMap};
 
 use node::{ID, ServiceHandler};
 
 pub struct Direct {
     local_address: SocketAddr,
     public_address: SocketAddr,
-    connections: Arc<Mutex<HashMap<ID, Connection>>>,
+    connections: Arc<Mutex<ConnectionMap>>,
     services: Arc<Mutex<ServiceMap>>,
 }
 
@@ -35,7 +34,7 @@ impl Direct {
         Direct {
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
-            connections: Arc::new(Mutex::new(HashMap::new())),
+            connections: Arc::new(Mutex::new(ConnectionMap::new())),
             services: Arc::new(Mutex::new(ServiceMap::new())),
         }
     }
@@ -54,10 +53,8 @@ impl Transport for Direct {
                 let stream = stream.unwrap();
                 let mut connection = Connection::new(stream, node_id, public_address);
 
-                let peer_node_id = connection.peer_node_id();
                 let services_clone_clone = services_clone.clone();
-                connection.set_on_services(Box::new(move |services| {
-                    println!("{}: received {} services", node_id, services.len());
+                connection.set_on_services(Box::new(move |peer_node_id, services| {
                     for service in services {
                         services_clone_clone.lock()
                                             .unwrap()
@@ -66,14 +63,14 @@ impl Transport for Direct {
                     }
                 }));
 
-                connection.send_peers(&connection_pairs(&mut *connections_clone.lock().unwrap()))
+                connection.send_peers(&connections_clone.lock().unwrap().id_public_address_pairs())
                           .unwrap();
 
                 connection.send_services(&services_clone.lock().unwrap().local_service_names())
                           .unwrap();
 
                 println!("{}: inbound connection {}", node_id, connection);
-                connections_clone.lock().unwrap().insert(connection.peer_node_id(), connection);
+                connections_clone.lock().unwrap().add(connection).unwrap();
             }
         });
 
@@ -101,13 +98,11 @@ impl Transport for Direct {
 
                 let tx = tx.clone();
                 connection.set_on_peers(Box::new(move |peers| {
-                    println!("{}: received {} peers", node_id, peers.len());
                     tx.send(peers).unwrap();
                 }));
 
                 let services_clone = self.services.clone();
-                connection.set_on_services(Box::new(move |services| {
-                    println!("{}: received {} services", node_id, services.len());
+                connection.set_on_services(Box::new(move |peer_node_id, services| {
                     for service in services {
                         services_clone.lock()
                                       .unwrap()
@@ -122,7 +117,7 @@ impl Transport for Direct {
                                                    .local_service_names()));
 
                 println!("{}: outbound connection {}", node_id, connection);
-                self.connections.lock().unwrap().insert(connection.peer_node_id(), connection);
+                self.connections.lock().unwrap().add(connection).unwrap();
             }
 
             pending_peers_count -= 1;
@@ -148,12 +143,4 @@ impl Transport for Direct {
     fn service_count(&self) -> usize {
         self.services.lock().unwrap().len()
     }
-}
-
-fn connection_pairs(connections: &mut HashMap<ID, Connection>) -> Vec<(ID, SocketAddr)> {
-    connections.iter_mut()
-               .map(|(peer_node_id, peer_connection)| {
-                   (*peer_node_id, peer_connection.peer_public_address())
-               })
-               .collect::<Vec<(ID, SocketAddr)>>()
 }
