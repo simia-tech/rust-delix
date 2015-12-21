@@ -108,7 +108,7 @@ impl Node {
     }
 
     // Method stub for providing a request interface.
-    pub fn request(&self, request: &[u8]) -> Result<Vec<u8>> {
+    pub fn request(&self, name: &str, request: &[u8]) -> Result<Vec<u8>> {
         Ok(request.to_vec())
     }
 }
