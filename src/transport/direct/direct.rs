@@ -140,6 +140,11 @@ impl Transport for Direct {
         Ok(())
     }
 
+    fn deregister_service(&mut self, name: &str) -> Result<()> {
+        try!(self.services.lock().unwrap().remove(name));
+        Ok(())
+    }
+
     fn service_count(&self) -> usize {
         self.services.lock().unwrap().len()
     }

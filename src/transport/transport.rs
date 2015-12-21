@@ -27,6 +27,7 @@ pub trait Transport : Send {
     fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
     fn register_service(&mut self, &str, Box<ServiceHandler>) -> Result<()>;
+    fn deregister_service(&mut self, &str) -> Result<()>;
     fn service_count(&self) -> usize;
 }
 

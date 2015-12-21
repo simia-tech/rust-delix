@@ -57,7 +57,6 @@ fn services_distribution_over_incoming_connection() {
     let node_two = build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
 
     sleep_ms(1000);
-
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
@@ -75,7 +74,6 @@ fn services_distribution_over_outgoing_connection() {
     })).unwrap();
 
     sleep_ms(1000);
-
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
@@ -89,7 +87,6 @@ fn services_distribution_in_joined_network() {
     let node_two = build_node("127.0.0.1:3042", &["127.0.0.1:3041"]);
 
     sleep_ms(1000);
-
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
@@ -98,7 +95,20 @@ fn services_distribution_in_joined_network() {
     })).unwrap();
 
     sleep_ms(200);
-
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
+}
+
+#[test]
+fn services_deregistration() {
+    let mut node = build_node("127.0.0.1:3051", &[]);
+    node.register_service("echo", Box::new(|request| {
+        request
+    })).unwrap();
+    node.deregister_service("echo").unwrap();
+
+    sleep_ms(100);
+    assert_node(&node, State::Discovering, 0);
+
+    assert_eq!(0, node.service_count());
 }

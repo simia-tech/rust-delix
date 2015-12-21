@@ -59,18 +59,14 @@ impl Node {
         let thread = spawn(move || {
             while running_clone.load(Ordering::SeqCst) &&
                   transport_mutex.lock().unwrap().connection_count() == 0 {
-                match discovery_mutex.lock().unwrap().discover() {
-                    Some(address) => {
-                        if let Err(err) = transport_mutex.lock().unwrap().join(address, node_id) {
-                            println!("{}: failed to connect to {}: {:?}", node_id, address, err);
-                        }
-                        sleep_ms(2000);
-                    }
-                    None => {
-                        println!("nothing to discover");
-                        break;
+
+                if let Some(address) = discovery_mutex.lock().unwrap().discover() {
+                    if let Err(err) = transport_mutex.lock().unwrap().join(address, node_id) {
+                        println!("{}: failed to connect to {}: {:?}", node_id, address, err);
                     }
                 }
+
+                sleep_ms(2000);
             }
         });
 
@@ -100,6 +96,11 @@ impl Node {
 
     pub fn register_service(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
         try!(self.transport.lock().unwrap().register_service(name, f));
+        Ok(())
+    }
+
+    pub fn deregister_service(&mut self, name: &str) -> Result<()> {
+        try!(self.transport.lock().unwrap().deregister_service(name));
         Ok(())
     }
 

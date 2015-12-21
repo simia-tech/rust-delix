@@ -32,6 +32,7 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ServiceAlreadyExists,
+    ServiceDoesNotExists,
 }
 
 impl ServiceMap {
@@ -80,6 +81,13 @@ impl ServiceMap {
 
     pub fn len(&self) -> usize {
         self.map.len()
+    }
+
+    pub fn remove(&mut self, name: &str) -> Result<()> {
+        if let None = self.map.remove(name) {
+            return Err(Error::ServiceDoesNotExists);
+        }
+        Ok(())
     }
 
     fn get_or_add_links(&mut self, name: &str) -> &mut Vec<Link> {
