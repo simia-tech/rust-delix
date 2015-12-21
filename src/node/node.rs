@@ -106,6 +106,11 @@ impl Node {
     pub fn service_count(&self) -> usize {
         self.transport.lock().unwrap().service_count()
     }
+
+    // Method stub for providing a request interface.
+    pub fn request(&self, request: &[u8]) -> Result<Vec<u8>> {
+        Ok(request.to_vec())
+    }
 }
 
 impl fmt::Display for Node {
