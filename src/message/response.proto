@@ -1,0 +1,13 @@
+package message;
+
+// Response defines a response from a service.
+message Response {
+  enum Kind {
+    OK = 1;
+    ServiceDoesNotExists = 2;
+    UnknownError = 3;
+  }
+
+  optional Kind kind = 1;
+  optional bytes data = 2;
+}

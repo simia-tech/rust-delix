@@ -13,4 +13,4 @@
 // limitations under the License.
 //
 
-pub type ServiceHandler = Fn(Vec<u8>) -> Vec<u8> + Send;
+pub type ServiceHandler = Fn(&[u8]) -> Vec<u8> + Send;

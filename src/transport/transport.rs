@@ -26,15 +26,19 @@ pub trait Transport : Send {
     fn bind(&self, ID) -> Result<()>;
     fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
-    fn register_service(&mut self, &str, Box<ServiceHandler>) -> Result<()>;
-    fn deregister_service(&mut self, &str) -> Result<()>;
+
+    fn register(&mut self, &str, Box<ServiceHandler>) -> Result<()>;
+    fn deregister(&mut self, &str) -> Result<()>;
     fn service_count(&self) -> usize;
+
+    fn request(&mut self, &str, &[u8]) -> Result<Vec<u8>>;
 }
 
 pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
+    ServiceDoesNotExists,
     IO(io::Error),
     ProtobufError(ProtobufError),
     ServiceMapError(ServiceMapError),

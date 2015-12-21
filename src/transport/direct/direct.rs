@@ -17,8 +17,8 @@ use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::spawn;
 
-use transport::{Result, Transport};
-use transport::direct::{Connection, ConnectionMap, ServiceMap};
+use transport::{Error, Result, Transport};
+use transport::direct::{Connection, ConnectionMap, Link, ServiceMap};
 
 use node::{ID, ServiceHandler};
 
@@ -52,16 +52,7 @@ impl Transport for Direct {
             for stream in tcp_listener.incoming() {
                 let stream = stream.unwrap();
                 let mut connection = Connection::new(stream, node_id, public_address);
-
-                let services_clone_clone = services_clone.clone();
-                connection.set_on_services(Box::new(move |peer_node_id, services| {
-                    for service in services {
-                        services_clone_clone.lock()
-                                            .unwrap()
-                                            .insert_remote(&service, peer_node_id)
-                                            .unwrap();
-                    }
-                }));
+                set_up(&mut connection, &services_clone);
 
                 connection.send_peers(&connections_clone.lock().unwrap().id_public_address_pairs())
                           .unwrap();
@@ -101,15 +92,7 @@ impl Transport for Direct {
                     tx.send(peers).unwrap();
                 }));
 
-                let services_clone = self.services.clone();
-                connection.set_on_services(Box::new(move |peer_node_id, services| {
-                    for service in services {
-                        services_clone.lock()
-                                      .unwrap()
-                                      .insert_remote(&service, peer_node_id)
-                                      .unwrap();
-                    }
-                }));
+                set_up(&mut connection, &self.services);
 
                 try!(connection.send_services(&self.services
                                                    .lock()
@@ -130,7 +113,7 @@ impl Transport for Direct {
         self.connections.lock().unwrap().len()
     }
 
-    fn register_service(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
+    fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
         try!(self.services.lock().unwrap().insert_local(name, f));
 
         for (_, connection) in self.connections.lock().unwrap().iter_mut() {
@@ -140,7 +123,7 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn deregister_service(&mut self, name: &str) -> Result<()> {
+    fn deregister(&mut self, name: &str) -> Result<()> {
         try!(self.services.lock().unwrap().remove(name));
         Ok(())
     }
@@ -148,4 +131,52 @@ impl Transport for Direct {
     fn service_count(&self) -> usize {
         self.services.lock().unwrap().len()
     }
+
+    fn request(&mut self, name: &str, data: &[u8]) -> Result<Vec<u8>> {
+        let services = self.services.lock().unwrap();
+        let link = match services.get_link(name) {
+            Some(link) => link,
+            None => return Err(Error::ServiceDoesNotExists),
+        };
+
+        match *link {
+            Link::Local(_) => unimplemented!(),
+            Link::Remote(ref peer_node_id) => {
+                let mut connections = self.connections.lock().unwrap();
+                let mut connection = connections.get_mut(peer_node_id).unwrap();
+
+                let (tx, rx) = mpsc::channel();
+                connection.set_on_response(Box::new(move |result| {
+                    tx.send(result).unwrap();
+                }));
+
+                try!(connection.send_request(name, data));
+
+                rx.recv().unwrap()
+            }
+        }
+    }
+}
+
+fn set_up(connection: &mut Connection, services: &Arc<Mutex<ServiceMap>>) {
+    let services_clone = services.clone();
+    connection.set_on_services(Box::new(move |peer_node_id, services| {
+        for service in services {
+            services_clone.lock().unwrap().insert_remote(&service, peer_node_id).unwrap();
+        }
+    }));
+
+    let services_clone = services.clone();
+    connection.set_on_request(Box::new(move |name, data| {
+        let services = services_clone.lock().unwrap();
+        let link = match services.get_link(&name) {
+            Some(link) => link,
+            None => return Err(Error::ServiceDoesNotExists),
+        };
+
+        match *link {
+            Link::Local(ref service_handler) => Ok(service_handler(data)),
+            Link::Remote(_) => unimplemented!(),
+        }
+    }));
 }

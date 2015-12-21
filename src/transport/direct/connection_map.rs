@@ -49,6 +49,10 @@ impl ConnectionMap {
         self.map.contains_key(peer_node_id)
     }
 
+    pub fn get_mut(&mut self, peer_node_id: &ID) -> Option<&mut Connection> {
+        self.map.get_mut(peer_node_id)
+    }
+
     pub fn id_public_address_pairs(&mut self) -> Vec<(ID, SocketAddr)> {
         self.map
             .iter_mut()

@@ -21,7 +21,7 @@ use rustc_serialize::hex::{FromHex, FromHexError, ToHex};
 const ID_BITS: usize = 40;
 const ID_BYTES: usize = ID_BITS / 8;
 
-#[derive(Clone, Copy, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub struct ID {
     value: [u8; ID_BYTES],
 }

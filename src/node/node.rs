@@ -94,13 +94,13 @@ impl Node {
         self.transport.lock().unwrap().connection_count()
     }
 
-    pub fn register_service(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
-        try!(self.transport.lock().unwrap().register_service(name, f));
+    pub fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
+        try!(self.transport.lock().unwrap().register(name, f));
         Ok(())
     }
 
-    pub fn deregister_service(&mut self, name: &str) -> Result<()> {
-        try!(self.transport.lock().unwrap().deregister_service(name));
+    pub fn deregister(&mut self, name: &str) -> Result<()> {
+        try!(self.transport.lock().unwrap().deregister(name));
         Ok(())
     }
 
@@ -108,9 +108,8 @@ impl Node {
         self.transport.lock().unwrap().service_count()
     }
 
-    // Method stub for providing a request interface.
     pub fn request(&self, name: &str, request: &[u8]) -> Result<Vec<u8>> {
-        Ok(request.to_vec())
+        Ok(try!(self.transport.lock().unwrap().request(name, request)))
     }
 }
 

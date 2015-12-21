@@ -1,0 +1,7 @@
+package message;
+
+// Request defines a request to a service.
+message Request {
+  optional string name = 1;
+  optional bytes data = 2;
+}

@@ -4,4 +4,6 @@ enum Kind {
   IntroductionMessage = 1;
   PeersMessage = 2;
   ServicesMessage = 3;
+  RequestMessage = 4;
+  ResponseMessage = 5;
 }

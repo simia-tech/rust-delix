@@ -22,7 +22,7 @@ pub struct ServiceMap {
     map: HashMap<String, Vec<Link>>,
 }
 
-enum Link {
+pub enum Link {
     Local(Box<ServiceHandler>),
     Remote(ID),
 }
@@ -65,17 +65,14 @@ impl ServiceMap {
         Ok(())
     }
 
+    pub fn get_link(&self, name: &str) -> Option<&Link> {
+        self.map.get(name).and_then(|links| links.first())
+    }
+
     pub fn local_service_names(&self) -> Vec<&str> {
         self.map
             .iter()
             .filter_map(|(name, links)| links.iter().find(local_link).and(Some(name.as_ref())))
-            .collect()
-    }
-
-    pub fn remote_service_names(&self) -> Vec<&str> {
-        self.map
-            .iter()
-            .filter_map(|(name, links)| links.iter().find(remote_link).and(Some(name.as_ref())))
             .collect()
     }
 
@@ -105,29 +102,22 @@ fn local_link(link: &&Link) -> bool {
     }
 }
 
-fn remote_link(link: &&Link) -> bool {
-    match **link {
-        Link::Local(_) => false,
-        Link::Remote(_) => true,
-    }
-}
-
 #[cfg(test)]
 mod tests {
 
     use super::ServiceMap;
+    use super::Link;
     use node::ID;
 
     #[test]
     fn insert_local() {
         let mut service_map = ServiceMap::new();
 
-        assert!(service_map.insert_local("test", Box::new(|request| request)).is_ok());
-        assert!(service_map.insert_local("test", Box::new(|request| request)).is_err());
+        assert!(service_map.insert_local("test", Box::new(|request| request.to_vec())).is_ok());
+        assert!(service_map.insert_local("test", Box::new(|request| request.to_vec())).is_err());
         assert!(service_map.insert_remote("test", ID::new_random()).is_ok());
 
         assert_eq!(vec!["test"], service_map.local_service_names());
-        assert_eq!(vec!["test"], service_map.remote_service_names());
     }
 
     #[test]
@@ -138,10 +128,23 @@ mod tests {
         assert!(service_map.insert_remote("test", node_id).is_ok());
         assert!(service_map.insert_remote("test", node_id).is_err());
         assert!(service_map.insert_remote("test", ID::new_random()).is_ok());
-        assert!(service_map.insert_local("test", Box::new(|request| request)).is_ok());
+        assert!(service_map.insert_local("test", Box::new(|request| request.to_vec())).is_ok());
 
         assert_eq!(vec!["test"], service_map.local_service_names());
-        assert_eq!(vec!["test"], service_map.remote_service_names());
+    }
+
+    #[test]
+    fn get_link() {
+        let node_id = ID::new_random();
+        let mut service_map = ServiceMap::new();
+        service_map.insert_remote("test", node_id).unwrap();
+
+        let link = service_map.get_link("test");
+        assert!(link.is_some());
+        match *link.unwrap() {
+            Link::Remote(id) => assert_eq!(node_id, id),
+            _ => unreachable!(),
+        }
     }
 
 }
