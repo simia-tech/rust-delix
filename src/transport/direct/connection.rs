@@ -38,7 +38,7 @@ pub struct Connection {
     on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>>,
     on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(String, &[u8]) -> Result<Vec<u8>> + Send>>>>,
-    on_response: Arc<Mutex<Option<Box<Fn(Result<Vec<u8>>) + Send>>>>,
+    on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>>,
 }
 
 impl Connection {
@@ -57,7 +57,7 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_request_clone = on_request.clone();
 
-        let on_response: Arc<Mutex<Option<Box<Fn(Result<Vec<u8>>) + Send>>>> =
+        let on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
 
@@ -112,6 +112,7 @@ impl Connection {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let request_packet = read_packet::<Request>(&container).unwrap();
                             write_response(&mut stream,
+                                           request_packet.get_id(),
                                            f(request_packet.get_name().to_string(),
                                              request_packet.get_data()))
                                 .unwrap();
@@ -127,7 +128,7 @@ impl Connection {
                                 }
                                 Response_Kind::UnknownError => Err(Error::ServiceDoesNotExists),
                             };
-                            f(result);
+                            f(response_packet.get_request_id(), result);
                         }
                     }
                     _ => {
@@ -183,8 +184,8 @@ impl Connection {
         *self.on_services.lock().unwrap() = Some(f);
     }
 
-    pub fn send_request(&mut self, name: &str, data: &[u8]) -> Result<()> {
-        try!(write_request(&mut self.stream, name, data));
+    pub fn send_request(&mut self, id: u32, name: &str, data: &[u8]) -> Result<()> {
+        try!(write_request(&mut self.stream, id, name, data));
         Ok(())
     }
 
@@ -192,7 +193,7 @@ impl Connection {
         *self.on_request.lock().unwrap() = Some(f);
     }
 
-    pub fn set_on_response(&mut self, f: Box<Fn(Result<Vec<u8>>) + Send>) {
+    pub fn set_on_response(&mut self, f: Box<Fn(u32, Result<Vec<u8>>) + Send>) {
         *self.on_response.lock().unwrap() = Some(f);
     }
 }
@@ -244,18 +245,20 @@ fn write_services(w: &mut Write, service_names: &[&str]) -> Result<()> {
     write_container(w, Kind::ServicesMessage, buffer)
 }
 
-fn write_request(w: &mut Write, name: &str, data: &[u8]) -> Result<()> {
+fn write_request(w: &mut Write, id: u32, name: &str, data: &[u8]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut request_packet = Request::new();
+    request_packet.set_id(id);
     request_packet.set_name(name.to_string());
     request_packet.set_data(data.to_vec());
     try!(request_packet.write_to_vec(&mut buffer));
     write_container(w, Kind::RequestMessage, buffer)
 }
 
-fn write_response(w: &mut Write, result: Result<Vec<u8>>) -> Result<()> {
+fn write_response(w: &mut Write, request_id: u32, result: Result<Vec<u8>>) -> Result<()> {
     let mut buffer = Vec::new();
     let mut response_packet = Response::new();
+    response_packet.set_request_id(request_id);
     match result {
         Ok(data) => {
             response_packet.set_kind(Response_Kind::OK);

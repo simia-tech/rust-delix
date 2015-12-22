@@ -8,6 +8,7 @@ message Response {
     UnknownError = 3;
   }
 
-  optional Kind kind = 1;
-  optional bytes data = 2;
+  optional uint32 request_id = 1;
+  optional Kind kind = 2;
+  optional bytes data = 3;
 }

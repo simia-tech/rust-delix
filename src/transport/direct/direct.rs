@@ -18,7 +18,7 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread::spawn;
 
 use transport::{Error, Result, Transport};
-use transport::direct::{Connection, ConnectionMap, Link, ServiceMap};
+use transport::direct::{Connection, ConnectionMap, Link, Tracker, ServiceMap};
 
 use node::{ID, ServiceHandler};
 
@@ -27,6 +27,7 @@ pub struct Direct {
     public_address: SocketAddr,
     connections: Arc<Mutex<ConnectionMap>>,
     services: Arc<Mutex<ServiceMap>>,
+    tracker: Arc<Mutex<Tracker<Result<Vec<u8>>>>>,
 }
 
 impl Direct {
@@ -36,6 +37,7 @@ impl Direct {
             public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(Mutex::new(ConnectionMap::new())),
             services: Arc::new(Mutex::new(ServiceMap::new())),
+            tracker: Arc::new(Mutex::new(Tracker::new())),
         }
     }
 }
@@ -43,16 +45,16 @@ impl Direct {
 impl Transport for Direct {
     fn bind(&self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(self.local_address));
-        println!("bound to address {:?}", self.local_address);
 
         let public_address = self.public_address;
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
+        let tracker_clone = self.tracker.clone();
         spawn(move || {
             for stream in tcp_listener.incoming() {
                 let stream = stream.unwrap();
                 let mut connection = Connection::new(stream, node_id, public_address);
-                set_up(&mut connection, &services_clone);
+                set_up(&mut connection, &services_clone, &tracker_clone);
 
                 connection.send_peers(&connections_clone.lock().unwrap().id_public_address_pairs())
                           .unwrap();
@@ -92,7 +94,7 @@ impl Transport for Direct {
                     tx.send(peers).unwrap();
                 }));
 
-                set_up(&mut connection, &self.services);
+                set_up(&mut connection, &self.services, &self.tracker);
 
                 try!(connection.send_services(&self.services
                                                    .lock()
@@ -145,20 +147,18 @@ impl Transport for Direct {
                 let mut connections = self.connections.lock().unwrap();
                 let mut connection = connections.get_mut(peer_node_id).unwrap();
 
-                let (tx, rx) = mpsc::channel();
-                connection.set_on_response(Box::new(move |result| {
-                    tx.send(result).unwrap();
-                }));
+                let (request_id, result_channel) = self.tracker.lock().unwrap().begin();
+                try!(connection.send_request(request_id, name, data));
 
-                try!(connection.send_request(name, data));
-
-                rx.recv().unwrap()
+                result_channel.recv().unwrap()
             }
         }
     }
 }
 
-fn set_up(connection: &mut Connection, services: &Arc<Mutex<ServiceMap>>) {
+fn set_up(connection: &mut Connection,
+          services: &Arc<Mutex<ServiceMap>>,
+          tracker: &Arc<Mutex<Tracker<Result<Vec<u8>>>>>) {
     let services_clone = services.clone();
     connection.set_on_services(Box::new(move |peer_node_id, services| {
         for service in services {
@@ -178,5 +178,10 @@ fn set_up(connection: &mut Connection, services: &Arc<Mutex<ServiceMap>>) {
             Link::Local(ref service_handler) => Ok(service_handler(data)),
             Link::Remote(_) => unimplemented!(),
         }
+    }));
+
+    let tracker_clone = tracker.clone();
+    connection.set_on_response(Box::new(move |request_id, result| {
+        tracker_clone.lock().unwrap().end(request_id, result).unwrap();
     }));
 }

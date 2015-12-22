@@ -2,6 +2,7 @@ package message;
 
 // Request defines a request to a service.
 message Request {
-  optional string name = 1;
-  optional bytes data = 2;
+  optional uint32 id = 1;
+  optional string name = 2;
+  optional bytes data = 3;
 }
