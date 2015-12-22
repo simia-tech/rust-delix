@@ -142,7 +142,7 @@ impl Transport for Direct {
         };
 
         match *link {
-            Link::Local(_) => unimplemented!(),
+            Link::Local(ref service_handler) => Ok(service_handler(data)),
             Link::Remote(ref peer_node_id) => {
                 let mut connections = self.connections.lock().unwrap();
                 let mut connection = connections.get_mut(peer_node_id).unwrap();
