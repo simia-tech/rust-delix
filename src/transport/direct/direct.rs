@@ -169,7 +169,7 @@ fn set_up(connection: &mut Connection,
     let services_clone = services.clone();
     connection.set_on_request(Box::new(move |name, data| {
         let services = services_clone.lock().unwrap();
-        let link = match services.get_link(&name) {
+        let link = match services.get_link(name) {
             Some(link) => link,
             None => return Err(Error::ServiceDoesNotExists),
         };

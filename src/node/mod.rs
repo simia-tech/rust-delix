@@ -20,6 +20,7 @@ mod service;
 mod state;
 
 pub use node::id::ID;
+pub use node::id::Error as IDError;
 pub use node::node::Node;
 pub use node::node::Error;
 pub use node::service::ServiceHandler;

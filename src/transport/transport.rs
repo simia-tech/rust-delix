@@ -13,13 +13,13 @@
 // limitations under the License.
 //
 
-use std::net::SocketAddr;
+use std::net::{AddrParseError, SocketAddr};
 use std::io;
 use std::result;
 
 use protobuf::error::ProtobufError;
 
-use node::{ID, ServiceHandler};
+use node::{ID, IDError, ServiceHandler};
 use transport::direct::ServiceMapError;
 
 pub trait Transport : Send {
@@ -39,14 +39,28 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ServiceDoesNotExists,
-    IO(io::Error),
+    IDError(IDError),
+    AddrParseError(AddrParseError),
+    IOError(io::Error),
     ProtobufError(ProtobufError),
     ServiceMapError(ServiceMapError),
 }
 
+impl From<IDError> for Error {
+    fn from(error: IDError) -> Self {
+        Error::IDError(error)
+    }
+}
+
+impl From<AddrParseError> for Error {
+    fn from(error: AddrParseError) -> Self {
+        Error::AddrParseError(error)
+    }
+}
+
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
-        Error::IO(error)
+        Error::IOError(error)
     }
 }
 

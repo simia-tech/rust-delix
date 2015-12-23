@@ -14,13 +14,12 @@
 //
 
 use std::fmt;
-use std::io::{Cursor, Read, Write};
+use std::io::{Read, Write};
 use std::net::{SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread::{JoinHandle, spawn};
 
-use protobuf::{Message, MessageStatic};
-use protobuf::{parse_from_reader, parse_from_bytes};
+use protobuf::{Message, MessageStatic, parse_from_bytes};
 use message::{Container, Kind, Introduction, Peers, Peer, Request, Response, Response_Kind,
               Services, Service};
 use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
@@ -37,7 +36,7 @@ pub struct Connection {
 
     on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>>,
     on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
-    on_request: Arc<Mutex<Option<Box<Fn(String, &[u8]) -> Result<Vec<u8>> + Send>>>>,
+    on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>>,
 }
 
@@ -53,7 +52,7 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_services_clone = on_services.clone();
 
-        let on_request: Arc<Mutex<Option<Box<Fn(String, &[u8]) -> Result<Vec<u8>> + Send>>>> =
+        let on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_request_clone = on_request.clone();
 
@@ -61,74 +60,38 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
 
-        let (peer_node_id_sender, peer_node_id_receiver) = mpsc::channel();
-        let (peer_public_address_sender, peer_public_address_receiver) = mpsc::channel();
+        let (sender, receiver) = mpsc::channel();
         let thread = spawn(move || {
             write_introduction(&mut stream, node_id, public_address).unwrap();
-            // println!("send introduction {}", node_id);
 
             let container = read_container(&mut stream).unwrap();
-            let introduction = read_packet::<Introduction>(&container).unwrap();
-            let peer_node_id = ID::new(introduction.get_id().to_vec()).unwrap();
-            let peer_public_address = introduction.get_public_address()
-                                                  .parse::<SocketAddr>()
-                                                  .unwrap();
-            // println!("got introduction {} {}", peer_node_id, peer_public_address);
+            let (peer_node_id, peer_public_address) = read_introduction(&container).unwrap();
 
-            peer_node_id_sender.send(peer_node_id).unwrap();
-            peer_public_address_sender.send(peer_public_address).unwrap();
+            sender.send((peer_node_id, peer_public_address)).unwrap();
 
             loop {
                 let container = read_container(&mut stream).unwrap();
                 match container.get_kind() {
                     Kind::PeersMessage => {
                         if let Some(ref f) = *on_peers_clone.lock().unwrap() {
-                            let peers_packet = read_packet::<Peers>(&container).unwrap();
-                            f(peers_packet.get_peers()
-                                          .iter()
-                                          .map(|peer_packet| {
-                                              (ID::new(peer_packet.get_id().to_vec()).unwrap(),
-                                               peer_packet.get_public_address()
-                                                          .parse::<SocketAddr>()
-                                                          .unwrap())
-                                          })
-                                          .collect());
+                            f(read_peers(&container).unwrap());
                         }
                     }
                     Kind::ServicesMessage => {
                         if let Some(ref f) = *on_services_clone.lock().unwrap() {
-                            let services_packet = read_packet::<Services>(&container).unwrap();
-                            f(peer_node_id,
-                              services_packet.get_services()
-                                             .to_vec()
-                                             .iter()
-                                             .map(|service_packet| {
-                                                 service_packet.get_name().to_string()
-                                             })
-                                             .collect());
+                            f(peer_node_id, read_services(&container).unwrap());
                         }
                     }
                     Kind::RequestMessage => {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
-                            let request_packet = read_packet::<Request>(&container).unwrap();
-                            write_response(&mut stream,
-                                           request_packet.get_id(),
-                                           f(request_packet.get_name().to_string(),
-                                             request_packet.get_data()))
-                                .unwrap();
+                            let (request_id, name, data) = read_request(&container).unwrap();
+                            write_response(&mut stream, request_id, f(&name, &data)).unwrap();
                         }
                     }
                     Kind::ResponseMessage => {
                         if let Some(ref f) = *on_response_clone.lock().unwrap() {
-                            let response_packet = read_packet::<Response>(&container).unwrap();
-                            let result = match response_packet.get_kind() {
-                                Response_Kind::OK => Ok(response_packet.get_data().to_vec()),
-                                Response_Kind::ServiceDoesNotExists => {
-                                    Err(Error::ServiceDoesNotExists)
-                                }
-                                Response_Kind::UnknownError => Err(Error::ServiceDoesNotExists),
-                            };
-                            f(response_packet.get_request_id(), result);
+                            let (request_id, result) = read_response(&container).unwrap();
+                            f(request_id, result);
                         }
                     }
                     _ => {
@@ -138,11 +101,13 @@ impl Connection {
             }
         });
 
+        let (peer_node_id, peer_public_address) = receiver.recv().unwrap();
+
         Connection {
             stream: s,
             thread: Some(thread),
-            peer_node_id: peer_node_id_receiver.recv().unwrap(),
-            peer_public_address: peer_public_address_receiver.recv().unwrap(),
+            peer_node_id: peer_node_id,
+            peer_public_address: peer_public_address,
             on_peers: on_peers,
             on_services: on_services,
             on_request: on_request,
@@ -158,11 +123,11 @@ impl Connection {
         self.peer_public_address
     }
 
-    pub fn peer_addr(&self) -> SocketAddr {
+    pub fn peer_address(&self) -> SocketAddr {
         self.stream.peer_addr().unwrap()
     }
 
-    pub fn local_addr(&self) -> SocketAddr {
+    pub fn local_address(&self) -> SocketAddr {
         self.stream.local_addr().unwrap()
     }
 
@@ -189,7 +154,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn set_on_request(&mut self, f: Box<Fn(String, &[u8]) -> Result<Vec<u8>> + Send>) {
+    pub fn set_on_request(&mut self, f: Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>) {
         *self.on_request.lock().unwrap() = Some(f);
     }
 
@@ -200,7 +165,7 @@ impl Connection {
 
 impl fmt::Display for Connection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({} -> {})", self.local_addr(), self.peer_addr())
+        write!(f, "({} -> {})", self.local_address(), self.peer_address())
     }
 }
 
@@ -290,8 +255,54 @@ fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
+fn read_introduction(container: &Container) -> Result<(ID, SocketAddr)> {
+    let introduction_packet = try!(read_packet::<Introduction>(&container));
+    Ok((try!(ID::new(introduction_packet.get_id().to_vec())),
+        try!(introduction_packet.get_public_address()
+                                .parse::<SocketAddr>())))
+}
+
+fn read_peers(container: &Container) -> Result<Vec<(ID, SocketAddr)>> {
+    Ok(try!(read_packet::<Peers>(&container))
+           .get_peers()
+           .iter()
+           .map(|peer_packet| {
+               (ID::new(peer_packet.get_id().to_vec()).unwrap(),
+                peer_packet.get_public_address()
+                           .parse::<SocketAddr>()
+                           .unwrap())
+           })
+           .collect())
+}
+
+fn read_services(container: &Container) -> Result<Vec<String>> {
+    Ok(try!(read_packet::<Services>(&container))
+           .get_services()
+           .to_vec()
+           .iter()
+           .map(|service_packet| service_packet.get_name().to_string())
+           .collect())
+}
+
+fn read_request(container: &Container) -> Result<(u32, String, Vec<u8>)> {
+    let request_packet = try!(read_packet::<Request>(&container));
+    Ok((request_packet.get_id(),
+        request_packet.get_name().to_string(),
+        request_packet.get_data().to_vec()))
+}
+
+fn read_response(container: &Container) -> Result<(u32, Result<Vec<u8>>)> {
+    let response_packet = try!(read_packet::<Response>(&container));
+    let result = match response_packet.get_kind() {
+        Response_Kind::OK => Ok(response_packet.get_data().to_vec()),
+        Response_Kind::ServiceDoesNotExists => Err(Error::ServiceDoesNotExists),
+        Response_Kind::UnknownError => Err(Error::ServiceDoesNotExists),
+    };
+    Ok((response_packet.get_request_id(), result))
+}
+
 fn read_packet<T: Message + MessageStatic>(container: &Container) -> Result<T> {
-    Ok(try!(parse_from_reader::<T>(&mut Cursor::new(container.get_payload()))))
+    Ok(try!(parse_from_bytes::<T>(container.get_payload())))
 }
 
 fn read_container(r: &mut Read) -> Result<Container> {
