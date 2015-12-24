@@ -13,9 +13,11 @@
 // limitations under the License.
 //
 
+use std::fmt;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, mpsc};
-use std::thread::spawn;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::thread;
 
 use transport::{Error, Result, Transport};
 use transport::direct::{Connection, ConnectionMap, Link, Tracker, ServiceMap};
@@ -23,6 +25,8 @@ use transport::direct::{Connection, ConnectionMap, Link, Tracker, ServiceMap};
 use node::{ID, ServiceHandler};
 
 pub struct Direct {
+    thread: Option<thread::JoinHandle<()>>,
+    running: Arc<AtomicBool>,
     local_address: SocketAddr,
     public_address: SocketAddr,
     connections: Arc<Mutex<ConnectionMap>>,
@@ -33,6 +37,8 @@ pub struct Direct {
 impl Direct {
     pub fn new(local_address: SocketAddr, public_address: Option<SocketAddr>) -> Direct {
         Direct {
+            thread: None,
+            running: Arc::new(AtomicBool::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(Mutex::new(ConnectionMap::new())),
@@ -40,21 +46,41 @@ impl Direct {
             tracker: Arc::new(Mutex::new(Tracker::new())),
         }
     }
+
+    fn unbind(&mut self) -> Result<()> {
+        self.running.store(false, Ordering::SeqCst);
+        if let Some(thread) = self.thread.take() {
+            // connect to local address to enable thread to escape the accept loop.
+            try!(TcpStream::connect(self.local_address));
+            thread.join().unwrap();
+        }
+        Ok(())
+    }
 }
 
 impl Transport for Direct {
-    fn bind(&self, node_id: ID) -> Result<()> {
+    fn bind(&mut self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(self.local_address));
 
         let public_address = self.public_address;
+        let running_clone = self.running.clone();
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
-        spawn(move || {
+        self.thread = Some(thread::spawn(move || {
+            running_clone.store(true, Ordering::SeqCst);
             for stream in tcp_listener.incoming() {
+                if !running_clone.load(Ordering::SeqCst) {
+                    break;
+                }
+
                 let stream = stream.unwrap();
                 let mut connection = Connection::new(stream, node_id, public_address);
-                set_up(&mut connection, &services_clone, &tracker_clone);
+
+                set_up(&mut connection,
+                       &connections_clone,
+                       &services_clone,
+                       &tracker_clone);
 
                 connection.send_peers(&connections_clone.lock().unwrap().id_public_address_pairs())
                           .unwrap();
@@ -62,10 +88,10 @@ impl Transport for Direct {
                 connection.send_services(&services_clone.lock().unwrap().local_service_names())
                           .unwrap();
 
-                println!("{}: inbound connection {}", node_id, connection);
+                println!("{}: inbound {}", node_id, connection);
                 connections_clone.lock().unwrap().add(connection).unwrap();
             }
-        });
+        }));
 
         Ok(())
     }
@@ -94,14 +120,17 @@ impl Transport for Direct {
                     tx.send(peers).unwrap();
                 }));
 
-                set_up(&mut connection, &self.services, &self.tracker);
+                set_up(&mut connection,
+                       &self.connections,
+                       &self.services,
+                       &self.tracker);
 
                 try!(connection.send_services(&self.services
                                                    .lock()
                                                    .unwrap()
                                                    .local_service_names()));
 
-                println!("{}: outbound connection {}", node_id, connection);
+                println!("{}: outbound {}", node_id, connection);
                 self.connections.lock().unwrap().add(connection).unwrap();
             }
 
@@ -156,9 +185,27 @@ impl Transport for Direct {
     }
 }
 
+impl fmt::Display for Direct {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f,
+               "(Direct transport {} connections {} services)",
+               self.connection_count(),
+               self.service_count())
+    }
+}
+
+impl Drop for Direct {
+    fn drop(&mut self) {
+        self.unbind().unwrap();
+        self.connections.lock().unwrap().shutdown_all().unwrap();
+    }
+}
+
 fn set_up(connection: &mut Connection,
+          connections: &Arc<Mutex<ConnectionMap>>,
           services: &Arc<Mutex<ServiceMap>>,
           tracker: &Arc<Mutex<Tracker<Result<Vec<u8>>>>>) {
+
     let services_clone = services.clone();
     connection.set_on_services(Box::new(move |peer_node_id, services| {
         for service in services {
@@ -183,5 +230,15 @@ fn set_up(connection: &mut Connection,
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, result| {
         tracker_clone.lock().unwrap().end(request_id, result).unwrap();
+    }));
+
+    let connections = connections.clone();
+    connection.set_on_shutdown(Box::new(move |peer_node_id| {
+        // remove the connection in a helper thread, otherwise the removed connection will
+        // drop and tries to join its own thread, which results in a panic.
+        let connections = connections.clone();
+        thread::spawn(move || {
+            connections.lock().unwrap().remove(&peer_node_id).unwrap();
+        });
     }));
 }

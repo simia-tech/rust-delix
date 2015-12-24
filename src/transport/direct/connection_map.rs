@@ -15,10 +15,12 @@
 
 use std::collections::HashMap;
 use std::collections::hash_map::IterMut;
+use std::fmt;
 use std::net::SocketAddr;
 use std::result;
 
 use node::ID;
+use transport;
 use transport::direct::Connection;
 
 pub struct ConnectionMap {
@@ -30,6 +32,8 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ConnectionAlreadyExists,
+    ConnectionDoesNotExists,
+    TransportError(transport::Error),
 }
 
 impl ConnectionMap {
@@ -42,6 +46,13 @@ impl ConnectionMap {
             return Err(Error::ConnectionAlreadyExists);
         }
         self.map.insert(connection.peer_node_id(), connection);
+        Ok(())
+    }
+
+    pub fn remove(&mut self, peer_node_id: &ID) -> Result<()> {
+        if let None = self.map.remove(peer_node_id) {
+            return Err(Error::ConnectionDoesNotExists);
+        }
         Ok(())
     }
 
@@ -68,5 +79,24 @@ impl ConnectionMap {
 
     pub fn iter_mut(&mut self) -> IterMut<ID, Connection> {
         self.map.iter_mut()
+    }
+
+    pub fn shutdown_all(&self) -> Result<()> {
+        for (_, connection) in self.map.iter() {
+            try!(connection.shutdown());
+        }
+        Ok(())
+    }
+}
+
+impl fmt::Display for ConnectionMap {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(Direct connection map {} entries)", self.len())
+    }
+}
+
+impl From<transport::Error> for Error {
+    fn from(error: transport::Error) -> Self {
+        Error::TransportError(error)
     }
 }

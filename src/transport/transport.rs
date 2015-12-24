@@ -18,12 +18,13 @@ use std::io;
 use std::result;
 
 use protobuf::error::ProtobufError;
+use byteorder::Error as ByteOrderError;
 
 use node::{ID, IDError, ServiceHandler};
 use transport::direct::ServiceMapError;
 
 pub trait Transport : Send {
-    fn bind(&self, ID) -> Result<()>;
+    fn bind(&mut self, ID) -> Result<()>;
     fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
 
@@ -42,6 +43,7 @@ pub enum Error {
     IDError(IDError),
     AddrParseError(AddrParseError),
     IOError(io::Error),
+    ByteOrderError(ByteOrderError),
     ProtobufError(ProtobufError),
     ServiceMapError(ServiceMapError),
 }
@@ -61,6 +63,12 @@ impl From<AddrParseError> for Error {
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::IOError(error)
+    }
+}
+
+impl From<ByteOrderError> for Error {
+    fn from(error: ByteOrderError) -> Self {
+        Error::ByteOrderError(error)
     }
 }
 

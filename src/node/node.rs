@@ -18,7 +18,7 @@ use std::io;
 use std::result;
 use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::thread::{JoinHandle, spawn, sleep_ms};
+use std::thread;
 
 use discovery::Discovery;
 use node::{ID, ServiceHandler, State};
@@ -28,7 +28,7 @@ use transport::Transport;
 pub struct Node {
     id: ID,
     transport: Arc<Mutex<Box<Transport>>>,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<thread::JoinHandle<()>>,
     running: Arc<AtomicBool>,
 }
 
@@ -45,35 +45,35 @@ impl Node {
     pub fn new(d: Box<Discovery>, t: Box<Transport>) -> Result<Node> {
         let node_id = ID::new_random();
 
-        try!(t.bind(node_id));
-
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
         let discovery = Arc::new(Mutex::new(d));
         let transport = Arc::new(Mutex::new(t));
 
-        let discovery_mutex = discovery.clone();
-        let transport_mutex = transport.clone();
+        let discovery_clone = discovery.clone();
+        let transport_clone = transport.clone();
 
-        let thread = spawn(move || {
+        try!(transport_clone.lock().unwrap().bind(node_id));
+
+        let thread = Some(thread::spawn(move || {
             while running_clone.load(Ordering::SeqCst) &&
-                  transport_mutex.lock().unwrap().connection_count() == 0 {
+                  transport_clone.lock().unwrap().connection_count() == 0 {
 
-                if let Some(address) = discovery_mutex.lock().unwrap().discover() {
-                    if let Err(err) = transport_mutex.lock().unwrap().join(address, node_id) {
+                if let Some(address) = discovery_clone.lock().unwrap().discover() {
+                    if let Err(err) = transport_clone.lock().unwrap().join(address, node_id) {
                         println!("{}: failed to connect to {}: {:?}", node_id, address, err);
                     }
                 }
 
-                sleep_ms(2000);
+                thread::sleep_ms(2000);
             }
-        });
+        }));
 
         Ok(Node {
             id: node_id,
             transport: transport,
-            thread: Some(thread),
+            thread: thread,
             running: running,
         })
     }
@@ -83,15 +83,24 @@ impl Node {
     }
 
     pub fn state(&self) -> State {
-        if (*self.transport.lock().unwrap()).connection_count() == 0 {
-            State::Discovering
-        } else {
-            State::Joined
+        match self.transport.lock() {
+            Ok(transport) => {
+                if transport.connection_count() == 0 {
+                    State::Discovering
+                } else {
+                    State::Joined
+                }
+            }
+            Err(_) => State::Down,
         }
+
     }
 
     pub fn connection_count(&self) -> usize {
-        self.transport.lock().unwrap().connection_count()
+        match self.transport.lock() {
+            Ok(transport) => transport.connection_count(),
+            Err(_) => 0,
+        }
     }
 
     pub fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {

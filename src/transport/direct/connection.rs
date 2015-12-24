@@ -15,22 +15,23 @@
 
 use std::fmt;
 use std::io::{Read, Write};
-use std::net::{SocketAddr, TcpStream};
+use std::net::{Shutdown, SocketAddr, TcpStream};
 use std::sync::{Arc, Mutex, mpsc};
-use std::thread::{JoinHandle, spawn};
+use std::thread;
 
 use protobuf::{Message, MessageStatic, parse_from_bytes};
 use message::{Container, Kind, Introduction, Peers, Peer, Request, Response, Response_Kind,
               Services, Service};
-use byteorder::{BigEndian, WriteBytesExt, ReadBytesExt};
+use byteorder::{BigEndian, Error as ByteOrderError, WriteBytesExt, ReadBytesExt};
 
 use node::ID;
 use transport::{Error, Result};
 
 pub struct Connection {
     stream: TcpStream,
-    thread: Option<JoinHandle<()>>,
+    thread: Option<thread::JoinHandle<()>>,
 
+    node_id: ID,
     peer_node_id: ID,
     peer_public_address: SocketAddr,
 
@@ -38,6 +39,7 @@ pub struct Connection {
     on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>>,
+    on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
 }
 
 impl Connection {
@@ -60,8 +62,11 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
 
+        let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
+        let on_shutdown_clone = on_shutdown.clone();
+
         let (sender, receiver) = mpsc::channel();
-        let thread = spawn(move || {
+        let thread = Some(thread::spawn(move || {
             write_introduction(&mut stream, node_id, public_address).unwrap();
 
             let container = read_container(&mut stream).unwrap();
@@ -70,7 +75,19 @@ impl Connection {
             sender.send((peer_node_id, peer_public_address)).unwrap();
 
             loop {
-                let container = read_container(&mut stream).unwrap();
+                let container = match read_container(&mut stream) {
+                    Ok(container) => container,
+                    Err(Error::ByteOrderError(ByteOrderError::UnexpectedEOF)) => {
+                        if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
+                            f(peer_node_id);
+                        }
+                        break;
+                    }
+                    Err(err) => {
+                        println!("{}: error reading connection: {:?}", node_id, err);
+                        break;
+                    }
+                };
                 match container.get_kind() {
                     Kind::PeersMessage => {
                         if let Some(ref f) = *on_peers_clone.lock().unwrap() {
@@ -99,19 +116,21 @@ impl Connection {
                     }
                 }
             }
-        });
+        }));
 
         let (peer_node_id, peer_public_address) = receiver.recv().unwrap();
 
         Connection {
             stream: s,
-            thread: Some(thread),
+            thread: thread,
+            node_id: node_id,
             peer_node_id: peer_node_id,
             peer_public_address: peer_public_address,
             on_peers: on_peers,
             on_services: on_services,
             on_request: on_request,
             on_response: on_response,
+            on_shutdown: on_shutdown,
         }
     }
 
@@ -123,12 +142,12 @@ impl Connection {
         self.peer_public_address
     }
 
-    pub fn peer_address(&self) -> SocketAddr {
-        self.stream.peer_addr().unwrap()
+    pub fn peer_address(&self) -> Option<SocketAddr> {
+        self.stream.peer_addr().ok()
     }
 
-    pub fn local_address(&self) -> SocketAddr {
-        self.stream.local_addr().unwrap()
+    pub fn local_address(&self) -> Option<SocketAddr> {
+        self.stream.local_addr().ok()
     }
 
     pub fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
@@ -161,11 +180,33 @@ impl Connection {
     pub fn set_on_response(&mut self, f: Box<Fn(u32, Result<Vec<u8>>) + Send>) {
         *self.on_response.lock().unwrap() = Some(f);
     }
+
+    pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send>) {
+        *self.on_shutdown.lock().unwrap() = Some(f);
+    }
+
+    pub fn shutdown(&self) -> Result<()> {
+        *self.on_shutdown.lock().unwrap() = None;
+        Ok(try!(self.stream.shutdown(Shutdown::Both)))
+    }
 }
 
 impl fmt::Display for Connection {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "({} -> {})", self.local_address(), self.peer_address())
+        if let (Some(local_address), Some(peer_address)) = (self.local_address(),
+                                                            self.peer_address()) {
+            write!(f,
+                   "(Direct connection {} ({}) -> {} ({}))",
+                   self.node_id,
+                   local_address,
+                   self.peer_node_id,
+                   peer_address)
+        } else {
+            write!(f,
+                   "(Direct connection {} (-) -> {} (-))",
+                   self.node_id,
+                   self.peer_node_id)
+        }
     }
 }
 
@@ -306,7 +347,7 @@ fn read_packet<T: Message + MessageStatic>(container: &Container) -> Result<T> {
 }
 
 fn read_container(r: &mut Read) -> Result<Container> {
-    let container_size = r.read_u64::<BigEndian>().unwrap() as usize;
+    let container_size = try!(r.read_u64::<BigEndian>()) as usize;
 
     let mut buffer = Vec::with_capacity(container_size);
     unsafe {

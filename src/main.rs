@@ -19,8 +19,6 @@ extern crate delix;
 #[cfg(not(test))]
 extern crate getopts;
 #[cfg(not(test))]
-extern crate ctrlc;
-#[cfg(not(test))]
 extern crate toml;
 
 #[cfg(not(test))]
@@ -29,8 +27,6 @@ mod arguments;
 mod configuration;
 #[cfg(not(test))]
 mod loader;
-#[cfg(not(test))]
-mod signal;
 
 #[cfg(not(test))]
 fn main() {
@@ -58,10 +54,8 @@ fn main() {
         }
     };
 
-    println!("delix node {} loaded", node.id());
-
-    let trap = ::signal::Trap::new();
-    while !trap.ctrlc() {
+    println!("delix {} loaded", node);
+    loop {
         println!("state {}", node);
         ::std::thread::sleep_ms(1000);
     }
