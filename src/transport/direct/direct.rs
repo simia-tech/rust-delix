@@ -75,15 +75,19 @@ impl Transport for Direct {
                 }
 
                 let stream = stream.unwrap();
-                let mut connection = Connection::new(stream, node_id, public_address);
+                let peers = &connections_clone.lock()
+                                              .unwrap()
+                                              .id_public_address_pairs();
+                let mut connection = Connection::new_inbound(stream,
+                                                             node_id,
+                                                             public_address,
+                                                             peers)
+                                         .unwrap();
 
                 set_up(&mut connection,
                        &connections_clone,
                        &services_clone,
                        &tracker_clone);
-
-                connection.send_peers(&connections_clone.lock().unwrap().id_public_address_pairs())
-                          .unwrap();
 
                 connection.send_services(&services_clone.lock().unwrap().local_service_names())
                           .unwrap();
@@ -113,12 +117,10 @@ impl Transport for Direct {
                 pending_peers_count += 1;
 
                 let stream = try!(TcpStream::connect(peer_public_address));
-                let mut connection = Connection::new(stream, node_id, self.public_address);
-
-                let tx = tx.clone();
-                connection.set_on_peers(Box::new(move |peers| {
-                    tx.send(peers).unwrap();
-                }));
+                let (mut connection, peers) = try!(Connection::new_outbound(stream,
+                                                                            node_id,
+                                                                            self.public_address));
+                tx.send(peers).unwrap();
 
                 set_up(&mut connection,
                        &self.connections,

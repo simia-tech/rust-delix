@@ -35,7 +35,6 @@ pub struct Connection {
     peer_node_id: ID,
     peer_public_address: SocketAddr,
 
-    on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>>,
     on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>>,
@@ -43,12 +42,40 @@ pub struct Connection {
 }
 
 impl Connection {
-    pub fn new(s: TcpStream, node_id: ID, public_address: SocketAddr) -> Connection {
-        let mut stream = s.try_clone().unwrap();
+    pub fn new_inbound(s: TcpStream,
+                       node_id: ID,
+                       public_address: SocketAddr,
+                       peers: &[(ID, SocketAddr)])
+                       -> Result<Connection> {
 
-        let on_peers: Arc<Mutex<Option<Box<Fn(Vec<(ID, SocketAddr)>) + Send>>>> =
-            Arc::new(Mutex::new(None));
-        let on_peers_clone = on_peers.clone();
+        let (mut connection, sender) = try!(Self::new(s, node_id, public_address));
+
+        try!(write_peers(&mut connection.stream, peers));
+        sender.send(true).unwrap();
+
+        Ok(connection)
+    }
+
+    pub fn new_outbound(s: TcpStream,
+                        node_id: ID,
+                        public_address: SocketAddr)
+                        -> Result<(Connection, Vec<(ID, SocketAddr)>)> {
+
+        let (mut connection, sender) = try!(Self::new(s, node_id, public_address));
+
+        let container = try!(read_container(&mut connection.stream));
+        let peers = try!(read_peers(&container));
+        sender.send(true).unwrap();
+
+        Ok((connection, peers))
+    }
+
+    fn new(s: TcpStream,
+           node_id: ID,
+           public_address: SocketAddr)
+           -> Result<(Connection, mpsc::Sender<bool>)> {
+
+        let mut stream = s.try_clone().unwrap();
 
         let on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
@@ -65,15 +92,14 @@ impl Connection {
         let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
 
+        try!(write_introduction(&mut stream, node_id, public_address));
+
+        let container = try!(read_container(&mut stream));
+        let (peer_node_id, peer_public_address) = try!(read_introduction(&container));
+
         let (sender, receiver) = mpsc::channel();
         let thread = Some(thread::spawn(move || {
-            write_introduction(&mut stream, node_id, public_address).unwrap();
-
-            let container = read_container(&mut stream).unwrap();
-            let (peer_node_id, peer_public_address) = read_introduction(&container).unwrap();
-
-            sender.send((peer_node_id, peer_public_address)).unwrap();
-
+            receiver.recv().unwrap();
             loop {
                 let container = match read_container(&mut stream) {
                     Ok(container) => container,
@@ -89,11 +115,6 @@ impl Connection {
                     }
                 };
                 match container.get_kind() {
-                    Kind::PeersMessage => {
-                        if let Some(ref f) = *on_peers_clone.lock().unwrap() {
-                            f(read_peers(&container).unwrap());
-                        }
-                    }
                     Kind::ServicesMessage => {
                         if let Some(ref f) = *on_services_clone.lock().unwrap() {
                             f(peer_node_id, read_services(&container).unwrap());
@@ -118,20 +139,18 @@ impl Connection {
             }
         }));
 
-        let (peer_node_id, peer_public_address) = receiver.recv().unwrap();
-
-        Connection {
+        Ok((Connection {
             stream: s,
             thread: thread,
             node_id: node_id,
             peer_node_id: peer_node_id,
             peer_public_address: peer_public_address,
-            on_peers: on_peers,
             on_services: on_services,
             on_request: on_request,
             on_response: on_response,
             on_shutdown: on_shutdown,
-        }
+        },
+            sender))
     }
 
     pub fn peer_node_id(&self) -> ID {
@@ -148,15 +167,6 @@ impl Connection {
 
     pub fn local_address(&self) -> Option<SocketAddr> {
         self.stream.local_addr().ok()
-    }
-
-    pub fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
-        try!(write_peers(&mut self.stream, peers));
-        Ok(())
-    }
-
-    pub fn set_on_peers(&mut self, f: Box<Fn(Vec<(ID, SocketAddr)>) + Send>) {
-        *self.on_peers.lock().unwrap() = Some(f);
     }
 
     pub fn send_services(&mut self, service_names: &[&str]) -> Result<()> {

@@ -57,15 +57,12 @@ impl Node {
         try!(transport_clone.lock().unwrap().bind(node_id));
 
         let thread = Some(thread::spawn(move || {
-            while running_clone.load(Ordering::SeqCst) &&
-                  transport_clone.lock().unwrap().connection_count() == 0 {
-
+            while running_clone.load(Ordering::SeqCst) {
                 if let Some(address) = discovery_clone.lock().unwrap().discover() {
                     if let Err(err) = transport_clone.lock().unwrap().join(address, node_id) {
                         println!("{}: failed to connect to {}: {:?}", node_id, address, err);
                     }
                 }
-
                 thread::sleep_ms(2000);
             }
         }));
