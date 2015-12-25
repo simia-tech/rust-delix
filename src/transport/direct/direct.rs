@@ -15,7 +15,7 @@
 
 use std::fmt;
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -29,9 +29,9 @@ pub struct Direct {
     running: Arc<AtomicBool>,
     local_address: SocketAddr,
     public_address: SocketAddr,
-    connections: Arc<Mutex<ConnectionMap>>,
-    services: Arc<Mutex<ServiceMap>>,
-    tracker: Arc<Mutex<Tracker<Result<Vec<u8>>>>>,
+    connections: Arc<RwLock<ConnectionMap>>,
+    services: Arc<RwLock<ServiceMap>>,
+    tracker: Arc<RwLock<Tracker<Result<Vec<u8>>>>>,
 }
 
 impl Direct {
@@ -41,9 +41,9 @@ impl Direct {
             running: Arc::new(AtomicBool::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
-            connections: Arc::new(Mutex::new(ConnectionMap::new())),
-            services: Arc::new(Mutex::new(ServiceMap::new())),
-            tracker: Arc::new(Mutex::new(Tracker::new())),
+            connections: Arc::new(RwLock::new(ConnectionMap::new())),
+            services: Arc::new(RwLock::new(ServiceMap::new())),
+            tracker: Arc::new(RwLock::new(Tracker::new())),
         }
     }
 
@@ -75,7 +75,7 @@ impl Transport for Direct {
                 }
 
                 let stream = stream.unwrap();
-                let peers = &connections_clone.lock()
+                let peers = &connections_clone.read()
                                               .unwrap()
                                               .id_public_address_pairs();
                 let mut connection = Connection::new_inbound(stream,
@@ -89,11 +89,11 @@ impl Transport for Direct {
                        &services_clone,
                        &tracker_clone);
 
-                connection.send_services(&services_clone.lock().unwrap().local_service_names())
+                connection.send_services(&services_clone.read().unwrap().local_service_names())
                           .unwrap();
 
                 println!("{}: inbound {}", node_id, connection);
-                connections_clone.lock().unwrap().add(connection).unwrap();
+                connections_clone.write().unwrap().add(connection).unwrap();
             }
         }));
 
@@ -110,7 +110,8 @@ impl Transport for Direct {
 
             for peer in peers {
                 let (peer_node_id, peer_public_address) = peer;
-                if self.connections.lock().unwrap().contains_key(&peer_node_id) {
+                let mut connections = self.connections.write().unwrap();
+                if connections.contains_key(&peer_node_id) {
                     continue;
                 }
 
@@ -128,12 +129,12 @@ impl Transport for Direct {
                        &self.tracker);
 
                 try!(connection.send_services(&self.services
-                                                   .lock()
+                                                   .read()
                                                    .unwrap()
                                                    .local_service_names()));
 
                 println!("{}: outbound {}", node_id, connection);
-                self.connections.lock().unwrap().add(connection).unwrap();
+                connections.add(connection).unwrap();
             }
 
             pending_peers_count -= 1;
@@ -143,30 +144,30 @@ impl Transport for Direct {
     }
 
     fn connection_count(&self) -> usize {
-        self.connections.lock().unwrap().len()
+        self.connections.read().unwrap().len()
     }
 
     fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
-        try!(self.services.lock().unwrap().insert_local(name, f));
+        try!(self.services.write().unwrap().insert_local(name, f));
 
-        for (_, connection) in self.connections.lock().unwrap().iter_mut() {
-            try!(connection.send_services(&self.services.lock().unwrap().local_service_names()));
+        for (_, connection) in self.connections.write().unwrap().iter_mut() {
+            try!(connection.send_services(&self.services.read().unwrap().local_service_names()));
         }
 
         Ok(())
     }
 
     fn deregister(&mut self, name: &str) -> Result<()> {
-        try!(self.services.lock().unwrap().remove(name));
+        try!(self.services.write().unwrap().remove(name));
         Ok(())
     }
 
     fn service_count(&self) -> usize {
-        self.services.lock().unwrap().len()
+        self.services.read().unwrap().len()
     }
 
     fn request(&mut self, name: &str, data: &[u8]) -> Result<Vec<u8>> {
-        let services = self.services.lock().unwrap();
+        let services = self.services.read().unwrap();
         let link = match services.get_link(name) {
             Some(link) => link,
             None => return Err(Error::ServiceDoesNotExists),
@@ -175,10 +176,10 @@ impl Transport for Direct {
         match *link {
             Link::Local(ref service_handler) => Ok(service_handler(data)),
             Link::Remote(ref peer_node_id) => {
-                let mut connections = self.connections.lock().unwrap();
+                let mut connections = self.connections.write().unwrap();
                 let mut connection = connections.get_mut(peer_node_id).unwrap();
 
-                let (request_id, result_channel) = self.tracker.lock().unwrap().begin();
+                let (request_id, result_channel) = self.tracker.write().unwrap().begin();
                 try!(connection.send_request(request_id, name, data));
 
                 result_channel.recv().unwrap()
@@ -199,25 +200,25 @@ impl fmt::Display for Direct {
 impl Drop for Direct {
     fn drop(&mut self) {
         self.unbind().unwrap();
-        self.connections.lock().unwrap().shutdown_all().unwrap();
+        self.connections.read().unwrap().shutdown_all().unwrap();
     }
 }
 
 fn set_up(connection: &mut Connection,
-          connections: &Arc<Mutex<ConnectionMap>>,
-          services: &Arc<Mutex<ServiceMap>>,
-          tracker: &Arc<Mutex<Tracker<Result<Vec<u8>>>>>) {
+          connections: &Arc<RwLock<ConnectionMap>>,
+          services: &Arc<RwLock<ServiceMap>>,
+          tracker: &Arc<RwLock<Tracker<Result<Vec<u8>>>>>) {
 
     let services_clone = services.clone();
     connection.set_on_services(Box::new(move |peer_node_id, services| {
         for service in services {
-            services_clone.lock().unwrap().insert_remote(&service, peer_node_id).unwrap();
+            services_clone.write().unwrap().insert_remote(&service, peer_node_id).unwrap();
         }
     }));
 
     let services_clone = services.clone();
     connection.set_on_request(Box::new(move |name, data| {
-        let services = services_clone.lock().unwrap();
+        let services = services_clone.read().unwrap();
         let link = match services.get_link(name) {
             Some(link) => link,
             None => return Err(Error::ServiceDoesNotExists),
@@ -231,7 +232,7 @@ fn set_up(connection: &mut Connection,
 
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, result| {
-        tracker_clone.lock().unwrap().end(request_id, result).unwrap();
+        tracker_clone.write().unwrap().end(request_id, result).unwrap();
     }));
 
     let connections = connections.clone();
@@ -240,7 +241,7 @@ fn set_up(connection: &mut Connection,
         // drop and tries to join its own thread, which results in a panic.
         let connections = connections.clone();
         thread::spawn(move || {
-            connections.lock().unwrap().remove(&peer_node_id).unwrap();
+            connections.write().unwrap().remove(&peer_node_id).unwrap();
         });
     }));
 }

@@ -64,9 +64,9 @@ impl ConnectionMap {
         self.map.get_mut(peer_node_id)
     }
 
-    pub fn id_public_address_pairs(&mut self) -> Vec<(ID, SocketAddr)> {
+    pub fn id_public_address_pairs(&self) -> Vec<(ID, SocketAddr)> {
         self.map
-            .iter_mut()
+            .iter()
             .map(|(peer_node_id, peer_connection)| {
                 (*peer_node_id, peer_connection.peer_public_address())
             })
@@ -88,6 +88,10 @@ impl ConnectionMap {
         Ok(())
     }
 }
+
+unsafe impl Send for ConnectionMap {}
+
+unsafe impl Sync for ConnectionMap {}
 
 impl fmt::Display for ConnectionMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {

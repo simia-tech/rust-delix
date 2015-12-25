@@ -16,7 +16,7 @@
 use std::fmt;
 use std::io;
 use std::result;
-use std::sync::{Arc, Mutex};
+use std::sync::{Arc, RwLock};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -27,7 +27,7 @@ use transport::Transport;
 
 pub struct Node {
     id: ID,
-    transport: Arc<Mutex<Box<Transport>>>,
+    transport: Arc<RwLock<Box<Transport>>>,
     thread: Option<thread::JoinHandle<()>>,
     running: Arc<AtomicBool>,
 }
@@ -48,18 +48,18 @@ impl Node {
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
-        let discovery = Arc::new(Mutex::new(d));
-        let transport = Arc::new(Mutex::new(t));
+        let discovery = Arc::new(RwLock::new(d));
+        let transport = Arc::new(RwLock::new(t));
 
         let discovery_clone = discovery.clone();
         let transport_clone = transport.clone();
 
-        try!(transport_clone.lock().unwrap().bind(node_id));
+        try!(transport_clone.write().unwrap().bind(node_id));
 
         let thread = Some(thread::spawn(move || {
             while running_clone.load(Ordering::SeqCst) {
-                if let Some(address) = discovery_clone.lock().unwrap().discover() {
-                    if let Err(err) = transport_clone.lock().unwrap().join(address, node_id) {
+                if let Some(address) = discovery_clone.write().unwrap().discover() {
+                    if let Err(err) = transport_clone.write().unwrap().join(address, node_id) {
                         println!("{}: failed to connect to {}: {:?}", node_id, address, err);
                     }
                 }
@@ -80,7 +80,7 @@ impl Node {
     }
 
     pub fn state(&self) -> State {
-        match self.transport.lock() {
+        match self.transport.read() {
             Ok(transport) => {
                 if transport.connection_count() == 0 {
                     State::Discovering
@@ -94,28 +94,28 @@ impl Node {
     }
 
     pub fn connection_count(&self) -> usize {
-        match self.transport.lock() {
+        match self.transport.read() {
             Ok(transport) => transport.connection_count(),
             Err(_) => 0,
         }
     }
 
     pub fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
-        try!(self.transport.lock().unwrap().register(name, f));
+        try!(self.transport.write().unwrap().register(name, f));
         Ok(())
     }
 
     pub fn deregister(&mut self, name: &str) -> Result<()> {
-        try!(self.transport.lock().unwrap().deregister(name));
+        try!(self.transport.write().unwrap().deregister(name));
         Ok(())
     }
 
     pub fn service_count(&self) -> usize {
-        self.transport.lock().unwrap().service_count()
+        self.transport.read().unwrap().service_count()
     }
 
     pub fn request(&self, name: &str, request: &[u8]) -> Result<Vec<u8>> {
-        Ok(try!(self.transport.lock().unwrap().request(name, request)))
+        Ok(try!(self.transport.write().unwrap().request(name, request)))
     }
 }
 

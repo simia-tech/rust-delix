@@ -102,6 +102,10 @@ fn local_link(link: &&Link) -> bool {
     }
 }
 
+unsafe impl Send for ServiceMap {}
+
+unsafe impl Sync for ServiceMap {}
+
 #[cfg(test)]
 mod tests {
 

@@ -23,7 +23,7 @@ use byteorder::Error as ByteOrderError;
 use node::{ID, IDError, ServiceHandler};
 use transport::direct::ServiceMapError;
 
-pub trait Transport : Send {
+pub trait Transport : Send + Sync {
     fn bind(&mut self, ID) -> Result<()>;
     fn join(&mut self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;

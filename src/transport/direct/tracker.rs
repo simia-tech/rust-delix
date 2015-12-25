@@ -14,6 +14,7 @@
 //
 
 use std::collections::HashMap;
+use std::fmt;
 use std::result;
 use std::sync::mpsc;
 
@@ -46,7 +47,7 @@ impl<T> Tracker<T> {
     }
 
     pub fn end(&mut self, id: u32, result: T) -> Result<()> {
-        match self.entries.get(&id) {
+        match self.entries.remove(&id) {
             Some(ref sender) => {
                 sender.send(result).unwrap();
                 Ok(())
@@ -54,7 +55,21 @@ impl<T> Tracker<T> {
             None => Err(Error::InvalidTrackId),
         }
     }
+
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
 }
+
+impl<T> fmt::Display for Tracker<T> {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "(Direct tracker {} entries)", self.len())
+    }
+}
+
+unsafe impl<T> Send for Tracker<T> {}
+
+unsafe impl<T> Sync for Tracker<T> {}
 
 #[cfg(test)]
 mod tests {
@@ -69,6 +84,7 @@ mod tests {
         tracker.end(id, Ok("test")).unwrap();
 
         assert_eq!(Ok("test"), result_chan.recv().unwrap());
+        assert_eq!(0, tracker.len());
     }
 
 }
