@@ -53,7 +53,7 @@ impl ConnectionMap {
         }
     }
 
-    pub fn add(&mut self, mut connection: Connection) -> Result<()> {
+    pub fn add(&self, mut connection: Connection) -> Result<()> {
         let mut map = self.map.write().unwrap();
         if map.contains_key(&connection.peer_node_id()) {
             return Err(Error::ConnectionAlreadyExists);
@@ -87,7 +87,7 @@ impl ConnectionMap {
         self.map.read().unwrap().len()
     }
 
-    pub fn send_services(&mut self, services: &[&str]) -> Result<()> {
+    pub fn send_services(&self, services: &[String]) -> Result<()> {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
             try!(connection.send_services(services));
@@ -95,18 +95,13 @@ impl ConnectionMap {
         Ok(())
     }
 
-    pub fn send_request(&mut self,
-                        peer_node_id: &ID,
-                        id: u32,
-                        name: &str,
-                        data: &[u8])
-                        -> Result<()> {
+    pub fn send_request(&self, peer_node_id: &ID, id: u32, name: &str, data: &[u8]) -> Result<()> {
         let mut map = self.map.write().unwrap();
         let mut connection = map.get_mut(peer_node_id).unwrap();
         Ok(try!(connection.send_request(id, name, data)))
     }
 
-    pub fn clear_on_shutdown(&mut self) {
+    pub fn clear_on_shutdown(&self) {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
             connection.clear_on_shutdown();

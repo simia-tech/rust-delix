@@ -26,7 +26,7 @@ pub use transport::direct::connection::Result as ConnectionResult;
 pub use transport::direct::connection_map::ConnectionMap;
 pub use transport::direct::connection_map::Error as ConnectionMapError;
 pub use transport::direct::direct::Direct;
-pub use transport::direct::service_map::Link;
 pub use transport::direct::service_map::ServiceMap;
 pub use transport::direct::service_map::Error as ServiceMapError;
+pub use transport::direct::service_map::Result as ServiceMapResult;
 pub use transport::direct::tracker::Tracker;

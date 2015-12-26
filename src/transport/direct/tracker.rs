@@ -16,16 +16,17 @@
 use std::collections::HashMap;
 use std::fmt;
 use std::result;
-use std::sync::mpsc;
+use std::sync::{RwLock, mpsc};
+use std::sync::atomic;
 
 pub struct Tracker<T> {
-    entries: HashMap<u32, mpsc::Sender<T>>,
-    current_id: u32,
+    entries: RwLock<HashMap<u32, mpsc::Sender<T>>>,
+    current_id: atomic::AtomicUsize,
 }
 
 pub type Result<T> = result::Result<T, Error>;
 
-#[derive(Debug)]
+#[derive(Debug, PartialEq)]
 pub enum Error {
     InvalidTrackId,
 }
@@ -33,21 +34,22 @@ pub enum Error {
 impl<T> Tracker<T> {
     pub fn new() -> Tracker<T> {
         Tracker {
-            entries: HashMap::new(),
-            current_id: 0,
+            entries: RwLock::new(HashMap::new()),
+            current_id: atomic::AtomicUsize::new(0),
         }
     }
 
-    pub fn begin(&mut self) -> (u32, mpsc::Receiver<T>) {
+    pub fn begin(&self) -> (u32, mpsc::Receiver<T>) {
+        let mut entries = self.entries.write().unwrap();
         let (sender, receiver) = mpsc::channel();
-        let id = self.current_id;
-        self.current_id.wrapping_add(1);
-        self.entries.insert(id, sender);
+        let id = self.current_id.fetch_add(1, atomic::Ordering::SeqCst) as u32;
+        entries.insert(id, sender);
         (id, receiver)
     }
 
-    pub fn end(&mut self, id: u32, result: T) -> Result<()> {
-        match self.entries.remove(&id) {
+    pub fn end(&self, id: u32, result: T) -> Result<()> {
+        let mut entries = self.entries.write().unwrap();
+        match entries.remove(&id) {
             Some(ref sender) => {
                 sender.send(result).unwrap();
                 Ok(())
@@ -57,7 +59,7 @@ impl<T> Tracker<T> {
     }
 
     pub fn len(&self) -> usize {
-        self.entries.len()
+        self.entries.read().unwrap().len()
     }
 }
 
@@ -74,16 +76,40 @@ unsafe impl<T> Sync for Tracker<T> {}
 #[cfg(test)]
 mod tests {
 
-    use super::Tracker;
+    use std::thread;
+    use std::sync::Arc;
+    use super::{Result, Tracker};
 
     #[test]
     fn request_tracking() {
-        let mut tracker: Tracker<Result<&str, &str>> = Tracker::new();
+        let tracker: Tracker<Result<&str>> = Tracker::new();
 
         let (id, result_chan) = tracker.begin();
         tracker.end(id, Ok("test")).unwrap();
 
         assert_eq!(Ok("test"), result_chan.recv().unwrap());
+        assert_eq!(0, tracker.len());
+    }
+
+    #[test]
+    fn concurrent_request_tracking() {
+        let tracker: Arc<Tracker<Result<&str>>> = Arc::new(Tracker::new());
+
+        let mut threads = Vec::new();
+        for _ in 0..10 {
+            let tracker = tracker.clone();
+            threads.push(thread::spawn(move || -> Result<&str> {
+                let (id, result_channel) = tracker.begin();
+                thread::sleep_ms(100);
+                tracker.end(id, Ok("test")).unwrap();
+                result_channel.recv().unwrap()
+            }));
+        }
+
+        for thread in threads {
+            assert_eq!(Ok("test"), thread.join().unwrap());
+        }
+
         assert_eq!(0, tracker.len());
     }
 

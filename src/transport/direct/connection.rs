@@ -182,7 +182,7 @@ impl Connection {
         self.stream.local_addr().ok()
     }
 
-    pub fn send_services(&mut self, service_names: &[&str]) -> Result<()> {
+    pub fn send_services(&mut self, service_names: &[String]) -> Result<()> {
         try!(write_services(&mut self.stream, service_names));
         Ok(())
     }
@@ -294,7 +294,7 @@ fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
     write_container(w, message::Kind::PeersMessage, buffer)
 }
 
-fn write_services(w: &mut Write, service_names: &[&str]) -> Result<()> {
+fn write_services(w: &mut Write, service_names: &[String]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut services_packet = message::Services::new();
     for service_name in service_names {
