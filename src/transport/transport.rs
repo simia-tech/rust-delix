@@ -21,7 +21,7 @@ use protobuf::error::ProtobufError;
 use byteorder::Error as ByteOrderError;
 
 use node::{ID, IDError, ServiceHandler};
-use transport::direct::ServiceMapError;
+use transport::direct::{ConnectionMapError, ServiceMapError};
 
 pub trait Transport : Send + Sync {
     fn bind(&mut self, ID) -> Result<()>;
@@ -45,6 +45,7 @@ pub enum Error {
     IOError(io::Error),
     ByteOrderError(ByteOrderError),
     ProtobufError(ProtobufError),
+    ConnectionMapError(String),
     ServiceMapError(ServiceMapError),
 }
 
@@ -75,6 +76,12 @@ impl From<ByteOrderError> for Error {
 impl From<ProtobufError> for Error {
     fn from(error: ProtobufError) -> Self {
         Error::ProtobufError(error)
+    }
+}
+
+impl From<ConnectionMapError> for Error {
+    fn from(error: ConnectionMapError) -> Self {
+        Error::ConnectionMapError(format!("{:?}", error).to_string())
     }
 }
 

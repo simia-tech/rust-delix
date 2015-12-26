@@ -14,17 +14,19 @@
 //
 
 use std::collections::HashMap;
-use std::collections::hash_map::IterMut;
 use std::fmt;
 use std::net::SocketAddr;
 use std::result;
+use std::sync::{Arc, RwLock, mpsc};
+use std::thread;
 
 use node::ID;
 use transport;
 use transport::direct::Connection;
 
 pub struct ConnectionMap {
-    map: HashMap<ID, Connection>,
+    map: Arc<RwLock<HashMap<ID, Connection>>>,
+    sender: mpsc::Sender<ID>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -32,40 +34,44 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ConnectionAlreadyExists,
-    ConnectionDoesNotExists,
     TransportError(transport::Error),
 }
 
 impl ConnectionMap {
     pub fn new() -> ConnectionMap {
-        ConnectionMap { map: HashMap::new() }
+        let map = Arc::new(RwLock::new(HashMap::new()));
+        let map_clone = map.clone();
+
+        let (sender, receiver) = mpsc::channel::<ID>();
+        thread::spawn(move || {
+            for peer_node_id in receiver {
+                map_clone.write().unwrap().remove(&peer_node_id);
+            }
+        });
+        ConnectionMap {
+            map: map,
+            sender: sender,
+        }
     }
 
-    pub fn add(&mut self, connection: Connection) -> Result<()> {
-        if self.map.contains_key(&connection.peer_node_id()) {
+    pub fn add(&mut self, mut connection: Connection) -> Result<()> {
+        let mut map = self.map.write().unwrap();
+        if map.contains_key(&connection.peer_node_id()) {
             return Err(Error::ConnectionAlreadyExists);
         }
-        self.map.insert(connection.peer_node_id(), connection);
-        Ok(())
-    }
-
-    pub fn remove(&mut self, peer_node_id: &ID) -> Result<()> {
-        if let None = self.map.remove(peer_node_id) {
-            return Err(Error::ConnectionDoesNotExists);
-        }
+        connection.set_on_shutdown(self.sender.clone());
+        map.insert(connection.peer_node_id(), connection);
         Ok(())
     }
 
     pub fn contains_key(&self, peer_node_id: &ID) -> bool {
-        self.map.contains_key(peer_node_id)
-    }
-
-    pub fn get_mut(&mut self, peer_node_id: &ID) -> Option<&mut Connection> {
-        self.map.get_mut(peer_node_id)
+        self.map.read().unwrap().contains_key(peer_node_id)
     }
 
     pub fn id_public_address_pairs(&self) -> Vec<(ID, SocketAddr)> {
         self.map
+            .read()
+            .unwrap()
             .iter()
             .map(|(peer_node_id, peer_connection)| {
                 (*peer_node_id, peer_connection.peer_public_address())
@@ -74,18 +80,33 @@ impl ConnectionMap {
     }
 
     pub fn len(&self) -> usize {
-        self.map.len()
+        self.map.read().unwrap().len()
     }
 
-    pub fn iter_mut(&mut self) -> IterMut<ID, Connection> {
-        self.map.iter_mut()
-    }
-
-    pub fn shutdown_all(&self) -> Result<()> {
-        for (_, connection) in self.map.iter() {
-            try!(connection.shutdown());
+    pub fn send_services(&mut self, services: &[&str]) -> Result<()> {
+        let mut map = self.map.write().unwrap();
+        for (_, connection) in map.iter_mut() {
+            try!(connection.send_services(services));
         }
         Ok(())
+    }
+
+    pub fn send_request(&mut self,
+                        peer_node_id: &ID,
+                        id: u32,
+                        name: &str,
+                        data: &[u8])
+                        -> Result<()> {
+        let mut map = self.map.write().unwrap();
+        let mut connection = map.get_mut(peer_node_id).unwrap();
+        Ok(try!(connection.send_request(id, name, data)))
+    }
+
+    pub fn clear_on_shutdown(&mut self) {
+        let mut map = self.map.write().unwrap();
+        for (_, connection) in map.iter_mut() {
+            connection.clear_on_shutdown();
+        }
     }
 }
 
@@ -96,6 +117,12 @@ unsafe impl Sync for ConnectionMap {}
 impl fmt::Display for ConnectionMap {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(Direct connection map {} entries)", self.len())
+    }
+}
+
+impl Drop for ConnectionMap {
+    fn drop(&mut self) {
+        self.clear_on_shutdown();
     }
 }
 

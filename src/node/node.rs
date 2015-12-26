@@ -58,9 +58,11 @@ impl Node {
 
         let thread = Some(thread::spawn(move || {
             while running_clone.load(Ordering::SeqCst) {
-                if let Some(address) = discovery_clone.write().unwrap().discover() {
-                    if let Err(err) = transport_clone.write().unwrap().join(address, node_id) {
-                        println!("{}: failed to connect to {}: {:?}", node_id, address, err);
+                if transport_clone.read().unwrap().connection_count() == 0 {
+                    if let Some(address) = discovery_clone.write().unwrap().discover() {
+                        if let Err(err) = transport_clone.write().unwrap().join(address, node_id) {
+                            println!("{}: failed to connect to {}: {:?}", node_id, address, err);
+                        }
                     }
                 }
                 thread::sleep_ms(2000);

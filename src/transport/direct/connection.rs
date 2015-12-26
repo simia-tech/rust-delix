@@ -38,7 +38,7 @@ pub struct Connection {
     on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>>,
-    on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
+    on_shutdown: Arc<Mutex<Option<mpsc::Sender<ID>>>>,
 }
 
 impl Connection {
@@ -89,7 +89,7 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
 
-        let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
+        let on_shutdown: Arc<Mutex<Option<mpsc::Sender<ID>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
 
         try!(write_introduction(&mut stream, node_id, public_address));
@@ -104,8 +104,8 @@ impl Connection {
                 let container = match read_container(&mut stream) {
                     Ok(container) => container,
                     Err(Error::ByteOrderError(ByteOrderError::UnexpectedEOF)) => {
-                        if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
-                            f(peer_node_id);
+                        if let Some(ref sender) = *on_shutdown_clone.lock().unwrap() {
+                            sender.send(peer_node_id).unwrap();
                         }
                         break;
                     }
@@ -191,13 +191,12 @@ impl Connection {
         *self.on_response.lock().unwrap() = Some(f);
     }
 
-    pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send>) {
-        *self.on_shutdown.lock().unwrap() = Some(f);
+    pub fn set_on_shutdown(&mut self, sender: mpsc::Sender<ID>) {
+        *self.on_shutdown.lock().unwrap() = Some(sender);
     }
 
-    pub fn shutdown(&self) -> Result<()> {
+    pub fn clear_on_shutdown(&mut self) {
         *self.on_shutdown.lock().unwrap() = None;
-        Ok(try!(self.stream.shutdown(Shutdown::Both)))
     }
 }
 
@@ -222,6 +221,7 @@ impl fmt::Display for Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
+        self.stream.shutdown(Shutdown::Both).unwrap();
         self.thread.take().unwrap().join().unwrap();
     }
 }

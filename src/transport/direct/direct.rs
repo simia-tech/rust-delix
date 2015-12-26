@@ -84,10 +84,7 @@ impl Transport for Direct {
                                                              peers)
                                          .unwrap();
 
-                set_up(&mut connection,
-                       &connections_clone,
-                       &services_clone,
-                       &tracker_clone);
+                set_up(&mut connection, &services_clone, &tracker_clone);
 
                 connection.send_services(&services_clone.read().unwrap().local_service_names())
                           .unwrap();
@@ -123,10 +120,7 @@ impl Transport for Direct {
                                                                             self.public_address));
                 tx.send(peers).unwrap();
 
-                set_up(&mut connection,
-                       &self.connections,
-                       &self.services,
-                       &self.tracker);
+                set_up(&mut connection, &self.services, &self.tracker);
 
                 try!(connection.send_services(&self.services
                                                    .read()
@@ -150,9 +144,11 @@ impl Transport for Direct {
     fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
         try!(self.services.write().unwrap().insert_local(name, f));
 
-        for (_, connection) in self.connections.write().unwrap().iter_mut() {
-            try!(connection.send_services(&self.services.read().unwrap().local_service_names()));
-        }
+        self.connections
+            .write()
+            .unwrap()
+            .send_services(&self.services.read().unwrap().local_service_names())
+            .unwrap();
 
         Ok(())
     }
@@ -176,12 +172,11 @@ impl Transport for Direct {
         match *link {
             Link::Local(ref service_handler) => Ok(service_handler(data)),
             Link::Remote(ref peer_node_id) => {
-                let mut connections = self.connections.write().unwrap();
-                let mut connection = connections.get_mut(peer_node_id).unwrap();
-
                 let (request_id, result_channel) = self.tracker.write().unwrap().begin();
-                try!(connection.send_request(request_id, name, data));
-
+                try!(self.connections
+                         .write()
+                         .unwrap()
+                         .send_request(peer_node_id, request_id, name, data));
                 result_channel.recv().unwrap()
             }
         }
@@ -200,12 +195,10 @@ impl fmt::Display for Direct {
 impl Drop for Direct {
     fn drop(&mut self) {
         self.unbind().unwrap();
-        self.connections.read().unwrap().shutdown_all().unwrap();
     }
 }
 
 fn set_up(connection: &mut Connection,
-          connections: &Arc<RwLock<ConnectionMap>>,
           services: &Arc<RwLock<ServiceMap>>,
           tracker: &Arc<RwLock<Tracker<Result<Vec<u8>>>>>) {
 
@@ -233,15 +226,5 @@ fn set_up(connection: &mut Connection,
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, result| {
         tracker_clone.write().unwrap().end(request_id, result).unwrap();
-    }));
-
-    let connections = connections.clone();
-    connection.set_on_shutdown(Box::new(move |peer_node_id| {
-        // remove the connection in a helper thread, otherwise the removed connection will
-        // drop and tries to join its own thread, which results in a panic.
-        let connections = connections.clone();
-        thread::spawn(move || {
-            connections.write().unwrap().remove(&peer_node_id).unwrap();
-        });
     }));
 }
