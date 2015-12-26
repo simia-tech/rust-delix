@@ -19,8 +19,8 @@ use std::sync::{Arc, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-use transport::{Error, Result, Transport};
-use transport::direct::{Connection, ConnectionMap, Link, Tracker, ServiceMap};
+use transport::{self, Result, Transport};
+use transport::direct::{self, Connection, ConnectionMap, Link, Tracker, ServiceMap};
 
 use node::{ID, ServiceHandler};
 
@@ -31,7 +31,7 @@ pub struct Direct {
     public_address: SocketAddr,
     connections: Arc<RwLock<ConnectionMap>>,
     services: Arc<RwLock<ServiceMap>>,
-    tracker: Arc<RwLock<Tracker<Result<Vec<u8>>>>>,
+    tracker: Arc<RwLock<Tracker<direct::ConnectionResult<Vec<u8>>>>>,
 }
 
 impl Direct {
@@ -166,7 +166,7 @@ impl Transport for Direct {
         let services = self.services.read().unwrap();
         let link = match services.get_link(name) {
             Some(link) => link,
-            None => return Err(Error::ServiceDoesNotExists),
+            None => return Err(transport::Error::Connection(direct::ConnectionError::ServiceDoesNotExists)),
         };
 
         match *link {
@@ -177,7 +177,7 @@ impl Transport for Direct {
                          .write()
                          .unwrap()
                          .send_request(peer_node_id, request_id, name, data));
-                result_channel.recv().unwrap()
+                Ok(try!(result_channel.recv().unwrap()))
             }
         }
     }
@@ -200,7 +200,7 @@ impl Drop for Direct {
 
 fn set_up(connection: &mut Connection,
           services: &Arc<RwLock<ServiceMap>>,
-          tracker: &Arc<RwLock<Tracker<Result<Vec<u8>>>>>) {
+          tracker: &Arc<RwLock<Tracker<direct::ConnectionResult<Vec<u8>>>>>) {
 
     let services_clone = services.clone();
     connection.set_on_services(Box::new(move |peer_node_id, services| {
@@ -214,7 +214,7 @@ fn set_up(connection: &mut Connection,
         let services = services_clone.read().unwrap();
         let link = match services.get_link(name) {
             Some(link) => link,
-            None => return Err(Error::ServiceDoesNotExists),
+            None => return Err(direct::ConnectionError::ServiceDoesNotExists),
         };
 
         match *link {

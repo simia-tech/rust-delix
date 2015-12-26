@@ -21,8 +21,7 @@ use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
 use node::ID;
-use transport;
-use transport::direct::Connection;
+use transport::direct::{self, Connection};
 
 pub struct ConnectionMap {
     map: Arc<RwLock<HashMap<ID, Connection>>>,
@@ -34,7 +33,7 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ConnectionAlreadyExists,
-    TransportError(transport::Error),
+    Connection(direct::ConnectionError),
 }
 
 impl ConnectionMap {
@@ -126,8 +125,8 @@ impl Drop for ConnectionMap {
     }
 }
 
-impl From<transport::Error> for Error {
-    fn from(error: transport::Error) -> Self {
-        Error::TransportError(error)
+impl From<direct::ConnectionError> for Error {
+    fn from(error: direct::ConnectionError) -> Self {
+        Error::Connection(error)
     }
 }

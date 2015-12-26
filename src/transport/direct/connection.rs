@@ -14,21 +14,21 @@
 //
 
 use std::fmt;
-use std::io::{Read, Write};
-use std::net::{Shutdown, SocketAddr, TcpStream};
+use std::io::{self, Read, Write};
+use std::net::{self, SocketAddr};
+use std::result;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
-use protobuf::{Message, MessageStatic, parse_from_bytes};
+use protobuf::{self, Message, MessageStatic, parse_from_bytes};
 use message::{Container, Kind, Introduction, Peers, Peer, Request, Response, Response_Kind,
               Services, Service};
-use byteorder::{BigEndian, Error as ByteOrderError, WriteBytesExt, ReadBytesExt};
+use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
-use node::ID;
-use transport::{Error, Result};
+use node::{self, ID};
 
 pub struct Connection {
-    stream: TcpStream,
+    stream: net::TcpStream,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
@@ -41,8 +41,20 @@ pub struct Connection {
     on_shutdown: Arc<Mutex<Option<mpsc::Sender<ID>>>>,
 }
 
+pub type Result<T> = result::Result<T, Error>;
+
+#[derive(Debug)]
+pub enum Error {
+    ConnectionLost,
+    ServiceDoesNotExists,
+    Id(node::IDError),
+    AddrParse(net::AddrParseError),
+    Protobuf(protobuf::ProtobufError),
+    Io(io::Error),
+}
+
 impl Connection {
-    pub fn new_inbound(s: TcpStream,
+    pub fn new_inbound(s: net::TcpStream,
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)])
@@ -56,7 +68,7 @@ impl Connection {
         Ok(connection)
     }
 
-    pub fn new_outbound(s: TcpStream,
+    pub fn new_outbound(s: net::TcpStream,
                         node_id: ID,
                         public_address: SocketAddr)
                         -> Result<(Connection, Vec<(ID, SocketAddr)>)> {
@@ -70,7 +82,7 @@ impl Connection {
         Ok((connection, peers))
     }
 
-    fn new(s: TcpStream,
+    fn new(s: net::TcpStream,
            node_id: ID,
            public_address: SocketAddr)
            -> Result<(Connection, mpsc::Sender<bool>)> {
@@ -103,7 +115,7 @@ impl Connection {
             loop {
                 let container = match read_container(&mut stream) {
                     Ok(container) => container,
-                    Err(Error::ByteOrderError(ByteOrderError::UnexpectedEOF)) => {
+                    Err(Error::ConnectionLost) => {
                         if let Some(ref sender) = *on_shutdown_clone.lock().unwrap() {
                             sender.send(peer_node_id).unwrap();
                         }
@@ -221,8 +233,32 @@ impl fmt::Display for Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.stream.shutdown(Shutdown::Both).unwrap();
+        self.stream.shutdown(net::Shutdown::Both).unwrap();
         self.thread.take().unwrap().join().unwrap();
+    }
+}
+
+impl From<node::IDError> for Error {
+    fn from(error: node::IDError) -> Self {
+        Error::Id(error)
+    }
+}
+
+impl From<net::AddrParseError> for Error {
+    fn from(error: net::AddrParseError) -> Self {
+        Error::AddrParse(error)
+    }
+}
+
+impl From<protobuf::ProtobufError> for Error {
+    fn from(error: protobuf::ProtobufError) -> Self {
+        Error::Protobuf(error)
+    }
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Error::Io(error)
     }
 }
 
@@ -299,7 +335,7 @@ fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<()> {
     let container_bytes = try!(container.write_to_bytes());
     let container_size = container_bytes.len() as u64;
 
-    w.write_u64::<BigEndian>(container_size).unwrap();
+    w.write_u64::<byteorder::BigEndian>(container_size).unwrap();
     w.write(&container_bytes).unwrap();
     w.flush().unwrap();
 
@@ -357,7 +393,11 @@ fn read_packet<T: Message + MessageStatic>(container: &Container) -> Result<T> {
 }
 
 fn read_container(r: &mut Read) -> Result<Container> {
-    let container_size = try!(r.read_u64::<BigEndian>()) as usize;
+    let container_size = match r.read_u64::<byteorder::BigEndian>() {
+        Ok(number) => number as usize,
+        Err(byteorder::Error::UnexpectedEOF) => return Err(Error::ConnectionLost),
+        Err(byteorder::Error::Io(error)) => return Err(Error::Io(error)),
+    };
 
     let mut buffer = Vec::with_capacity(container_size);
     unsafe {

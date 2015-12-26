@@ -13,15 +13,12 @@
 // limitations under the License.
 //
 
-use std::net::{AddrParseError, SocketAddr};
+use std::net::SocketAddr;
 use std::io;
 use std::result;
 
-use protobuf::error::ProtobufError;
-use byteorder::Error as ByteOrderError;
-
-use node::{ID, IDError, ServiceHandler};
-use transport::direct::{ConnectionMapError, ServiceMapError};
+use node::{ID, ServiceHandler};
+use transport::direct;
 
 pub trait Transport : Send + Sync {
     fn bind(&mut self, ID) -> Result<()>;
@@ -40,53 +37,32 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ServiceDoesNotExists,
-    IDError(IDError),
-    AddrParseError(AddrParseError),
-    IOError(io::Error),
-    ByteOrderError(ByteOrderError),
-    ProtobufError(ProtobufError),
-    ConnectionMapError(String),
-    ServiceMapError(ServiceMapError),
-}
-
-impl From<IDError> for Error {
-    fn from(error: IDError) -> Self {
-        Error::IDError(error)
-    }
-}
-
-impl From<AddrParseError> for Error {
-    fn from(error: AddrParseError) -> Self {
-        Error::AddrParseError(error)
-    }
+    Io(io::Error),
+    Connection(direct::ConnectionError),
+    ConnectionMap(direct::ConnectionMapError),
+    ServiceMap(direct::ServiceMapError),
 }
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
-        Error::IOError(error)
+        Error::Io(error)
     }
 }
 
-impl From<ByteOrderError> for Error {
-    fn from(error: ByteOrderError) -> Self {
-        Error::ByteOrderError(error)
+impl From<direct::ConnectionError> for Error {
+    fn from(error: direct::ConnectionError) -> Self {
+        Error::Connection(error)
     }
 }
 
-impl From<ProtobufError> for Error {
-    fn from(error: ProtobufError) -> Self {
-        Error::ProtobufError(error)
+impl From<direct::ConnectionMapError> for Error {
+    fn from(error: direct::ConnectionMapError) -> Self {
+        Error::ConnectionMap(error)
     }
 }
 
-impl From<ConnectionMapError> for Error {
-    fn from(error: ConnectionMapError) -> Self {
-        Error::ConnectionMapError(format!("{:?}", error).to_string())
-    }
-}
-
-impl From<ServiceMapError> for Error {
-    fn from(error: ServiceMapError) -> Self {
-        Error::ServiceMapError(error)
+impl From<direct::ServiceMapError> for Error {
+    fn from(error: direct::ServiceMapError) -> Self {
+        Error::ServiceMap(error)
     }
 }
