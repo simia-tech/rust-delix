@@ -20,9 +20,8 @@ use std::result;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
-use protobuf::{self, Message, MessageStatic, parse_from_bytes};
-use message::{Container, Kind, Introduction, Peers, Peer, Request, Response, Response_Kind,
-              Services, Service};
+use protobuf::{self, Message};
+use message;
 use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
 use node::{self, ID};
@@ -38,7 +37,8 @@ pub struct Connection {
     on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> Result<Vec<u8>> + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, Result<Vec<u8>>) + Send>>>>,
-    on_shutdown: Arc<Mutex<Option<mpsc::Sender<ID>>>>,
+    on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
+    on_drop: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -101,7 +101,7 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
 
-        let on_shutdown: Arc<Mutex<Option<mpsc::Sender<ID>>>> = Arc::new(Mutex::new(None));
+        let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
 
         try!(write_introduction(&mut stream, node_id, public_address));
@@ -116,8 +116,8 @@ impl Connection {
                 let container = match read_container(&mut stream) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
-                        if let Some(ref sender) = *on_shutdown_clone.lock().unwrap() {
-                            sender.send(peer_node_id).unwrap();
+                        if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
+                            f(peer_node_id);
                         }
                         break;
                     }
@@ -127,18 +127,18 @@ impl Connection {
                     }
                 };
                 match container.get_kind() {
-                    Kind::ServicesMessage => {
+                    message::Kind::ServicesMessage => {
                         if let Some(ref f) = *on_services_clone.lock().unwrap() {
                             f(peer_node_id, read_services(&container).unwrap());
                         }
                     }
-                    Kind::RequestMessage => {
+                    message::Kind::RequestMessage => {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let (request_id, name, data) = read_request(&container).unwrap();
                             write_response(&mut stream, request_id, f(&name, &data)).unwrap();
                         }
                     }
-                    Kind::ResponseMessage => {
+                    message::Kind::ResponseMessage => {
                         if let Some(ref f) = *on_response_clone.lock().unwrap() {
                             let (request_id, result) = read_response(&container).unwrap();
                             f(request_id, result);
@@ -161,6 +161,7 @@ impl Connection {
             on_request: on_request,
             on_response: on_response,
             on_shutdown: on_shutdown,
+            on_drop: Arc::new(Mutex::new(None)),
         },
             sender))
     }
@@ -203,12 +204,16 @@ impl Connection {
         *self.on_response.lock().unwrap() = Some(f);
     }
 
-    pub fn set_on_shutdown(&mut self, sender: mpsc::Sender<ID>) {
-        *self.on_shutdown.lock().unwrap() = Some(sender);
+    pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send>) {
+        *self.on_shutdown.lock().unwrap() = Some(f);
     }
 
     pub fn clear_on_shutdown(&mut self) {
         *self.on_shutdown.lock().unwrap() = None;
+    }
+
+    pub fn set_on_drop(&mut self, f: Box<Fn(ID) + Send>) {
+        *self.on_drop.lock().unwrap() = Some(f);
     }
 }
 
@@ -235,6 +240,10 @@ impl Drop for Connection {
     fn drop(&mut self) {
         self.stream.shutdown(net::Shutdown::Both).unwrap();
         self.thread.take().unwrap().join().unwrap();
+
+        if let Some(ref f) = *self.on_drop.lock().unwrap() {
+            f(self.peer_node_id);
+        }
     }
 }
 
@@ -264,71 +273,71 @@ impl From<io::Error> for Error {
 
 fn write_introduction(w: &mut Write, node_id: ID, public_address: SocketAddr) -> Result<()> {
     let mut buffer = Vec::new();
-    let mut introduction = Introduction::new();
+    let mut introduction = message::Introduction::new();
     introduction.set_id(node_id.to_vec());
     introduction.set_public_address(format!("{}", public_address));
     try!(introduction.write_to_vec(&mut buffer));
-    write_container(w, Kind::IntroductionMessage, buffer)
+    write_container(w, message::Kind::IntroductionMessage, buffer)
 }
 
 fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
     let mut buffer = Vec::new();
-    let mut peers_packet = Peers::new();
+    let mut peers_packet = message::Peers::new();
     for peer in peers {
         let (peer_node_id, peer_public_address) = *peer;
-        let mut peer_packet = Peer::new();
+        let mut peer_packet = message::Peer::new();
         peer_packet.set_id(peer_node_id.to_vec());
         peer_packet.set_public_address(format!("{}", peer_public_address));
         peers_packet.mut_peers().push(peer_packet);
     }
     try!(peers_packet.write_to_vec(&mut buffer));
-    write_container(w, Kind::PeersMessage, buffer)
+    write_container(w, message::Kind::PeersMessage, buffer)
 }
 
 fn write_services(w: &mut Write, service_names: &[&str]) -> Result<()> {
     let mut buffer = Vec::new();
-    let mut services_packet = Services::new();
+    let mut services_packet = message::Services::new();
     for service_name in service_names {
-        let mut service_packet = Service::new();
+        let mut service_packet = message::Service::new();
         service_packet.set_name((*service_name).to_string());
         services_packet.mut_services().push(service_packet);
     }
     try!(services_packet.write_to_vec(&mut buffer));
-    write_container(w, Kind::ServicesMessage, buffer)
+    write_container(w, message::Kind::ServicesMessage, buffer)
 }
 
 fn write_request(w: &mut Write, id: u32, name: &str, data: &[u8]) -> Result<()> {
     let mut buffer = Vec::new();
-    let mut request_packet = Request::new();
+    let mut request_packet = message::Request::new();
     request_packet.set_id(id);
     request_packet.set_name(name.to_string());
     request_packet.set_data(data.to_vec());
     try!(request_packet.write_to_vec(&mut buffer));
-    write_container(w, Kind::RequestMessage, buffer)
+    write_container(w, message::Kind::RequestMessage, buffer)
 }
 
 fn write_response(w: &mut Write, request_id: u32, result: Result<Vec<u8>>) -> Result<()> {
     let mut buffer = Vec::new();
-    let mut response_packet = Response::new();
+    let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
     match result {
         Ok(data) => {
-            response_packet.set_kind(Response_Kind::OK);
+            response_packet.set_kind(message::Response_Kind::OK);
             response_packet.set_data(data);
         }
         Err(Error::ServiceDoesNotExists) => {
-            response_packet.set_kind(Response_Kind::ServiceDoesNotExists);
+            response_packet.set_kind(message::Response_Kind::ServiceDoesNotExists);
         }
         Err(_) => {
-            response_packet.set_kind(Response_Kind::UnknownError);
+            response_packet.set_kind(message::Response_Kind::UnknownError);
         }
     }
     try!(response_packet.write_to_vec(&mut buffer));
-    write_container(w, Kind::ResponseMessage, buffer)
+    write_container(w, message::Kind::ResponseMessage, buffer)
 }
 
-fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<()> {
-    let mut container = Container::new();
+fn write_container(w: &mut Write, kind: message::Kind, data: Vec<u8>) -> Result<()> {
+    let mut container = message::Container::new();
     container.set_kind(kind);
     container.set_payload(data);
 
@@ -342,15 +351,15 @@ fn write_container(w: &mut Write, kind: Kind, data: Vec<u8>) -> Result<()> {
     Ok(())
 }
 
-fn read_introduction(container: &Container) -> Result<(ID, SocketAddr)> {
-    let introduction_packet = try!(read_packet::<Introduction>(&container));
+fn read_introduction(container: &message::Container) -> Result<(ID, SocketAddr)> {
+    let introduction_packet = try!(read_packet::<message::Introduction>(&container));
     Ok((try!(ID::new(introduction_packet.get_id().to_vec())),
         try!(introduction_packet.get_public_address()
                                 .parse::<SocketAddr>())))
 }
 
-fn read_peers(container: &Container) -> Result<Vec<(ID, SocketAddr)>> {
-    Ok(try!(read_packet::<Peers>(&container))
+fn read_peers(container: &message::Container) -> Result<Vec<(ID, SocketAddr)>> {
+    Ok(try!(read_packet::<message::Peers>(&container))
            .get_peers()
            .iter()
            .map(|peer_packet| {
@@ -362,8 +371,8 @@ fn read_peers(container: &Container) -> Result<Vec<(ID, SocketAddr)>> {
            .collect())
 }
 
-fn read_services(container: &Container) -> Result<Vec<String>> {
-    Ok(try!(read_packet::<Services>(&container))
+fn read_services(container: &message::Container) -> Result<Vec<String>> {
+    Ok(try!(read_packet::<message::Services>(&container))
            .get_services()
            .to_vec()
            .iter()
@@ -371,28 +380,29 @@ fn read_services(container: &Container) -> Result<Vec<String>> {
            .collect())
 }
 
-fn read_request(container: &Container) -> Result<(u32, String, Vec<u8>)> {
-    let request_packet = try!(read_packet::<Request>(&container));
+fn read_request(container: &message::Container) -> Result<(u32, String, Vec<u8>)> {
+    let request_packet = try!(read_packet::<message::Request>(&container));
     Ok((request_packet.get_id(),
         request_packet.get_name().to_string(),
         request_packet.get_data().to_vec()))
 }
 
-fn read_response(container: &Container) -> Result<(u32, Result<Vec<u8>>)> {
-    let response_packet = try!(read_packet::<Response>(&container));
+fn read_response(container: &message::Container) -> Result<(u32, Result<Vec<u8>>)> {
+    let response_packet = try!(read_packet::<message::Response>(&container));
     let result = match response_packet.get_kind() {
-        Response_Kind::OK => Ok(response_packet.get_data().to_vec()),
-        Response_Kind::ServiceDoesNotExists => Err(Error::ServiceDoesNotExists),
-        Response_Kind::UnknownError => Err(Error::ServiceDoesNotExists),
+        message::Response_Kind::OK => Ok(response_packet.get_data().to_vec()),
+        message::Response_Kind::ServiceDoesNotExists => Err(Error::ServiceDoesNotExists),
+        message::Response_Kind::UnknownError => Err(Error::ServiceDoesNotExists),
     };
     Ok((response_packet.get_request_id(), result))
 }
 
-fn read_packet<T: Message + MessageStatic>(container: &Container) -> Result<T> {
-    Ok(try!(parse_from_bytes::<T>(container.get_payload())))
+fn read_packet<T: protobuf::Message + protobuf::MessageStatic>(container: &message::Container)
+                                                               -> Result<T> {
+    Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
 }
 
-fn read_container(r: &mut Read) -> Result<Container> {
+fn read_container(r: &mut Read) -> Result<message::Container> {
     let container_size = match r.read_u64::<byteorder::BigEndian>() {
         Ok(number) => number as usize,
         Err(byteorder::Error::UnexpectedEOF) => return Err(Error::ConnectionLost),
@@ -405,5 +415,5 @@ fn read_container(r: &mut Read) -> Result<Container> {
     }
     r.read(&mut buffer).unwrap();
 
-    Ok(try!(parse_from_bytes::<Container>(&buffer)))
+    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&buffer)))
 }

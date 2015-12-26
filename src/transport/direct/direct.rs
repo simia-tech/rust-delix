@@ -154,7 +154,7 @@ impl Transport for Direct {
     }
 
     fn deregister(&mut self, name: &str) -> Result<()> {
-        try!(self.services.write().unwrap().remove(name));
+        try!(self.services.write().unwrap().remove_local(name));
         Ok(())
     }
 
@@ -226,5 +226,10 @@ fn set_up(connection: &mut Connection,
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, result| {
         tracker_clone.write().unwrap().end(request_id, result).unwrap();
+    }));
+
+    let services_clone = services.clone();
+    connection.set_on_drop(Box::new(move |peer_node_id| {
+        services_clone.write().unwrap().remove_remote(&peer_node_id).unwrap();
     }));
 }

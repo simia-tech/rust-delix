@@ -58,7 +58,12 @@ impl ConnectionMap {
         if map.contains_key(&connection.peer_node_id()) {
             return Err(Error::ConnectionAlreadyExists);
         }
-        connection.set_on_shutdown(self.sender.clone());
+
+        let sender = self.sender.clone();
+        connection.set_on_shutdown(Box::new(move |peer_node_id| {
+            sender.send(peer_node_id).unwrap()
+        }));
+
         map.insert(connection.peer_node_id(), connection);
         Ok(())
     }
