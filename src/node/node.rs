@@ -14,7 +14,6 @@
 //
 
 use std::fmt;
-use std::io;
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,7 +36,6 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     NoSocketAddr,
-    IO(io::Error),
     Transport(transport::Error),
 }
 
