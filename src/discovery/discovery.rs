@@ -16,5 +16,5 @@
 use std::net::SocketAddr;
 
 pub trait Discovery : Send + Sync {
-    fn discover(&mut self) -> Option<SocketAddr>;
+    fn discover(&self) -> Option<SocketAddr>;
 }

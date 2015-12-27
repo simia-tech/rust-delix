@@ -21,15 +21,15 @@ use node::{ID, ServiceHandler};
 use transport::direct;
 
 pub trait Transport : Send + Sync {
-    fn bind(&mut self, ID) -> Result<()>;
-    fn join(&mut self, SocketAddr, ID) -> Result<()>;
+    fn bind(&self, ID) -> Result<()>;
+    fn join(&self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
 
-    fn register(&mut self, &str, Box<ServiceHandler>) -> Result<()>;
-    fn deregister(&mut self, &str) -> Result<()>;
+    fn register(&self, &str, Box<ServiceHandler>) -> Result<()>;
+    fn deregister(&self, &str) -> Result<()>;
     fn service_count(&self) -> usize;
 
-    fn request(&mut self, &str, &[u8]) -> Result<Vec<u8>>;
+    fn request(&self, &str, &[u8]) -> Result<Vec<u8>>;
 }
 
 pub type Result<T> = result::Result<T, Error>;

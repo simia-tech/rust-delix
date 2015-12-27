@@ -14,29 +14,33 @@
 //
 
 use std::net::SocketAddr;
+use std::sync::RwLock;
 
 use discovery::Discovery;
 
 pub struct Constant {
-    addresses: Vec<SocketAddr>,
-    current_index: usize,
+    addresses: RwLock<Vec<SocketAddr>>,
+    current_index: RwLock<usize>,
 }
 
 impl Constant {
     pub fn new(addresses: Vec<SocketAddr>) -> Constant {
         Constant {
-            addresses: addresses,
-            current_index: 0,
+            addresses: RwLock::new(addresses),
+            current_index: RwLock::new(0),
         }
     }
 }
 
 impl Discovery for Constant {
-    fn discover(&mut self) -> Option<SocketAddr> {
-        let result = self.addresses.get(self.current_index);
-        self.current_index += 1;
-        if self.current_index >= self.addresses.len() {
-            self.current_index = 0;
+    fn discover(&self) -> Option<SocketAddr> {
+        let addresses = self.addresses.read().unwrap();
+        let mut current_index = self.current_index.write().unwrap();
+
+        let result = addresses.get(*current_index);
+        *current_index += 1;
+        if *current_index >= addresses.len() {
+            *current_index = 0;
         }
         result.map(|address| *address)
     }

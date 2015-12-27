@@ -15,7 +15,7 @@
 
 use std::fmt;
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::sync::{Arc, mpsc};
+use std::sync::{Arc, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -25,7 +25,7 @@ use transport::direct::{self, Connection, ConnectionMap, Tracker, ServiceMap, Se
 use node::{ID, ServiceHandler};
 
 pub struct Direct {
-    thread: Option<thread::JoinHandle<()>>,
+    join_handle: RwLock<Option<thread::JoinHandle<()>>>,
     running: Arc<AtomicBool>,
     local_address: SocketAddr,
     public_address: SocketAddr,
@@ -37,7 +37,7 @@ pub struct Direct {
 impl Direct {
     pub fn new(local_address: SocketAddr, public_address: Option<SocketAddr>) -> Direct {
         Direct {
-            thread: None,
+            join_handle: RwLock::new(None),
             running: Arc::new(AtomicBool::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
@@ -49,17 +49,17 @@ impl Direct {
 
     fn unbind(&mut self) -> Result<()> {
         self.running.store(false, Ordering::SeqCst);
-        if let Some(thread) = self.thread.take() {
-            // connect to local address to enable thread to escape the accept loop.
+        if let Some(join_handle) = self.join_handle.write().unwrap().take() {
+            // connect to local address to enable the thread to escape the accept loop.
             try!(TcpStream::connect(self.local_address));
-            thread.join().unwrap();
+            join_handle.join().unwrap();
         }
         Ok(())
     }
 }
 
 impl Transport for Direct {
-    fn bind(&mut self, node_id: ID) -> Result<()> {
+    fn bind(&self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(self.local_address));
 
         let public_address = self.public_address;
@@ -67,7 +67,7 @@ impl Transport for Direct {
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
-        self.thread = Some(thread::spawn(move || {
+        *self.join_handle.write().unwrap() = Some(thread::spawn(move || {
             running_clone.store(true, Ordering::SeqCst);
             for stream in tcp_listener.incoming() {
                 if !running_clone.load(Ordering::SeqCst) {
@@ -95,7 +95,7 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn join(&mut self, address: SocketAddr, node_id: ID) -> Result<()> {
+    fn join(&self, address: SocketAddr, node_id: ID) -> Result<()> {
         let (tx, rx) = mpsc::channel();
         let mut pending_peers_count = 1;
         tx.send(vec![(ID::new_random(), address)]).unwrap();
@@ -135,7 +135,7 @@ impl Transport for Direct {
         self.connections.len()
     }
 
-    fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
+    fn register(&self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
         try!(self.services.insert_local(name, f));
 
         self.connections.send_services(&self.services.local_service_names()).unwrap();
@@ -143,7 +143,7 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn deregister(&mut self, name: &str) -> Result<()> {
+    fn deregister(&self, name: &str) -> Result<()> {
         try!(self.services.remove_local(name));
         Ok(())
     }
@@ -152,7 +152,7 @@ impl Transport for Direct {
         self.services.len()
     }
 
-    fn request(&mut self, name: &str, data: &[u8]) -> Result<Vec<u8>> {
+    fn request(&self, name: &str, data: &[u8]) -> Result<Vec<u8>> {
         Ok(try!(self.services
                     .call_handler_or(name, data, |peer_node_id| -> ServiceMapResult<Vec<u8>> {
                         let (request_id, result_channel) = self.tracker.begin();

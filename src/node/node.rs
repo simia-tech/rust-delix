@@ -16,7 +16,7 @@
 use std::fmt;
 use std::io;
 use std::result;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -27,8 +27,8 @@ use transport::Transport;
 
 pub struct Node {
     id: ID,
-    transport: Arc<RwLock<Box<Transport>>>,
-    thread: Option<thread::JoinHandle<()>>,
+    transport: Arc<Box<Transport>>,
+    join_handle: Option<thread::JoinHandle<()>>,
     running: Arc<AtomicBool>,
 }
 
@@ -45,22 +45,22 @@ impl Node {
     pub fn new(d: Box<Discovery>, t: Box<Transport>) -> Result<Node> {
         let node_id = ID::new_random();
 
+        try!(t.bind(node_id));
+
         let running = Arc::new(AtomicBool::new(true));
         let running_clone = running.clone();
 
-        let discovery = Arc::new(RwLock::new(d));
-        let transport = Arc::new(RwLock::new(t));
+        let discovery = Arc::new(d);
+        let transport = Arc::new(t);
 
         let discovery_clone = discovery.clone();
         let transport_clone = transport.clone();
 
-        try!(transport_clone.write().unwrap().bind(node_id));
-
-        let thread = Some(thread::spawn(move || {
+        let join_handle = Some(thread::spawn(move || {
             while running_clone.load(Ordering::SeqCst) {
-                if transport_clone.read().unwrap().connection_count() == 0 {
-                    if let Some(address) = discovery_clone.write().unwrap().discover() {
-                        if let Err(err) = transport_clone.write().unwrap().join(address, node_id) {
+                if transport_clone.connection_count() == 0 {
+                    if let Some(address) = discovery_clone.discover() {
+                        if let Err(err) = transport_clone.join(address, node_id) {
                             println!("{}: failed to connect to {}: {:?}", node_id, address, err);
                         }
                     }
@@ -72,7 +72,7 @@ impl Node {
         Ok(Node {
             id: node_id,
             transport: transport,
-            thread: thread,
+            join_handle: join_handle,
             running: running,
         })
     }
@@ -82,42 +82,33 @@ impl Node {
     }
 
     pub fn state(&self) -> State {
-        match self.transport.read() {
-            Ok(transport) => {
-                if transport.connection_count() == 0 {
-                    State::Discovering
-                } else {
-                    State::Joined
-                }
-            }
-            Err(_) => State::Down,
+        if self.transport.connection_count() == 0 {
+            State::Discovering
+        } else {
+            State::Joined
         }
-
     }
 
     pub fn connection_count(&self) -> usize {
-        match self.transport.read() {
-            Ok(transport) => transport.connection_count(),
-            Err(_) => 0,
-        }
+        self.transport.connection_count()
     }
 
     pub fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
-        try!(self.transport.write().unwrap().register(name, f));
+        try!(self.transport.register(name, f));
         Ok(())
     }
 
     pub fn deregister(&mut self, name: &str) -> Result<()> {
-        try!(self.transport.write().unwrap().deregister(name));
+        try!(self.transport.deregister(name));
         Ok(())
     }
 
     pub fn service_count(&self) -> usize {
-        self.transport.read().unwrap().service_count()
+        self.transport.service_count()
     }
 
     pub fn request(&self, name: &str, request: &[u8]) -> Result<Vec<u8>> {
-        Ok(try!(self.transport.write().unwrap().request(name, request)))
+        Ok(try!(self.transport.request(name, request)))
     }
 }
 
@@ -134,18 +125,12 @@ impl fmt::Display for Node {
 impl Drop for Node {
     fn drop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
-        self.thread.take().unwrap().join().unwrap();
+        self.join_handle.take().unwrap().join().unwrap();
     }
 }
 
 impl From<transport::Error> for Error {
     fn from(error: transport::Error) -> Self {
         Error::Transport(error)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Error::IO(error)
     }
 }
