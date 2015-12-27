@@ -22,9 +22,7 @@ const ID_BITS: usize = 40;
 const ID_BYTES: usize = ID_BITS / 8;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
-pub struct ID {
-    value: [u8; ID_BYTES],
-}
+pub struct ID([u8; ID_BYTES]);
 
 pub type Result<T> = ::std::result::Result<T, Error>;
 
@@ -35,24 +33,24 @@ pub enum Error {
 }
 
 impl ID {
-    pub fn new(value: Vec<u8>) -> Result<ID> {
+    pub fn new_random() -> ID {
+        ID(random::<[u8; ID_BYTES]>())
+    }
+
+    pub fn from_vec(value: Vec<u8>) -> Result<ID> {
         if value.len() != ID_BYTES {
             return Err(Error::InvalidLength(value.len()));
         }
-        let mut id = ID { value: [0; ID_BYTES] };
+        let mut id = ID([0; ID_BYTES]);
         for index in 0..ID_BYTES {
-            id.value[index] = value[index];
+            id.0[index] = value[index];
         }
         Ok(id)
     }
 
-    pub fn new_random() -> ID {
-        ID { value: random::<[u8; ID_BYTES]>() }
-    }
-
     pub fn to_vec(&self) -> Vec<u8> {
         let mut result = Vec::new();
-        for item in self.value.iter() {
+        for item in self.0.iter() {
             result.push(*item);
         }
         result
@@ -63,14 +61,13 @@ impl FromStr for ID {
     type Err = Error;
 
     fn from_str(s: &str) -> Result<Self> {
-        let bytes = try!(s.from_hex());
-        ID::new(bytes)
+        ID::from_vec(try!(s.from_hex()))
     }
 }
 
 impl ToHex for ID {
     fn to_hex(&self) -> String {
-        self.value.to_hex()
+        self.0.to_hex()
     }
 }
 

@@ -353,7 +353,7 @@ fn write_container(w: &mut Write, kind: message::Kind, data: Vec<u8>) -> Result<
 
 fn read_introduction(container: &message::Container) -> Result<(ID, SocketAddr)> {
     let introduction_packet = try!(read_packet::<message::Introduction>(&container));
-    Ok((try!(ID::new(introduction_packet.get_id().to_vec())),
+    Ok((try!(ID::from_vec(introduction_packet.get_id().to_vec())),
         try!(introduction_packet.get_public_address()
                                 .parse::<SocketAddr>())))
 }
@@ -363,7 +363,7 @@ fn read_peers(container: &message::Container) -> Result<Vec<(ID, SocketAddr)>> {
            .get_peers()
            .iter()
            .map(|peer_packet| {
-               (ID::new(peer_packet.get_id().to_vec()).unwrap(),
+               (ID::from_vec(peer_packet.get_id().to_vec()).unwrap(),
                 peer_packet.get_public_address()
                            .parse::<SocketAddr>()
                            .unwrap())
