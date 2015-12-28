@@ -19,10 +19,12 @@ use std::sync::{Arc, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
-use transport::{Result, Transport};
-use transport::direct::{self, Connection, ConnectionMap, Tracker, ServiceMap, ServiceMapResult};
+use time::Duration;
 
-use node::{ID, ServiceHandler};
+use transport::{Result, Transport};
+use transport::direct::{Connection, ConnectionMap, Tracker, ServiceMap};
+
+use node::{ID, request};
 
 pub struct Direct {
     join_handle: RwLock<Option<thread::JoinHandle<()>>>,
@@ -31,11 +33,14 @@ pub struct Direct {
     public_address: SocketAddr,
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
-    tracker: Arc<Tracker<direct::ConnectionResult<Vec<u8>>>>,
+    tracker: Arc<Tracker>,
 }
 
 impl Direct {
-    pub fn new(local_address: SocketAddr, public_address: Option<SocketAddr>) -> Direct {
+    pub fn new(local_address: SocketAddr,
+               public_address: Option<SocketAddr>,
+               request_timeout: Option<Duration>)
+               -> Direct {
         Direct {
             join_handle: RwLock::new(None),
             running: Arc::new(AtomicBool::new(false)),
@@ -43,7 +48,7 @@ impl Direct {
             public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(ConnectionMap::new()),
             services: Arc::new(ServiceMap::new()),
-            tracker: Arc::new(Tracker::new()),
+            tracker: Arc::new(Tracker::new(request_timeout)),
         }
     }
 
@@ -135,7 +140,7 @@ impl Transport for Direct {
         self.connections.len()
     }
 
-    fn register(&self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
+    fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
         try!(self.services.insert_local(name, f));
 
         self.connections.send_services(&self.services.local_service_names()).unwrap();
@@ -152,13 +157,16 @@ impl Transport for Direct {
         self.services.len()
     }
 
-    fn request(&self, name: &str, data: &[u8]) -> Result<Vec<u8>> {
-        Ok(try!(self.services
-                    .call_handler_or(name, data, |peer_node_id| -> ServiceMapResult<Vec<u8>> {
-                        let (request_id, result_channel) = self.tracker.begin();
-                        try!(self.connections.send_request(&peer_node_id, request_id, name, data));
-                        Ok(try!(result_channel.recv().unwrap()))
-                    })))
+    fn request(&self, name: &str, data: &[u8]) -> request::Response {
+        self.services
+            .call_local_handler_or(name, data, |peer_node_id| {
+                let (request_id, result_channel) = self.tracker
+                                                       .begin();
+                self.connections
+                    .send_request(&peer_node_id, request_id, name, data)
+                    .unwrap();
+                result_channel.recv().unwrap()
+            })
     }
 }
 
@@ -177,10 +185,7 @@ impl Drop for Direct {
     }
 }
 
-fn set_up(connection: &mut Connection,
-          services: &Arc<ServiceMap>,
-          tracker: &Arc<Tracker<direct::ConnectionResult<Vec<u8>>>>) {
-
+fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc<Tracker>) {
     let services_clone = services.clone();
     connection.set_on_services(Box::new(move |peer_node_id, services| {
         for service in services {
@@ -190,15 +195,14 @@ fn set_up(connection: &mut Connection,
 
     let services_clone = services.clone();
     connection.set_on_request(Box::new(move |name, data| {
-        Ok(services_clone.call_handler_or(name, data, |_| -> ServiceMapResult<Vec<u8>> {
-                             unimplemented!();
-                         })
-                         .unwrap())
+        services_clone.call_local_handler_or(name, data, |_| {
+            unimplemented!();
+        })
     }));
 
     let tracker_clone = tracker.clone();
-    connection.set_on_response(Box::new(move |request_id, result| {
-        tracker_clone.end(request_id, result).unwrap();
+    connection.set_on_response(Box::new(move |request_id, response| {
+        tracker_clone.end(request_id, response).unwrap();
     }));
 
     let services_clone = services.clone();

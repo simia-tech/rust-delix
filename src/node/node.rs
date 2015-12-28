@@ -20,7 +20,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use discovery::Discovery;
-use node::{ID, ServiceHandler, State};
+use node::{ID, State, request};
 use transport;
 use transport::Transport;
 
@@ -91,7 +91,7 @@ impl Node {
         self.transport.connection_count()
     }
 
-    pub fn register(&mut self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
+    pub fn register(&mut self, name: &str, f: Box<request::Handler>) -> Result<()> {
         try!(self.transport.register(name, f));
         Ok(())
     }
@@ -105,7 +105,7 @@ impl Node {
         self.transport.service_count()
     }
 
-    pub fn request(&self, name: &str, request: &[u8]) -> Result<Vec<u8>> {
+    pub fn request(&self, name: &str, request: &[u8]) -> request::Response {
         Ok(try!(self.transport.request(name, request)))
     }
 }

@@ -28,7 +28,7 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
                                                                  s.parse::<SocketAddr>().unwrap()
                                                              })
                                                              .collect()));
-    let transport = Box::new(Direct::new(local_address.parse::<SocketAddr>().unwrap(), None));
+    let transport = Box::new(Direct::new(local_address.parse::<SocketAddr>().unwrap(), None, None));
     Node::new(discovery, transport).unwrap()
 }
 

@@ -17,7 +17,7 @@ use std::net::SocketAddr;
 use std::io;
 use std::result;
 
-use node::{ID, ServiceHandler};
+use node::{ID, request};
 use transport::direct;
 
 pub trait Transport : Send + Sync {
@@ -25,11 +25,11 @@ pub trait Transport : Send + Sync {
     fn join(&self, SocketAddr, ID) -> Result<()>;
     fn connection_count(&self) -> usize;
 
-    fn register(&self, &str, Box<ServiceHandler>) -> Result<()>;
+    fn register(&self, &str, Box<request::Handler>) -> Result<()>;
     fn deregister(&self, &str) -> Result<()>;
     fn service_count(&self) -> usize;
 
-    fn request(&self, &str, &[u8]) -> Result<Vec<u8>>;
+    fn request(&self, &str, &[u8]) -> request::Response;
 }
 
 pub type Result<T> = result::Result<T, Error>;

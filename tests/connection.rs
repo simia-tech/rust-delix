@@ -44,7 +44,7 @@ fn loose_and_service_clean_up() {
     {
         let mut node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
         node_two.register("echo", Box::new(|request| {
-            request.to_vec()
+            Ok(request.to_vec())
         })).unwrap();
 
         sleep_ms(1000);

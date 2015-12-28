@@ -18,7 +18,7 @@ mod connection;
 mod connection_map;
 mod direct;
 mod service_map;
-mod tracker;
+pub mod tracker;
 
 pub use transport::direct::connection::Connection;
 pub use transport::direct::connection::Error as ConnectionError;
@@ -28,5 +28,4 @@ pub use transport::direct::connection_map::Error as ConnectionMapError;
 pub use transport::direct::direct::Direct;
 pub use transport::direct::service_map::ServiceMap;
 pub use transport::direct::service_map::Error as ServiceMapError;
-pub use transport::direct::service_map::Result as ServiceMapResult;
 pub use transport::direct::tracker::Tracker;

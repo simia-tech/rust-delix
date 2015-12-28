@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{RwLock, RwLockWriteGuard};
 
-use node::{ID, ServiceHandler};
+use node::{ID, request};
 use transport::direct;
 
 pub struct ServiceMap {
@@ -25,7 +25,7 @@ pub struct ServiceMap {
 }
 
 enum Link {
-    Local(Box<ServiceHandler>),
+    Local(Box<request::Handler>),
     Remote(ID),
 }
 
@@ -44,7 +44,7 @@ impl ServiceMap {
         ServiceMap { map: RwLock::new(HashMap::new()) }
     }
 
-    pub fn insert_local(&self, name: &str, f: Box<ServiceHandler>) -> Result<()> {
+    pub fn insert_local(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
         let mut map = self.map.write().unwrap();
 
         let mut links = get_or_add_links(&mut map, name);
@@ -73,20 +73,20 @@ impl ServiceMap {
         Ok(())
     }
 
-    pub fn call_handler_or<F: Fn(ID) -> Result<Vec<u8>>>(&self,
-                                                         name: &str,
-                                                         data: &[u8],
-                                                         f: F)
-                                                         -> Result<Vec<u8>> {
+    pub fn call_local_handler_or<F>(&self, name: &str, data: &[u8], f: F) -> request::Response
+        where F: Fn(ID) -> request::Response
+    {
         let map = self.map.read().unwrap();
 
         let link = match map.get(name).and_then(|links| links.first()) {
             Some(link) => link,
-            None => return Err(Error::ServiceDoesNotExists),
+            None => return Err(request::Error::ServiceDoesNotExists),
         };
 
         match *link {
-            Link::Local(ref service_handler) => Ok(service_handler(data)),
+            Link::Local(ref service_handler) => {
+                service_handler(data).map_err(|text| request::Error::Internal(text))
+            }
             Link::Remote(ref peer_node_id) => f(*peer_node_id),
         }
     }
@@ -188,8 +188,9 @@ mod tests {
     fn insert_local() {
         let service_map = ServiceMap::new();
 
-        assert!(service_map.insert_local("test", Box::new(|request| request.to_vec())).is_ok());
-        assert!(service_map.insert_local("test", Box::new(|request| request.to_vec())).is_err());
+        assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).is_ok());
+        assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec())))
+                           .is_err());
         assert!(service_map.insert_remote("test", ID::new_random()).is_ok());
 
         assert_eq!(vec!["test"], service_map.local_service_names());
@@ -203,7 +204,7 @@ mod tests {
         assert!(service_map.insert_remote("test", node_id).is_ok());
         assert!(service_map.insert_remote("test", node_id).is_err());
         assert!(service_map.insert_remote("test", ID::new_random()).is_ok());
-        assert!(service_map.insert_local("test", Box::new(|request| request.to_vec())).is_ok());
+        assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).is_ok());
 
         assert_eq!(vec!["test"], service_map.local_service_names());
     }
@@ -211,7 +212,7 @@ mod tests {
     #[test]
     fn remove_local() {
         let service_map = ServiceMap::new();
-        service_map.insert_local("test", Box::new(|request| request.to_vec())).unwrap();
+        service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
         service_map.insert_remote("test", ID::new_random()).unwrap();
 
         assert!(service_map.remove_local("test").is_ok());
@@ -222,7 +223,7 @@ mod tests {
     #[test]
     fn remove_local_and_clean_up() {
         let service_map = ServiceMap::new();
-        service_map.insert_local("test", Box::new(|request| request.to_vec())).unwrap();
+        service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
 
         assert!(service_map.remove_local("test").is_ok());
 
@@ -234,7 +235,7 @@ mod tests {
         let node_id = ID::new_random();
         let service_map = ServiceMap::new();
         service_map.insert_remote("test", node_id).unwrap();
-        service_map.insert_local("test", Box::new(|request| request.to_vec())).unwrap();
+        service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
 
         assert!(service_map.remove_remote(&node_id).is_ok());
 

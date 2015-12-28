@@ -6,3 +6,4 @@ addresses = [ ]
 [transport]
 type = "direct"
 local_address = "127.0.0.1:4001"
+request_timeout_ms = 500

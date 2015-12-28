@@ -50,6 +50,10 @@ impl Configuration {
         Ok(Configuration { root: value })
     }
 
+    pub fn i64_at(&self, path: &str) -> Option<i64> {
+        self.root.lookup(path).and_then(|value| value.as_integer())
+    }
+
     pub fn string_at(&self, path: &str) -> Option<String> {
         self.root.lookup(path).and_then(|value| value.as_str()).map(|value| value.to_string())
     }

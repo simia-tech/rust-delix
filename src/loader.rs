@@ -16,6 +16,7 @@
 use std::net::SocketAddr;
 use std::net::AddrParseError;
 use std::result;
+use time::Duration;
 
 use delix::node;
 use delix::node::Node;
@@ -74,7 +75,9 @@ impl Loader {
                     Some(public_address) => Some(try!(public_address.parse::<SocketAddr>())),
                     None => None,
                 };
-                Box::new(Direct::new(local_address, public_address))
+                let request_timeout = configuration.i64_at("transport.request_timeout_ms")
+                                                   .map(|value| Duration::milliseconds(value));
+                Box::new(Direct::new(local_address, public_address, request_timeout))
             }
             _ => return Err(Error::UnknownTransportType(transport_type)),
         };

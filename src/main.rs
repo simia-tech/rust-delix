@@ -19,6 +19,8 @@ extern crate delix;
 #[cfg(not(test))]
 extern crate getopts;
 #[cfg(not(test))]
+extern crate time;
+#[cfg(not(test))]
 extern crate toml;
 
 #[cfg(not(test))]

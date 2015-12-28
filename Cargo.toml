@@ -5,8 +5,9 @@ authors = ["Philipp Brüll <bruell@simia.tech>"]
 
 [dependencies]
 byteorder = "0.4.2"
-getopts = "0.2.14"
-protobuf = "1.0.4"
+getopts = "0.2"
+protobuf = "1.0"
 rand = "0.3"
 rustc-serialize = "0.3"
-toml = "0.1.25"
+time = "0.1"
+toml = "0.1"

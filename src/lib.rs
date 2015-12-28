@@ -14,10 +14,11 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+extern crate byteorder;
+extern crate protobuf;
 extern crate rand;
 extern crate rustc_serialize;
-extern crate protobuf;
-extern crate byteorder;
+extern crate time;
 
 pub mod discovery;
 pub mod message;

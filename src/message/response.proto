@@ -5,7 +5,8 @@ message Response {
   enum Kind {
     OK = 1;
     ServiceDoesNotExists = 2;
-    UnknownError = 3;
+    Timeout = 3;
+    Internal = 4;
   }
 
   optional uint32 request_id = 1;

@@ -26,7 +26,7 @@ use helper::{assert_node, build_node};
 #[test]
 fn single_echo_from_local() {
     let mut node = build_node("127.0.0.1:3001", &[]);
-    node.register("echo", Box::new(|request| request.to_vec()))
+    node.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
     sleep_ms(100);
@@ -39,7 +39,7 @@ fn single_echo_from_local() {
 #[test]
 fn single_echo_from_remote() {
     let mut node_one = build_node("127.0.0.1:3011", &[]);
-    node_one.register("echo", Box::new(|request| request.to_vec()))
+    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
     let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
@@ -55,7 +55,7 @@ fn single_echo_from_remote() {
 #[test]
 fn multiple_echos_from_remote() {
     let mut node_one = build_node("127.0.0.1:3021", &[]);
-    node_one.register("echo", Box::new(|request| request.to_vec()))
+    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
     let node_two = build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
