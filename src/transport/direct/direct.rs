@@ -26,6 +26,7 @@ use transport::direct::{Balancer, Connection, ConnectionMap, Tracker, ServiceMap
 use transport::direct::tracker::{Statistic, Subject};
 
 use node::{ID, request};
+use stats::StatCollector;
 
 pub struct Direct {
     join_handle: RwLock<Option<thread::JoinHandle<()>>>,
@@ -35,13 +36,15 @@ pub struct Direct {
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
     tracker: Arc<Tracker>,
+    stat_collector: Arc<Box<StatCollector>>,
 }
 
 impl Direct {
     pub fn new(balancer: Box<Balancer>,
                local_address: SocketAddr,
                public_address: Option<SocketAddr>,
-               request_timeout: Option<Duration>)
+               request_timeout: Option<Duration>,
+               stat_collector: Box<StatCollector>)
                -> Direct {
 
         let statistic = Arc::new(Statistic::new());
@@ -55,6 +58,7 @@ impl Direct {
             connections: Arc::new(ConnectionMap::new()),
             services: Arc::new(ServiceMap::new(balancer)),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
+            stat_collector: Arc::new(stat_collector),
         }
     }
 
@@ -78,6 +82,7 @@ impl Transport for Direct {
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
+        let stat_collector_clone = self.stat_collector.clone();
         *self.join_handle.write().unwrap() = Some(thread::spawn(move || {
             running_clone.store(true, Ordering::SeqCst);
             for stream in tcp_listener.incoming() {
@@ -100,6 +105,8 @@ impl Transport for Direct {
 
                 println!("{}: inbound {}", node_id, connection);
                 connections_clone.add(connection).unwrap();
+                stat_collector_clone.increment(
+                    &["transport", "direct", "connections", "inbound"]);
             }
         }));
 
@@ -134,6 +141,8 @@ impl Transport for Direct {
 
                 println!("{}: outbound {}", node_id, connection);
                 self.connections.add(connection).unwrap();
+                self.stat_collector.increment(
+                    &["transport", "direct", "connections", "outbound"]);
             }
 
             pending_peers_count -= 1;

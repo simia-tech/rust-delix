@@ -25,6 +25,7 @@ use delix::discovery::Discovery;
 use delix::transport::Transport;
 use delix::transport::Direct;
 use delix::transport::direct::{Balancer, balancer};
+use delix::stats::NullStatCollector;
 use configuration::Configuration;
 
 #[derive(Debug)]
@@ -91,7 +92,7 @@ impl Loader {
                     _ => return Err(Error::UnknownBalancerType(balancer_type)),
                 };
 
-                Box::new(Direct::new(balancer, local_address, public_address, request_timeout))
+                Box::new(Direct::new(balancer, local_address, public_address, request_timeout, Box::new(NullStatCollector::new()))
             }
             _ => return Err(Error::UnknownTransportType(transport_type)),
         };
