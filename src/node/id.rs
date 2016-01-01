@@ -21,7 +21,7 @@ use rustc_serialize::hex::{FromHex, FromHexError, ToHex};
 const ID_BITS: usize = 40;
 const ID_BYTES: usize = ID_BITS / 8;
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
+#[derive(Clone, Copy, PartialEq, Eq, Hash)]
 pub struct ID([u8; ID_BYTES]);
 
 pub type Result<T> = ::std::result::Result<T, Error>;
@@ -74,6 +74,12 @@ impl ToHex for ID {
 impl fmt::Display for ID {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "{}", self.to_hex())
+    }
+}
+
+impl fmt::Debug for ID {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "ID({})", self.to_hex())
     }
 }
 

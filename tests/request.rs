@@ -25,7 +25,7 @@ use helper::{assert_node, build_node};
 
 #[test]
 fn single_echo_from_local() {
-    let mut node = build_node("127.0.0.1:3001", &[]);
+    let node = build_node("127.0.0.1:3001", &[]);
     node.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
@@ -38,7 +38,7 @@ fn single_echo_from_local() {
 
 #[test]
 fn single_echo_from_remote() {
-    let mut node_one = build_node("127.0.0.1:3011", &[]);
+    let node_one = build_node("127.0.0.1:3011", &[]);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
@@ -54,7 +54,7 @@ fn single_echo_from_remote() {
 
 #[test]
 fn multiple_echos_from_remote() {
-    let mut node_one = build_node("127.0.0.1:3021", &[]);
+    let node_one = build_node("127.0.0.1:3021", &[]);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
@@ -64,8 +64,25 @@ fn multiple_echos_from_remote() {
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
-    let response_one = node_two.request("echo", b"test message one").unwrap();
-    let response_two = node_two.request("echo", b"test message two").unwrap();
-    assert_eq!(b"test message one".to_vec(), response_one);
-    assert_eq!(b"test message two".to_vec(), response_two);
+    assert_eq!(b"test message one".to_vec(), node_two.request("echo", b"test message one").unwrap());
+    assert_eq!(b"test message two".to_vec(), node_two.request("echo", b"test message two").unwrap());
+}
+
+#[test]
+fn balanced_echos_from_two_remotes() {
+    let node_one = build_node("127.0.0.1:3031", &[]);
+    node_one.register("echo", Box::new(|_| Ok(b"echo one".to_vec()))).unwrap();
+
+    let node_two = build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
+    node_two.register("echo", Box::new(|_| Ok(b"echo two".to_vec()))).unwrap();
+
+    let node_three = build_node("127.0.0.1:3033", &["127.0.0.1:3031"]);
+
+    sleep_ms(1000);
+    assert_node(&node_one, State::Joined, 2);
+    assert_node(&node_two, State::Joined, 2);
+    assert_node(&node_three, State::Joined, 2);
+
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"test").unwrap());
+    assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"test").unwrap());
 }

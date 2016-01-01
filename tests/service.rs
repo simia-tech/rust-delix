@@ -25,7 +25,7 @@ use helper::{assert_node, build_node};
 
 #[test]
 fn distribution_over_incoming_connection() {
-    let mut node_one = build_node("127.0.0.1:3001", &[]);
+    let node_one = build_node("127.0.0.1:3001", &[]);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
@@ -43,7 +43,7 @@ fn distribution_over_incoming_connection() {
 fn distribution_over_outgoing_connection() {
     let node_one = build_node("127.0.0.1:3011", &[]);
 
-    let mut node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+    let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
     node_two.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
@@ -57,7 +57,7 @@ fn distribution_over_outgoing_connection() {
 
 #[test]
 fn distribution_in_joined_network() {
-    let mut node_one = build_node("127.0.0.1:3021", &[]);
+    let node_one = build_node("127.0.0.1:3021", &[]);
     let node_two = build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
 
     sleep_ms(1000);
@@ -74,7 +74,7 @@ fn distribution_in_joined_network() {
 
 #[test]
 fn deregistration() {
-    let mut node = build_node("127.0.0.1:3031", &[]);
+    let node = build_node("127.0.0.1:3031", &[]);
     node.register("echo", Box::new(|request| Ok(request.to_vec())))
         .unwrap();
     node.deregister("echo").unwrap();

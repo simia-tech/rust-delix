@@ -13,12 +13,8 @@
 // limitations under the License.
 //
 
-mod statistic;
-pub mod store;
-mod subject;
-mod tracker;
+pub mod balancer;
+mod dynamic_round_robin;
 
-pub use transport::direct::tracker::statistic::Statistic;
-pub use transport::direct::tracker::tracker::Tracker;
-pub use transport::direct::tracker::subject::Subject;
-pub use transport::direct::tracker::store::Store;
+pub use transport::direct::balancer::balancer::Balancer;
+pub use transport::direct::balancer::dynamic_round_robin::DynamicRoundRobin;

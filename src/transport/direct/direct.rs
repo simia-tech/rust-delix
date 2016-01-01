@@ -22,7 +22,8 @@ use std::thread;
 use time::Duration;
 
 use transport::{Result, Transport};
-use transport::direct::{Connection, ConnectionMap, Tracker, ServiceMap};
+use transport::direct::{Connection, ConnectionMap, Tracker, ServiceMap, balancer};
+use transport::direct::tracker::{Statistic, Subject};
 
 use node::{ID, request};
 
@@ -41,14 +42,16 @@ impl Direct {
                public_address: Option<SocketAddr>,
                request_timeout: Option<Duration>)
                -> Direct {
+
+        let statistic = Arc::new(Statistic::new());
         Direct {
             join_handle: RwLock::new(None),
             running: Arc::new(AtomicBool::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(ConnectionMap::new()),
-            services: Arc::new(ServiceMap::new()),
-            tracker: Arc::new(Tracker::new(request_timeout)),
+            services: Arc::new(ServiceMap::new(Box::new(balancer::DynamicRoundRobin::new(statistic.clone())))),
+            tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
         }
     }
 
@@ -158,15 +161,24 @@ impl Transport for Direct {
     }
 
     fn request(&self, name: &str, data: &[u8]) -> request::Response {
-        self.services
-            .call_local_handler_or(name, data, |peer_node_id| {
-                let (request_id, result_channel) = self.tracker
-                                                       .begin();
-                self.connections
-                    .send_request(&peer_node_id, request_id, name, data)
-                    .unwrap();
-                result_channel.recv().unwrap()
-            })
+        self.services.select(name,
+                             |handler| {
+                                 let (request_id, _) = self.tracker
+                                                           .begin(Subject::local(name));
+                                 let response = handler(data)
+                                                    .map_err(|text| request::Error::Internal(text));
+                                 self.tracker.end(request_id, None).unwrap();
+                                 response
+                             },
+                             |peer_node_id| {
+                                 let (request_id, repsonse_rx) =
+                                     self.tracker
+                                         .begin(Subject::remote(name, peer_node_id));
+                                 self.connections
+                                     .send_request(&peer_node_id, request_id, name, data)
+                                     .unwrap();
+                                 repsonse_rx.recv().unwrap()
+                             })
     }
 }
 
@@ -195,14 +207,14 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
 
     let services_clone = services.clone();
     connection.set_on_request(Box::new(move |name, data| {
-        services_clone.call_local_handler_or(name, data, |_| {
-            unimplemented!();
+        services_clone.select_local(name, |handler| {
+            handler(data).map_err(|text| request::Error::Internal(text))
         })
     }));
 
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, response| {
-        tracker_clone.end(request_id, response).unwrap();
+        tracker_clone.end(request_id, Some(response)).unwrap();
     }));
 
     let services_clone = services.clone();

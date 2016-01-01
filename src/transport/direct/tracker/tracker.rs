@@ -22,12 +22,13 @@ use std::thread;
 use time::{self, Duration};
 
 use node::request;
-use transport::direct::tracker::{Store, store};
+use transport::direct::tracker::{Statistic, Store, Subject, store};
 
 const TIMEOUT_TOLERANCE_MS: i64 = 2;
 
 pub struct Tracker {
     store: Arc<Store>,
+    statistic: Arc<Statistic>,
     current_id: atomic::AtomicUsize,
     join_handle_and_running_tx: Option<(thread::JoinHandle<()>, mpsc::Sender<bool>)>,
 }
@@ -40,7 +41,7 @@ pub enum Error {
 }
 
 impl Tracker {
-    pub fn new(timeout: Option<Duration>) -> Tracker {
+    pub fn new(statistic: Arc<Statistic>, timeout: Option<Duration>) -> Tracker {
         let store = Arc::new(Store::new());
         let store_clone = store.clone();
 
@@ -71,27 +72,35 @@ impl Tracker {
 
         Tracker {
             store: store,
+            statistic: statistic,
             current_id: atomic::AtomicUsize::new(0),
             join_handle_and_running_tx: join_handle_and_running_tx,
         }
     }
 
-    pub fn begin(&self) -> (u32, mpsc::Receiver<request::Response>) {
-        let (result_sender, result_receiver) = mpsc::channel();
+    pub fn begin(&self, subject: Subject) -> (u32, mpsc::Receiver<request::Response>) {
+        let (response_tx, response_rx) = mpsc::channel();
         let id = self.current_id.fetch_add(1, atomic::Ordering::SeqCst) as u32;
+        let started_at = time::now_utc();
 
-        if self.store.insert(id, result_sender, time::now_utc()).ok().unwrap() {
+        if self.store.insert(id, response_tx, subject, started_at).ok().unwrap() {
             if let Some((_, ref running_tx)) = self.join_handle_and_running_tx {
                 running_tx.send(true).unwrap();
             }
         }
 
-        (id, result_receiver)
+        (id, response_rx)
     }
 
-    pub fn end(&self, id: u32, response: request::Response) -> Result<()> {
-        let (result_sender, _) = try!(self.store.remove(&id));
-        result_sender.send(response).unwrap();
+    pub fn end(&self, id: u32, response: Option<request::Response>) -> Result<()> {
+        let (response_tx, subject, started_at) = try!(self.store.remove(&id));
+
+        if let Some(response) = response {
+            response_tx.send(response).unwrap();
+        }
+
+        self.statistic.push(subject, time::now_utc() - started_at);
+
         Ok(())
     }
 
@@ -129,38 +138,49 @@ impl From<store::Error> for Error {
 mod tests {
 
     use std::thread;
-    use std::sync::Arc;
+    use std::sync::{Arc, mpsc};
     use time::Duration;
     use node::request;
     use super::{Error, Tracker};
-    use super::super::store;
+    use super::super::{Statistic, Subject, store};
 
     #[test]
     fn request_tracking() {
-        let tracker = Tracker::new(None);
+        let tracker = Tracker::new(Arc::new(Statistic::new()), None);
 
-        let (id, result_channel) = tracker.begin();
-        tracker.end(id, Ok(b"test".to_vec())).unwrap();
+        let (id, result_channel) = tracker.begin(Subject::local("test"));
+        tracker.end(id, Some(Ok(b"test".to_vec()))).unwrap();
 
         assert_eq!(Ok(b"test".to_vec()), result_channel.recv().unwrap());
         assert_eq!(0, tracker.len());
     }
 
     #[test]
-    fn request_timeout() {
-        let tracker = Tracker::new(Some(Duration::milliseconds(50)));
+    fn request_tracking_without_response() {
+        let tracker = Tracker::new(Arc::new(Statistic::new()), None);
 
-        let (_, result_channel) = tracker.begin();
+        let (id, result_channel) = tracker.begin(Subject::local("test"));
+        tracker.end(id, None).unwrap();
+
+        assert_eq!(Err(mpsc::RecvError), result_channel.recv());
+        assert_eq!(0, tracker.len());
+    }
+
+    #[test]
+    fn request_timeout() {
+        let tracker = Tracker::new(Arc::new(Statistic::new()), Some(Duration::milliseconds(50)));
+
+        let (_, result_channel) = tracker.begin(Subject::local("test"));
         assert_eq!(1, tracker.len());
         thread::sleep_ms(100);
 
         assert_eq!(Err(request::Error::Timeout), result_channel.recv().unwrap());
         assert_eq!(0, tracker.len());
 
-        let (request_id, result_channel) = tracker.begin();
+        let (request_id, result_channel) = tracker.begin(Subject::local("test"));
         assert_eq!(1, tracker.len());
         thread::sleep_ms(10);
-        tracker.end(request_id, Ok(b"test".to_vec())).unwrap();
+        tracker.end(request_id, Some(Ok(b"test".to_vec()))).unwrap();
 
         assert_eq!(Ok(b"test".to_vec()), result_channel.recv().unwrap());
         assert_eq!(0, tracker.len());
@@ -168,15 +188,15 @@ mod tests {
 
     #[test]
     fn concurrent_request_tracking() {
-        let tracker = Arc::new(Tracker::new(None));
+        let tracker = Arc::new(Tracker::new(Arc::new(Statistic::new()), None));
 
         let mut threads = Vec::new();
         for _ in 0..10 {
             let tracker = tracker.clone();
             threads.push(thread::spawn(move || -> request::Response {
-                let (id, result_channel) = tracker.begin();
+                let (id, result_channel) = tracker.begin(Subject::local("test"));
                 thread::sleep_ms(100);
-                tracker.end(id, Ok(b"test".to_vec())).unwrap();
+                tracker.end(id, Some(Ok(b"test".to_vec()))).unwrap();
                 result_channel.recv().unwrap()
             }));
         }
@@ -190,16 +210,17 @@ mod tests {
 
     #[test]
     fn concurrent_request_timeout() {
-        let tracker = Arc::new(Tracker::new(Some(Duration::milliseconds(50))));
+        let tracker = Arc::new(Tracker::new(Arc::new(Statistic::new()),
+                                            Some(Duration::milliseconds(50))));
 
         let mut threads = Vec::new();
         for _ in 0..10 {
             let tracker = tracker.clone();
             threads.push(thread::spawn(move || -> request::Response {
-                let (id, result_channel) = tracker.begin();
+                let (id, result_channel) = tracker.begin(Subject::local("test"));
                 thread::sleep_ms(100);
                 assert_eq!(Err(Error::Store(store::Error::IdDoesNotExists)),
-                           tracker.end(id, Ok(b"test".to_vec())));
+                           tracker.end(id, Some(Ok(b"test".to_vec()))));
                 result_channel.recv().unwrap()
             }));
         }

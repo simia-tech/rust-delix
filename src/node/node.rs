@@ -91,12 +91,12 @@ impl Node {
         self.transport.connection_count()
     }
 
-    pub fn register(&mut self, name: &str, f: Box<request::Handler>) -> Result<()> {
+    pub fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
         try!(self.transport.register(name, f));
         Ok(())
     }
 
-    pub fn deregister(&mut self, name: &str) -> Result<()> {
+    pub fn deregister(&self, name: &str) -> Result<()> {
         try!(self.transport.deregister(name));
         Ok(())
     }

@@ -13,12 +13,20 @@
 // limitations under the License.
 //
 
-mod statistic;
-pub mod store;
-mod subject;
-mod tracker;
+use node::ID;
 
-pub use transport::direct::tracker::statistic::Statistic;
-pub use transport::direct::tracker::tracker::Tracker;
-pub use transport::direct::tracker::subject::Subject;
-pub use transport::direct::tracker::store::Store;
+#[derive(Clone, Debug, Hash, Eq, PartialEq)]
+pub enum Subject {
+    Local(String),
+    Remote(String, ID),
+}
+
+impl Subject {
+    pub fn local(name: &str) -> Subject {
+        Subject::Local(name.to_string())
+    }
+
+    pub fn remote(name: &str, id: ID) -> Subject {
+        Subject::Remote(name.to_string(), id)
+    }
+}

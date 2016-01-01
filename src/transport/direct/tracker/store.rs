@@ -18,11 +18,12 @@ use std::result;
 use std::sync::{RwLock, mpsc};
 
 use node::request;
+use transport::direct::tracker::Subject;
 
 use time;
 
 pub struct Store {
-    entries: RwLock<HashMap<u32, (mpsc::Sender<request::Response>, time::Tm)>>,
+    entries: RwLock<HashMap<u32, (mpsc::Sender<request::Response>, Subject, time::Tm)>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -40,7 +41,8 @@ impl Store {
 
     pub fn insert(&self,
                   id: u32,
-                  result_sender: mpsc::Sender<request::Response>,
+                  response_tx: mpsc::Sender<request::Response>,
+                  subject: Subject,
                   started_at: time::Tm)
                   -> Result<bool> {
 
@@ -48,11 +50,11 @@ impl Store {
         if entries.contains_key(&id) {
             return Err(Error::IdAlreadyExists);
         }
-        entries.insert(id, (result_sender, started_at));
+        entries.insert(id, (response_tx, subject, started_at));
         Ok(entries.len() == 1)
     }
 
-    pub fn remove(&self, id: &u32) -> Result<(mpsc::Sender<request::Response>, time::Tm)> {
+    pub fn remove(&self, id: &u32) -> Result<(mpsc::Sender<request::Response>, Subject, time::Tm)> {
         let mut entries = self.entries.write().unwrap();
         if !entries.contains_key(&id) {
             return Err(Error::IdDoesNotExists);
@@ -72,7 +74,7 @@ impl Store {
 
         let mut to_remove = Vec::new();
         let mut next_at = None;
-        for (&id, &(_, started_at)) in entries.iter() {
+        for (&id, &(_, _, started_at)) in entries.iter() {
             if started_at < threshold {
                 to_remove.push(id);
             } else {
@@ -86,11 +88,24 @@ impl Store {
 
         let mut result = Vec::new();
         for id in to_remove {
-            let (result_tx, _) = entries.remove(&id).unwrap();
+            let (result_tx, _, _) = entries.remove(&id).unwrap();
             result.push((id, result_tx));
         }
 
         (result, next_at)
+    }
+
+    pub fn started_ats_with_subject<F: FnMut(&[&time::Tm])>(&self, subject: &Subject, mut f: F) {
+        let entries = self.entries.read().unwrap();
+        f(&entries.iter()
+                  .filter_map(|(_, &(_, ref entry_subject, ref started_at))| {
+                      if entry_subject == subject {
+                          Some(started_at)
+                      } else {
+                          None
+                      }
+                  })
+                  .collect::<Vec<&time::Tm>>());
     }
 
     pub fn len(&self) -> usize {
@@ -109,28 +124,29 @@ mod tests {
     use time;
     use node::request;
     use super::{Error, Store};
+    use super::super::Subject;
 
     #[test]
     fn insert() {
         let store = Store::new();
 
         let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(0, response_tx, started_at).unwrap();
+        store.insert(0, response_tx, Subject::local("test"), started_at).unwrap();
 
         assert_eq!(1, store.len());
 
         let (response_tx, _) = mpsc::channel();
         assert_eq!(Err(Error::IdAlreadyExists),
-                   store.insert(0, response_tx, time::now_utc()));
+                   store.insert(0, response_tx, Subject::local("test"), time::now_utc()));
     }
 
     #[test]
     fn remove() {
         let store = Store::new();
         let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(0, response_tx, started_at).unwrap();
+        store.insert(0, response_tx, Subject::local("test"), started_at).unwrap();
 
-        let (_, removed_started_at) = store.remove(&0).unwrap();
+        let (_, _, removed_started_at) = store.remove(&0).unwrap();
 
         assert_eq!(started_at, removed_started_at);
         assert_eq!(0, store.len());
@@ -141,9 +157,9 @@ mod tests {
     fn remove_all_started_before() {
         let store = Store::new();
         let (response_tx, started_at) = build_tx_and_time(200);
-        store.insert(10, response_tx, started_at).unwrap();
+        store.insert(10, response_tx, Subject::local("test"), started_at).unwrap();
         let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(20, response_tx, started_at).unwrap();
+        store.insert(20, response_tx, Subject::local("test"), started_at).unwrap();
 
         let (removed, next_at) = store.remove_all_started_before(build_time(150));
         assert_eq!(1, removed.len());
@@ -160,6 +176,20 @@ mod tests {
         assert_eq!(None, next_at);
 
         assert_eq!(0, store.len());
+    }
+
+    #[test]
+    fn started_ats_with_subject() {
+        let store = Store::new();
+        let (response_tx, started_at) = build_tx_and_time(200);
+        store.insert(10, response_tx, Subject::local("one"), started_at).unwrap();
+        let (response_tx, started_at) = build_tx_and_time(100);
+        store.insert(20, response_tx, Subject::local("two"), started_at).unwrap();
+
+        store.started_ats_with_subject(&Subject::local("two"), |started_ats| {
+            assert_eq!(1, started_ats.len());
+            assert_eq!(&started_at, started_ats[0]);
+        });
     }
 
     fn build_tx_and_time(seconds: i64) -> (mpsc::Sender<request::Response>, time::Tm) {

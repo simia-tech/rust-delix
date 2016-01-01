@@ -42,7 +42,7 @@ fn loose() {
 fn loose_and_service_clean_up() {
     let node_one = build_node("127.0.0.1:3011", &[]);
     {
-        let mut node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+        let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
         node_two.register("echo", Box::new(|request| {
             Ok(request.to_vec())
         })).unwrap();

@@ -13,12 +13,23 @@
 // limitations under the License.
 //
 
-mod statistic;
-pub mod store;
-mod subject;
-mod tracker;
+use std::sync::Arc;
 
-pub use transport::direct::tracker::statistic::Statistic;
-pub use transport::direct::tracker::tracker::Tracker;
-pub use transport::direct::tracker::subject::Subject;
-pub use transport::direct::tracker::store::Store;
+use transport::direct::Balancer;
+use transport::direct::tracker::{Statistic, Subject};
+
+pub struct DynamicRoundRobin {
+    statistic: Arc<Statistic>,
+}
+
+impl DynamicRoundRobin {
+    pub fn new(statistic: Arc<Statistic>) -> DynamicRoundRobin {
+        DynamicRoundRobin { statistic: statistic }
+    }
+}
+
+impl Balancer for DynamicRoundRobin {
+    fn build_round(&self, subjects: &[Subject]) -> Vec<Subject> {
+        subjects.to_vec()
+    }
+}

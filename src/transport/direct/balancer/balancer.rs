@@ -13,12 +13,8 @@
 // limitations under the License.
 //
 
-mod statistic;
-pub mod store;
-mod subject;
-mod tracker;
+use transport::direct::tracker::Subject;
 
-pub use transport::direct::tracker::statistic::Statistic;
-pub use transport::direct::tracker::tracker::Tracker;
-pub use transport::direct::tracker::subject::Subject;
-pub use transport::direct::tracker::store::Store;
+pub trait Balancer {
+    fn build_round(&self, &[Subject]) -> Vec<Subject>;
+}

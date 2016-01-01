@@ -14,12 +14,14 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+pub mod balancer;
 mod connection;
 mod connection_map;
 mod direct;
 mod service_map;
 pub mod tracker;
 
+pub use transport::direct::balancer::Balancer;
 pub use transport::direct::connection::Connection;
 pub use transport::direct::connection::Error as ConnectionError;
 pub use transport::direct::connection::Result as ConnectionResult;
