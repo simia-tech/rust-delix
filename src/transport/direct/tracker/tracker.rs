@@ -43,8 +43,9 @@ pub enum Error {
 impl Tracker {
     pub fn new(statistic: Arc<Statistic>, timeout: Option<Duration>) -> Tracker {
         let store = Arc::new(Store::new());
-        let store_clone = store.clone();
+        statistic.assign_store(store.clone());
 
+        let store_clone = store.clone();
         let join_handle_and_running_tx = timeout.map(|timeout| {
             let (running_tx, running_rx) = mpsc::channel();
             (thread::spawn(move || {

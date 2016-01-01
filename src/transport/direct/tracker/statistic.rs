@@ -14,7 +14,7 @@
 //
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use time::{self, Duration};
 
 use transport::direct::tracker::{Subject, Store};
@@ -22,12 +22,20 @@ use transport::direct::tracker::{Subject, Store};
 const MAXIMAL_SIZE: usize = 20;
 
 pub struct Statistic {
+    store: RwLock<Option<Arc<Store>>>,
     entries: RwLock<HashMap<Subject, VecDeque<Duration>>>,
 }
 
 impl Statistic {
     pub fn new() -> Statistic {
-        Statistic { entries: RwLock::new(HashMap::new()) }
+        Statistic {
+            store: RwLock::new(None),
+            entries: RwLock::new(HashMap::new()),
+        }
+    }
+
+    pub fn assign_store(&self, store: Arc<Store>) {
+        *self.store.write().unwrap() = Some(store);
     }
 
     pub fn push(&self, subject: Subject, duration: Duration) {
@@ -44,7 +52,7 @@ impl Statistic {
         durations.push_back(duration);
     }
 
-    pub fn average(&self, store: &Store, subject: &Subject) -> Duration {
+    pub fn average(&self, subject: &Subject) -> Duration {
         let entries = self.entries.read().unwrap();
         let durations = match entries.get(&subject) {
             Some(durations) => durations,
@@ -54,13 +62,16 @@ impl Statistic {
         let mut sum = durations.iter().fold(Duration::zero(), |sum, &duration| sum + duration);
         let mut count = durations.len() as i32;
 
-        store.started_ats_with_subject(subject, |times| {
-            let now = time::now_utc();
-            sum = sum +
-                  times.iter().fold(Duration::zero(),
-                                    |sum, &started_at| sum + (now - *started_at));
-            count += times.len() as i32;
-        });
+        let store_option = self.store.read().unwrap();
+        if let Some(ref store) = *store_option {
+            store.started_ats_with_subject(subject, |times| {
+                let now = time::now_utc();
+                sum = sum +
+                      times.iter().fold(Duration::zero(),
+                                        |sum, &started_at| sum + (now - *started_at));
+                count += times.len() as i32;
+            });
+        }
 
         sum / count
     }
@@ -70,42 +81,39 @@ impl Statistic {
 mod tests {
 
     use std::thread;
-    use std::sync::mpsc;
+    use std::sync::{Arc, mpsc};
     use time::{self, Duration};
     use super::Statistic;
     use super::super::{Subject, Store};
 
     #[test]
     fn add() {
-        let store = Store::new();
         let statistic = Statistic::new();
         let subject = Subject::local("test");
-        assert_eq!(Duration::zero(), statistic.average(&store, &subject));
+        assert_eq!(Duration::zero(), statistic.average(&subject));
 
         statistic.push(subject.clone(), Duration::milliseconds(100));
 
-        assert_eq!(Duration::milliseconds(100),
-                   statistic.average(&store, &subject));
+        assert_eq!(Duration::milliseconds(100), statistic.average(&subject));
     }
 
     #[test]
     fn average() {
-        let store = Store::new();
         let statistic = Statistic::new();
         let subject = Subject::local("test");
 
         statistic.push(subject.clone(), Duration::milliseconds(100));
         statistic.push(subject.clone(), Duration::milliseconds(200));
 
-        assert_eq!(Duration::milliseconds(150),
-                   statistic.average(&store, &subject));
+        assert_eq!(Duration::milliseconds(150), statistic.average(&subject));
     }
 
     #[test]
     fn average_including_running_requests_in_store() {
-        let store = Store::new();
+        let store = Arc::new(Store::new());
         let statistic = Statistic::new();
         let subject = Subject::local("test");
+        statistic.assign_store(store.clone());
 
         statistic.push(subject.clone(), Duration::milliseconds(100));
 
@@ -113,8 +121,8 @@ mod tests {
         store.insert(10, response_tx, subject.clone(), time::now_utc()).unwrap();
         thread::sleep_ms(50);
 
-        assert!(statistic.average(&store, &subject) > Duration::milliseconds(50));
-        assert!(statistic.average(&store, &subject) < Duration::milliseconds(100));
+        assert!(statistic.average(&subject) > Duration::milliseconds(50));
+        assert!(statistic.average(&subject) < Duration::milliseconds(100));
     }
 
 }

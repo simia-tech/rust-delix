@@ -17,7 +17,7 @@ extern crate delix;
 
 mod helper;
 
-use std::thread::sleep_ms;
+use std::thread;
 
 use delix::node::State;
 
@@ -29,7 +29,7 @@ fn single_echo_from_local() {
     node.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
-    sleep_ms(100);
+    thread::sleep_ms(100);
     assert_node(&node, State::Discovering, 0);
 
     let response = node.request("echo", b"test message").unwrap();
@@ -44,7 +44,7 @@ fn single_echo_from_remote() {
 
     let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
 
-    sleep_ms(1000);
+    thread::sleep_ms(1000);
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
@@ -60,7 +60,7 @@ fn multiple_echos_from_remote() {
 
     let node_two = build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
 
-    sleep_ms(1000);
+    thread::sleep_ms(1000);
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
@@ -71,18 +71,31 @@ fn multiple_echos_from_remote() {
 #[test]
 fn balanced_echos_from_two_remotes() {
     let node_one = build_node("127.0.0.1:3031", &[]);
-    node_one.register("echo", Box::new(|_| Ok(b"echo one".to_vec()))).unwrap();
+    node_one.register("echo", Box::new(|_| {
+        thread::sleep_ms(10);
+        Ok(b"echo one".to_vec())
+    })).unwrap();
 
     let node_two = build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
-    node_two.register("echo", Box::new(|_| Ok(b"echo two".to_vec()))).unwrap();
+    node_two.register("echo", Box::new(|_| {
+        thread::sleep_ms(100);
+        Ok(b"echo two".to_vec())
+    })).unwrap();
 
     let node_three = build_node("127.0.0.1:3033", &["127.0.0.1:3031"]);
 
-    sleep_ms(1000);
+    thread::sleep_ms(1000);
     assert_node(&node_one, State::Joined, 2);
     assert_node(&node_two, State::Joined, 2);
     assert_node(&node_three, State::Joined, 2);
 
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"test").unwrap());
-    assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"test").unwrap());
+    // in the first round the balancer has no statistic, so every serivice gets a request in order.
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"").unwrap());
+
+    // in the second round the balancer can access some respond time statistic, so this round
+    // contains two requests to node one and one to node two.
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"").unwrap());
 }

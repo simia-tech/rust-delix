@@ -18,6 +18,8 @@ use std::sync::{Arc, RwLock};
 use transport::direct::Balancer;
 use transport::direct::tracker::{Statistic, Subject};
 
+use time::Duration;
+
 pub struct DynamicRoundRobin {
     statistic: RwLock<Option<Arc<Statistic>>>,
 }
@@ -34,6 +36,34 @@ impl Balancer for DynamicRoundRobin {
     }
 
     fn build_round(&self, subjects: &[Subject]) -> Vec<Subject> {
-        subjects.to_vec()
+        if subjects.len() == 0 {
+            return subjects.to_vec();
+        }
+
+        let statistic_option = self.statistic.read().unwrap();
+        let statistic = statistic_option.as_ref().unwrap();
+
+        let durations = subjects.iter()
+                                .map(|subject| statistic.average(subject))
+                                .collect::<Vec<_>>();
+
+        let longest = durations.iter().max().unwrap();
+        if longest == &Duration::zero() {
+            return subjects.to_vec();
+        }
+
+        let counts = durations.iter()
+                              .map(|&duration| {
+                                  longest.num_milliseconds() / duration.num_milliseconds()
+                              })
+                              .collect::<Vec<_>>();
+
+        let mut result = Vec::new();
+        for (index, &count) in counts.iter().enumerate() {
+            for _ in 0..count {
+                result.push(subjects[index].clone());
+            }
+        }
+        result
     }
 }

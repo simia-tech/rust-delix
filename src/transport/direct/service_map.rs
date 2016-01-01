@@ -232,7 +232,7 @@ mod tests {
 
     use node::ID;
     use super::ServiceMap;
-    use super::super::{balancer, tracker};
+    use super::super::balancer;
 
     #[test]
     fn insert_local() {
