@@ -23,9 +23,9 @@ pub trait StatCollector : Send + Sync {
     fn decrement(&self, path: &[&str]);
 }
 
-pub struct LoggingStatCollector;
+pub struct DebugStatCollector;
 
-impl StatCollector for LoggingStatCollector {
+impl StatCollector for DebugStatCollector {
     fn increment(&self, path: &[&str]) {
         println!("incrementing stat {}", path.join("."));
     }
@@ -37,22 +37,22 @@ impl StatCollector for LoggingStatCollector {
 
 pub struct NullStatCollector;
 
-impl NullStatCollector {
-    pub fn new() -> NullStatCollector {
-        NullStatCollector
+impl StatCollector for NullStatCollector {
+    fn increment(&self, _path: &[&str]) {}
+    fn decrement(&self, _path: &[&str]) {}
+}
+
+pub struct MultiStatCollector {
+    collectors: Vec<Box<StatCollector>>,
+}
+
+impl MultiStatCollector {
+    pub fn new(cs: Vec<Box<StatCollector>>) -> MultiStatCollector {
+        return MultiStatCollector { collectors: cs };
     }
 }
 
-impl StatCollector for NullStatCollector {
-    fn increment(&self, path: &[&str]) {}
-    fn decrement(&self, path: &[&str]) {}
-}
-
-pub struct MultiStatCollector<'a> {
-    collectors: Vec<Box<StatCollector + 'a>>,
-}
-
-impl<'a> StatCollector for MultiStatCollector<'a> {
+impl StatCollector for MultiStatCollector {
     fn increment(&self, path: &[&str]) {
         for c in &self.collectors {
             c.increment(path);

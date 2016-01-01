@@ -30,13 +30,13 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
                                                              .map(|s| {
                                                                  s.parse::<SocketAddr>().unwrap()
                                                              })
-                                                             .collect()));
-<<<<<<< HEAD
+                                           .collect()));
+
     let transport = Box::new(Direct::new(balancer,
                                          local_address.parse::<SocketAddr>().unwrap(),
                                          None,
                                          None,
-                                         Box::new(NullStatCollector::new())));
+                                         Box::new(NullStatCollector)));
     Node::new(discovery, transport).unwrap()
 }
 
