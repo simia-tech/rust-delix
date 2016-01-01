@@ -124,7 +124,7 @@ impl ServiceMap {
     pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Response
         where L: Fn(&Box<request::Handler>) -> request::Response
     {
-        let mut entries = self.entries.read().unwrap();
+        let entries = self.entries.read().unwrap();
 
         let link = match entries.get(name).and_then(|entry| entry.0.iter().find(local_link)) {
             Some(subject) => subject,
@@ -230,15 +230,13 @@ impl From<direct::ConnectionMapError> for Error {
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
     use node::ID;
     use super::ServiceMap;
     use super::super::{balancer, tracker};
 
     #[test]
     fn insert_local() {
-        let balancer =
-            Box::new(balancer::DynamicRoundRobin::new(Arc::new(tracker::Statistic::new())));
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
 
         assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).is_ok());
@@ -251,8 +249,7 @@ mod tests {
 
     #[test]
     fn insert_remote() {
-        let balancer =
-            Box::new(balancer::DynamicRoundRobin::new(Arc::new(tracker::Statistic::new())));
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
         let node_id = ID::new_random();
 
@@ -266,8 +263,7 @@ mod tests {
 
     #[test]
     fn remove_local() {
-        let balancer =
-            Box::new(balancer::DynamicRoundRobin::new(Arc::new(tracker::Statistic::new())));
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
         service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
         service_map.insert_remote("test", ID::new_random()).unwrap();
@@ -279,8 +275,7 @@ mod tests {
 
     #[test]
     fn remove_local_and_clean_up() {
-        let balancer =
-            Box::new(balancer::DynamicRoundRobin::new(Arc::new(tracker::Statistic::new())));
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
         service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
 
@@ -291,8 +286,7 @@ mod tests {
 
     #[test]
     fn remove_remote() {
-        let balancer =
-            Box::new(balancer::DynamicRoundRobin::new(Arc::new(tracker::Statistic::new())));
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
         let node_id = ID::new_random();
         service_map.insert_remote("test", node_id).unwrap();
@@ -305,8 +299,7 @@ mod tests {
 
     #[test]
     fn remove_remote_and_clean_up() {
-        let balancer =
-            Box::new(balancer::DynamicRoundRobin::new(Arc::new(tracker::Statistic::new())));
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
         let node_id = ID::new_random();
         service_map.insert_remote("test", node_id).unwrap();

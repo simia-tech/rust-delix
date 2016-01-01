@@ -20,15 +20,20 @@ use std::net::SocketAddr;
 use delix::discovery::Constant;
 use delix::node::{Node, State};
 use delix::transport::Direct;
+use delix::transport::direct::balancer;
 
 pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
+    let balancer = Box::new(balancer::DynamicRoundRobin::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
                                                              .iter()
                                                              .map(|s| {
                                                                  s.parse::<SocketAddr>().unwrap()
                                                              })
                                                              .collect()));
-    let transport = Box::new(Direct::new(local_address.parse::<SocketAddr>().unwrap(), None, None));
+    let transport = Box::new(Direct::new(balancer,
+                                         local_address.parse::<SocketAddr>().unwrap(),
+                                         None,
+                                         None));
     Node::new(discovery, transport).unwrap()
 }
 

@@ -13,22 +13,26 @@
 // limitations under the License.
 //
 
-use std::sync::Arc;
+use std::sync::{Arc, RwLock};
 
 use transport::direct::Balancer;
 use transport::direct::tracker::{Statistic, Subject};
 
 pub struct DynamicRoundRobin {
-    statistic: Arc<Statistic>,
+    statistic: RwLock<Option<Arc<Statistic>>>,
 }
 
 impl DynamicRoundRobin {
-    pub fn new(statistic: Arc<Statistic>) -> DynamicRoundRobin {
-        DynamicRoundRobin { statistic: statistic }
+    pub fn new() -> DynamicRoundRobin {
+        DynamicRoundRobin { statistic: RwLock::new(None) }
     }
 }
 
 impl Balancer for DynamicRoundRobin {
+    fn assign_statistic(&self, statistic: Arc<Statistic>) {
+        *self.statistic.write().unwrap() = Some(statistic);
+    }
+
     fn build_round(&self, subjects: &[Subject]) -> Vec<Subject> {
         subjects.to_vec()
     }

@@ -13,8 +13,11 @@
 // limitations under the License.
 //
 
-use transport::direct::tracker::Subject;
+use std::sync::Arc;
+
+use transport::direct::tracker::{Statistic, Subject};
 
 pub trait Balancer {
+    fn assign_statistic(&self, Arc<Statistic>);
     fn build_round(&self, &[Subject]) -> Vec<Subject>;
 }

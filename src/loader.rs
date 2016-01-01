@@ -24,6 +24,7 @@ use delix::discovery::Constant;
 use delix::discovery::Discovery;
 use delix::transport::Transport;
 use delix::transport::Direct;
+use delix::transport::direct::{Balancer, balancer};
 use configuration::Configuration;
 
 #[derive(Debug)]
@@ -37,6 +38,8 @@ pub enum Error {
     UnknownDiscoveryType(String),
     NoTransportType,
     UnknownTransportType(String),
+    NoBalancerType,
+    UnknownBalancerType(String),
     NoLocalAddress,
     NodeError(node::Error),
     AddrParseError(AddrParseError),
@@ -77,7 +80,18 @@ impl Loader {
                 };
                 let request_timeout = configuration.i64_at("transport.request_timeout_ms")
                                                    .map(|value| Duration::milliseconds(value));
-                Box::new(Direct::new(local_address, public_address, request_timeout))
+
+                let balancer_type = match configuration.string_at("transport.balancer.type") {
+                    Some(balancer_type) => balancer_type,
+                    None => return Err(Error::NoBalancerType),
+                };
+
+                let balancer: Box<Balancer> = match balancer_type.as_ref() {
+                    "dynamic_round_robin" => Box::new(balancer::DynamicRoundRobin::new()),
+                    _ => return Err(Error::UnknownBalancerType(balancer_type)),
+                };
+
+                Box::new(Direct::new(balancer, local_address, public_address, request_timeout))
             }
             _ => return Err(Error::UnknownTransportType(transport_type)),
         };

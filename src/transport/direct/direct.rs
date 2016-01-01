@@ -22,7 +22,7 @@ use std::thread;
 use time::Duration;
 
 use transport::{Result, Transport};
-use transport::direct::{Connection, ConnectionMap, Tracker, ServiceMap, balancer};
+use transport::direct::{Balancer, Connection, ConnectionMap, Tracker, ServiceMap};
 use transport::direct::tracker::{Statistic, Subject};
 
 use node::{ID, request};
@@ -38,19 +38,22 @@ pub struct Direct {
 }
 
 impl Direct {
-    pub fn new(local_address: SocketAddr,
+    pub fn new(balancer: Box<Balancer>,
+               local_address: SocketAddr,
                public_address: Option<SocketAddr>,
                request_timeout: Option<Duration>)
                -> Direct {
 
         let statistic = Arc::new(Statistic::new());
+        balancer.assign_statistic(statistic.clone());
+
         Direct {
             join_handle: RwLock::new(None),
             running: Arc::new(AtomicBool::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             connections: Arc::new(ConnectionMap::new()),
-            services: Arc::new(ServiceMap::new(Box::new(balancer::DynamicRoundRobin::new(statistic.clone())))),
+            services: Arc::new(ServiceMap::new(balancer)),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
         }
     }
