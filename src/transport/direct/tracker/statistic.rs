@@ -17,6 +17,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::{Arc, RwLock};
 use time::{self, Duration};
 
+use transport::direct::Link;
 use transport::direct::tracker::{Subject, Store};
 
 const MAXIMAL_SIZE: usize = 20;
@@ -52,8 +53,9 @@ impl Statistic {
         durations.push_back(duration);
     }
 
-    pub fn average(&self, subject: &Subject) -> Duration {
+    pub fn average(&self, name: &str, link: &Link) -> Duration {
         let entries = self.entries.read().unwrap();
+        let subject = Subject::from_name_and_link(name, link);
         let durations = match entries.get(&subject) {
             Some(durations) => durations,
             None => return Duration::zero(),
@@ -64,7 +66,7 @@ impl Statistic {
 
         let store_option = self.store.read().unwrap();
         if let Some(ref store) = *store_option {
-            store.started_ats_with_subject(subject, |times| {
+            store.started_ats_with_subject(&subject, |times| {
                 let now = time::now_utc();
                 sum = sum +
                       times.iter().fold(Duration::zero(),
@@ -85,16 +87,18 @@ mod tests {
     use time::{self, Duration};
     use super::Statistic;
     use super::super::{Subject, Store};
+    use super::super::super::Link;
 
     #[test]
     fn add() {
         let statistic = Statistic::new();
         let subject = Subject::local("test");
-        assert_eq!(Duration::zero(), statistic.average(&subject));
+        assert_eq!(Duration::zero(), statistic.average("test", &Link::Local));
 
         statistic.push(subject.clone(), Duration::milliseconds(100));
 
-        assert_eq!(Duration::milliseconds(100), statistic.average(&subject));
+        assert_eq!(Duration::milliseconds(100),
+                   statistic.average("test", &Link::Local));
     }
 
     #[test]
@@ -105,7 +109,8 @@ mod tests {
         statistic.push(subject.clone(), Duration::milliseconds(100));
         statistic.push(subject.clone(), Duration::milliseconds(200));
 
-        assert_eq!(Duration::milliseconds(150), statistic.average(&subject));
+        assert_eq!(Duration::milliseconds(150),
+                   statistic.average("test", &Link::Local));
     }
 
     #[test]
@@ -121,8 +126,8 @@ mod tests {
         store.insert(10, response_tx, subject.clone(), time::now_utc()).unwrap();
         thread::sleep_ms(50);
 
-        assert!(statistic.average(&subject) > Duration::milliseconds(50));
-        assert!(statistic.average(&subject) < Duration::milliseconds(100));
+        assert!(statistic.average("test", &Link::Local) > Duration::milliseconds(50));
+        assert!(statistic.average("test", &Link::Local) < Duration::milliseconds(100));
     }
 
 }

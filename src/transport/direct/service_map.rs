@@ -18,17 +18,17 @@ use std::result;
 use std::sync::RwLock;
 
 use node::{ID, request};
-use transport::direct;
-use transport::direct::tracker::Subject;
+use transport::direct::{self, Link};
 
 pub struct ServiceMap {
     balancer: Box<direct::Balancer>,
-    entries: RwLock<HashMap<String, (Vec<Link>, Vec<Subject>)>>,
+    entries: RwLock<HashMap<String, Entry>>,
 }
 
-enum Link {
-    Local(Box<request::Handler>),
-    Remote(ID),
+struct Entry {
+    local_handler: Option<Box<request::Handler>>,
+    links: Vec<Link>,
+    queue: Vec<Link>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -53,15 +53,17 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
 
         if !entries.contains_key(name) {
-            entries.insert(name.to_string(), (Vec::new(), Vec::new()));
+            entries.insert(name.to_string(), Entry::new());
         }
-        let mut links = entries.get_mut(name).unwrap();
+        let mut entry = entries.get_mut(name).unwrap();
 
-        if let Some(_) = links.0.iter().find(local_link) {
+        if entry.local_handler.is_some() {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        links.0.push(Link::Local(f));
+        entry.local_handler = Some(f);
+        entry.links.push(Link::Local);
+
         Ok(())
     }
 
@@ -69,20 +71,16 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
 
         if !entries.contains_key(name) {
-            entries.insert(name.to_string(), (Vec::new(), Vec::new()));
+            entries.insert(name.to_string(), Entry::new());
         }
-        let mut links = entries.get_mut(name).unwrap();
+        let mut entry = entries.get_mut(name).unwrap();
 
-        if let Some(_) = links.0.iter().find(|link| {
-            match **link {
-                Link::Local(_) => false,
-                Link::Remote(id) => id == peer_node_id,
-            }
-        }) {
+        if let Some(_) = entry.links.iter().find(|&link| Link::is_remote(link, &peer_node_id)) {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        links.0.push(Link::Remote(peer_node_id));
+        entry.links.push(Link::Remote(peer_node_id));
+
         Ok(())
     }
 
@@ -93,59 +91,40 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
 
         loop {
-            let response = {
+            let response_pair = {
                 let mut entry = match entries.get_mut(name) {
                     Some(entry) => entry,
                     None => return Err(request::Error::ServiceDoesNotExists),
                 };
 
-                if entry.1.is_empty() {
-                    entry.1.append(&mut self.balancer
-                                            .build_round(&to_subjects(&entry.0, name)));
-                    entry.1.reverse();
+                if entry.queue.is_empty() {
+                    entry.queue.append(&mut self.balancer.build_round(name, &entry.links));
+                    entry.queue.reverse();
                 }
-                let subject = entry.1.pop().expect("balancer did not build any round");
+                let link = entry.queue.pop().expect("balancer did not build any round");
 
-                let link = match subject {
-                    Subject::Local(_) => entry.0.iter().find(local_link).unwrap(),
-                    Subject::Remote(_, peer_node_id) => {
-                        entry.0
-                             .iter()
-                             .find(|&link| {
-                                 match *link {
-                                     Link::Remote(id) if id == peer_node_id => true,
-                                     _ => false,
-                                 }
-                             })
-                             .unwrap()
+                match link {
+                    Link::Local => (local_handler(entry.local_handler.as_ref().unwrap()), None),
+                    Link::Remote(ref peer_node_id) => {
+                        (remote_handler(*peer_node_id), Some(*peer_node_id))
                     }
-                };
-
-                match *link {
-                    Link::Local(ref service_handler) => local_handler(service_handler),
-                    Link::Remote(ref peer_node_id) => remote_handler(*peer_node_id),
                 }
             };
 
-            if let Err(request::Error::ServiceDoesNotExistsOnPeer(peer_node_id)) = response {
+            if let (Err(request::Error::ServiceDoesNotExists),
+                    Some(peer_node_id)) = response_pair {
                 let mut remove_entry = false;
                 if let Some(entry) = entries.get_mut(name) {
-                    entry.0.retain(|link| {
-                        match *link {
-                            Link::Remote(id) if id == peer_node_id => false,
-                            _ => true,
-                        }
-                    });
-                    remove_entry = entry.0.is_empty();
+                    entry.links.retain(|link| !Link::is_remote(&link, &peer_node_id));
+                    remove_entry = entry.links.is_empty();
                 }
                 if remove_entry {
                     entries.remove(name);
                 }
             } else {
-                return response;
+                return response_pair.0;
             }
         }
-        unreachable!();
     }
 
     pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Response
@@ -153,13 +132,18 @@ impl ServiceMap {
     {
         let entries = self.entries.read().unwrap();
 
-        let link = match entries.get(name).and_then(|entry| entry.0.iter().find(local_link)) {
-            Some(subject) => subject,
+        let entry = match entries.get(name) {
+            Some(entry) => entry,
             None => return Err(request::Error::ServiceDoesNotExists),
         };
 
-        if let Link::Local(ref service_handler) = *link {
-            local_handler(service_handler)
+        let link = match entry.links.iter().find(|link| Link::is_local(link)) {
+            Some(link) => link,
+            None => return Err(request::Error::ServiceDoesNotExists),
+        };
+
+        if let Link::Local = *link {
+            local_handler(entry.local_handler.as_ref().unwrap())
         } else {
             unreachable!();
         }
@@ -170,7 +154,9 @@ impl ServiceMap {
             .read()
             .unwrap()
             .iter()
-            .filter_map(|(name, links)| links.0.iter().find(local_link).and(Some(name.to_string())))
+            .filter_map(|(name, links)| {
+                links.links.iter().find(|link| Link::is_local(link)).and(Some(name.to_string()))
+            })
             .collect()
     }
 
@@ -185,13 +171,9 @@ impl ServiceMap {
                 Some(entry) => entry,
                 None => return Err(Error::ServiceDoesNotExists),
             };
-            entry.0.retain(|link| {
-                match *link {
-                    Link::Local(_) => false,
-                    _ => true,
-                }
-            });
-            entry.0.len() == 0
+            entry.local_handler = None;
+            entry.links.retain(|link| !Link::is_local(&&link));
+            entry.links.len() == 0
         };
         if remove {
             entries.remove(name);
@@ -203,13 +185,8 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
         let mut names = Vec::new();
         for (name, entry) in entries.iter_mut() {
-            entry.0.retain(|link| {
-                match *link {
-                    Link::Remote(ref node_id) if node_id == peer_node_id => false,
-                    _ => true,
-                }
-            });
-            if entry.0.len() == 0 {
+            entry.links.retain(|link| !Link::is_remote(link, peer_node_id));
+            if entry.links.len() == 0 {
                 names.push(name.to_string());
             }
         }
@@ -219,22 +196,14 @@ impl ServiceMap {
     }
 }
 
-fn local_link(link: &&Link) -> bool {
-    match **link {
-        Link::Local(_) => true,
-        Link::Remote(_) => false,
+impl Entry {
+    fn new() -> Entry {
+        Entry {
+            local_handler: None,
+            links: Vec::new(),
+            queue: Vec::new(),
+        }
     }
-}
-
-fn to_subjects(links: &[Link], name: &str) -> Vec<Subject> {
-    links.iter()
-         .map(|link| {
-             match *link {
-                 Link::Local(_) => Subject::local(name),
-                 Link::Remote(peer_node_id) => Subject::remote(name, peer_node_id),
-             }
-         })
-         .collect()
 }
 
 unsafe impl Send for ServiceMap {}

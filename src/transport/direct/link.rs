@@ -15,27 +15,24 @@
 
 use node::ID;
 
-use transport::direct::Link;
-
-#[derive(Clone, Debug, Hash, Eq, PartialEq)]
-pub enum Subject {
-    Local(String),
-    Remote(String, ID),
+#[derive(Clone)]
+pub enum Link {
+    Local,
+    Remote(ID),
 }
 
-impl Subject {
-    pub fn from_name_and_link(name: &str, link: &Link) -> Subject {
+impl Link {
+    pub fn is_local(link: &Link) -> bool {
         match *link {
-            Link::Local => Self::local(name),
-            Link::Remote(ref peer_node_id) => Self::remote(name, peer_node_id.clone()),
+            Link::Local => true,
+            _ => false,
         }
     }
 
-    pub fn local(name: &str) -> Subject {
-        Subject::Local(name.to_string())
-    }
-
-    pub fn remote(name: &str, id: ID) -> Subject {
-        Subject::Remote(name.to_string(), id)
+    pub fn is_remote(link: &Link, peer_node_id: &ID) -> bool {
+        match *link {
+            Link::Remote(ref id) if id == peer_node_id => true,
+            _ => false,
+        }
     }
 }

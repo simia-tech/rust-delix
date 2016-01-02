@@ -22,8 +22,8 @@ use std::thread;
 use time::Duration;
 
 use transport::{Result, Transport};
-use transport::direct::{Balancer, Connection, ConnectionMap, Tracker, ServiceMap};
-use transport::direct::tracker::{Statistic, Subject};
+use transport::direct::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
+use transport::direct::tracker::Statistic;
 
 use node::{ID, request};
 
@@ -167,7 +167,7 @@ impl Transport for Direct {
         self.services.select(name,
                              |handler| {
                                  let (request_id, _) = self.tracker
-                                                           .begin(Subject::local(name));
+                                                           .begin(name, &Link::Local);
                                  let response = handler(data)
                                                     .map_err(|text| request::Error::Internal(text));
                                  self.tracker.end(request_id, None).unwrap();
@@ -176,7 +176,7 @@ impl Transport for Direct {
                              |peer_node_id| {
                                  let (request_id, repsonse_rx) =
                                      self.tracker
-                                         .begin(Subject::remote(name, peer_node_id));
+                                         .begin(name, &Link::Remote(peer_node_id));
                                  self.connections
                                      .send_request(&peer_node_id, request_id, name, data)
                                      .unwrap();

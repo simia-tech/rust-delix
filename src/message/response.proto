@@ -5,9 +5,8 @@ message Response {
   enum Kind {
     OK = 1;
     ServiceDoesNotExists = 2;
-    ServiceDoesNotExistsOnPeer = 3;
-    Timeout = 4;
-    Internal = 5;
+    Timeout = 3;
+    Internal = 4;
   }
 
   optional uint32 request_id = 1;

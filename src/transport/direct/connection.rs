@@ -140,10 +140,6 @@ impl Connection {
                     message::Kind::ResponseMessage => {
                         if let Some(ref f) = *on_response_clone.lock().unwrap() {
                             let (request_id, response) = read_response(&container).unwrap();
-                            let response = match response {
-                                Err(request::Error::ServiceDoesNotExists) => Err(request::Error::ServiceDoesNotExistsOnPeer(peer_node_id.clone())),
-                                _ => response,
-                            };
                             f(request_id, response);
                         }
                     }
@@ -331,10 +327,6 @@ fn write_response(w: &mut Write, request_id: u32, response: request::Response) -
         Err(request::Error::ServiceDoesNotExists) => {
             response_packet.set_kind(message::Response_Kind::ServiceDoesNotExists);
         }
-        Err(request::Error::ServiceDoesNotExistsOnPeer(id)) => {
-            response_packet.set_kind(message::Response_Kind::ServiceDoesNotExistsOnPeer);
-            response_packet.set_data(id.to_vec());
-        }
         Err(request::Error::Timeout) => {
             response_packet.set_kind(message::Response_Kind::Timeout);
         }
@@ -403,7 +395,6 @@ fn read_response(container: &message::Container) -> Result<(u32, request::Respon
     let result = match response_packet.get_kind() {
         message::Response_Kind::OK => Ok(response_packet.get_data().to_vec()),
         message::Response_Kind::ServiceDoesNotExists => Err(request::Error::ServiceDoesNotExists),
-        message::Response_Kind::ServiceDoesNotExistsOnPeer => Err(request::Error::ServiceDoesNotExistsOnPeer(ID::from_vec(response_packet.get_data().to_vec()).unwrap())),
         message::Response_Kind::Timeout => Err(request::Error::Timeout),
         message::Response_Kind::Internal => {
             Err(request::Error::Internal(String::from_utf8(response_packet.get_data().to_vec())

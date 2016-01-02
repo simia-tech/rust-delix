@@ -18,6 +18,7 @@ pub mod balancer;
 mod connection;
 mod connection_map;
 mod direct;
+mod link;
 mod service_map;
 pub mod tracker;
 
@@ -28,6 +29,7 @@ pub use transport::direct::connection::Result as ConnectionResult;
 pub use transport::direct::connection_map::ConnectionMap;
 pub use transport::direct::connection_map::Error as ConnectionMapError;
 pub use transport::direct::direct::Direct;
+pub use transport::direct::link::Link;
 pub use transport::direct::service_map::ServiceMap;
 pub use transport::direct::service_map::Error as ServiceMapError;
 pub use transport::direct::tracker::Tracker;

@@ -15,9 +15,10 @@
 
 use std::sync::Arc;
 
-use transport::direct::tracker::{Statistic, Subject};
+use transport::direct::Link;
+use transport::direct::tracker::Statistic;
 
 pub trait Balancer {
     fn assign_statistic(&self, Arc<Statistic>);
-    fn build_round(&self, &[Subject]) -> Vec<Subject>;
+    fn build_round(&self, name: &str, &[Link]) -> Vec<Link>;
 }
