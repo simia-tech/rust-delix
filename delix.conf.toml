@@ -9,3 +9,6 @@ public_address = "127.0.0.1:4001"
 local_address = "127.0.0.1:4001"
 request_timeout_ms = 500
 balancer = { type = "dynamic_round_robin" }
+
+[stats]
+collectors = ["debug"]

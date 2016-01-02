@@ -25,6 +25,9 @@ use delix::discovery::Discovery;
 use delix::transport::Transport;
 use delix::transport::Direct;
 use delix::transport::direct::{Balancer, balancer};
+use delix::stats::MultiStatCollector;
+use delix::stats::DebugStatCollector;
+use delix::stats::StatCollector;
 use configuration::Configuration;
 
 #[derive(Debug)]
@@ -63,6 +66,18 @@ impl Loader {
             _ => return Err(Error::UnknownDiscoveryType(discovery_type)),
         };
 
+        let stat_collectors: Vec<Box<StatCollector>> = configuration.strings_at("stats.collectors")
+            .unwrap_or(vec![])
+            .iter()
+            .filter_map(|c| -> Option<Box<StatCollector>> {
+                match c.as_ref() {
+                    "debug" => Some(Box::new(DebugStatCollector)),
+                    _ => None,
+                }})
+            .collect();
+
+        let stat_collector = Box::new(MultiStatCollector::new(stat_collectors));
+
         let transport_type = match configuration.string_at("transport.type") {
             Some(transport_type) => transport_type,
             None => return Err(Error::NoTransportType),
@@ -91,7 +106,7 @@ impl Loader {
                     _ => return Err(Error::UnknownBalancerType(balancer_type)),
                 };
 
-                Box::new(Direct::new(balancer, local_address, public_address, request_timeout))
+                Box::new(Direct::new(balancer, local_address, public_address, request_timeout, stat_collector))
             }
             _ => return Err(Error::UnknownTransportType(transport_type)),
         };

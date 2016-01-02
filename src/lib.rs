@@ -24,3 +24,4 @@ pub mod discovery;
 pub mod message;
 pub mod node;
 pub mod transport;
+pub mod stats;

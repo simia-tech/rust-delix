@@ -21,6 +21,7 @@ use delix::discovery::Constant;
 use delix::node::{Node, State};
 use delix::transport::Direct;
 use delix::transport::direct::balancer;
+use delix::stats::NullStatCollector;
 
 pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
@@ -29,11 +30,13 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
                                                              .map(|s| {
                                                                  s.parse::<SocketAddr>().unwrap()
                                                              })
-                                                             .collect()));
+                                           .collect()));
+
     let transport = Box::new(Direct::new(balancer,
                                          local_address.parse::<SocketAddr>().unwrap(),
                                          None,
-                                         None));
+                                         None,
+                                         Box::new(NullStatCollector)));
     Node::new(discovery, transport).unwrap()
 }
 
