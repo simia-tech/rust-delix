@@ -15,6 +15,8 @@
 
 use std::result;
 
+use node::ID;
+
 pub type Handler = Fn(&[u8]) -> result::Result<Vec<u8>, String> + Send;
 
 pub type Response = result::Result<Vec<u8>, Error>;
@@ -22,6 +24,7 @@ pub type Response = result::Result<Vec<u8>, Error>;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     ServiceDoesNotExists,
+    ServiceDoesNotExistsOnPeer(ID),
     Timeout,
     Internal(String),
 }

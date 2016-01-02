@@ -20,6 +20,7 @@ mod helper;
 use std::thread::sleep_ms;
 
 use delix::node::State;
+use delix::node::request;
 
 use helper::{assert_node, build_node};
 
@@ -83,4 +84,30 @@ fn deregistration() {
     assert_node(&node, State::Discovering, 0);
 
     assert_eq!(0, node.service_count());
+}
+
+#[test]
+fn deregistration_in_joined_network() {
+    let node_one = build_node("127.0.0.1:3041", &[]);
+    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
+            .unwrap();
+
+    let node_two = build_node("127.0.0.1:3042", &["127.0.0.1:3041"]);
+
+    sleep_ms(1000);
+    assert_node(&node_one, State::Joined, 1);
+    assert_node(&node_two, State::Joined, 1);
+
+    assert_eq!(1, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
+
+    node_one.deregister("echo").unwrap();
+
+    assert_eq!(0, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
+
+    assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request("echo", b"test"));
+
+    assert_eq!(0, node_one.service_count());
+    assert_eq!(0, node_two.service_count());
 }

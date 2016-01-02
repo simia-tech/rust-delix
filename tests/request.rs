@@ -98,4 +98,10 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
     assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
     assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"").unwrap());
+
+    // if a service deregisters in the middle of a round, the changes should be processed
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    node_two.deregister("echo").unwrap();
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
 }

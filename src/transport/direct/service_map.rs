@@ -92,33 +92,60 @@ impl ServiceMap {
     {
         let mut entries = self.entries.write().unwrap();
 
-        let link = match entries.get_mut(name).and_then(|entry| {
-            if entry.1.is_empty() {
-                entry.1.append(&mut self.balancer
-                                        .build_round(&to_subjects(&entry.0, name)));
-                entry.1.reverse();
-            }
-            let subject = entry.1.pop().expect("balancer did not build any round");
-            match subject {
-                Subject::Local(_) => entry.0.iter().find(local_link),
-                Subject::Remote(_, peer_node_id) => {
-                    entry.0.iter().find(|&link| {
-                        match *link {
-                            Link::Remote(id) if id == peer_node_id => true,
-                            _ => false,
-                        }
-                    })
-                }
-            }
-        }) {
-            Some(subject) => subject,
-            None => return Err(request::Error::ServiceDoesNotExists),
-        };
+        loop {
+            let response = {
+                let mut entry = match entries.get_mut(name) {
+                    Some(entry) => entry,
+                    None => return Err(request::Error::ServiceDoesNotExists),
+                };
 
-        match *link {
-            Link::Local(ref service_handler) => local_handler(service_handler),
-            Link::Remote(ref peer_node_id) => remote_handler(*peer_node_id),
+                if entry.1.is_empty() {
+                    entry.1.append(&mut self.balancer
+                                            .build_round(&to_subjects(&entry.0, name)));
+                    entry.1.reverse();
+                }
+                let subject = entry.1.pop().expect("balancer did not build any round");
+
+                let link = match subject {
+                    Subject::Local(_) => entry.0.iter().find(local_link).unwrap(),
+                    Subject::Remote(_, peer_node_id) => {
+                        entry.0
+                             .iter()
+                             .find(|&link| {
+                                 match *link {
+                                     Link::Remote(id) if id == peer_node_id => true,
+                                     _ => false,
+                                 }
+                             })
+                             .unwrap()
+                    }
+                };
+
+                match *link {
+                    Link::Local(ref service_handler) => local_handler(service_handler),
+                    Link::Remote(ref peer_node_id) => remote_handler(*peer_node_id),
+                }
+            };
+
+            if let Err(request::Error::ServiceDoesNotExistsOnPeer(peer_node_id)) = response {
+                let mut remove_entry = false;
+                if let Some(entry) = entries.get_mut(name) {
+                    entry.0.retain(|link| {
+                        match *link {
+                            Link::Remote(id) if id == peer_node_id => false,
+                            _ => true,
+                        }
+                    });
+                    remove_entry = entry.0.is_empty();
+                }
+                if remove_entry {
+                    entries.remove(name);
+                }
+            } else {
+                return response;
+            }
         }
+        unreachable!();
     }
 
     pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Response
@@ -154,17 +181,17 @@ impl ServiceMap {
     pub fn remove_local(&self, name: &str) -> Result<()> {
         let mut entries = self.entries.write().unwrap();
         let remove = {
-            let mut links = match entries.get_mut(name) {
-                Some(links) => links,
+            let mut entry = match entries.get_mut(name) {
+                Some(entry) => entry,
                 None => return Err(Error::ServiceDoesNotExists),
             };
-            links.0.retain(|link| {
+            entry.0.retain(|link| {
                 match *link {
                     Link::Local(_) => false,
                     _ => true,
                 }
             });
-            links.0.len() == 0
+            entry.0.len() == 0
         };
         if remove {
             entries.remove(name);
@@ -172,24 +199,23 @@ impl ServiceMap {
         Ok(())
     }
 
-    pub fn remove_remote(&self, peer_node_id: &ID) -> Result<()> {
+    pub fn remove_remote(&self, peer_node_id: &ID) {
         let mut entries = self.entries.write().unwrap();
         let mut names = Vec::new();
-        for (name, links) in entries.iter_mut() {
-            links.0.retain(|link| {
+        for (name, entry) in entries.iter_mut() {
+            entry.0.retain(|link| {
                 match *link {
                     Link::Remote(ref node_id) if node_id == peer_node_id => false,
                     _ => true,
                 }
             });
-            if links.0.len() == 0 {
+            if entry.0.len() == 0 {
                 names.push(name.to_string());
             }
         }
         for name in names {
             entries.remove(&name);
         }
-        Ok(())
     }
 }
 
@@ -292,7 +318,7 @@ mod tests {
         service_map.insert_remote("test", node_id).unwrap();
         service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
 
-        assert!(service_map.remove_remote(&node_id).is_ok());
+        service_map.remove_remote(&node_id);
 
         assert_eq!(1, service_map.len());
     }
@@ -304,7 +330,7 @@ mod tests {
         let node_id = ID::new_random();
         service_map.insert_remote("test", node_id).unwrap();
 
-        assert!(service_map.remove_remote(&node_id).is_ok());
+        service_map.remove_remote(&node_id);
 
         assert_eq!(0, service_map.len());
     }

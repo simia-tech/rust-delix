@@ -222,6 +222,6 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
 
     let services_clone = services.clone();
     connection.set_on_drop(Box::new(move |peer_node_id| {
-        services_clone.remove_remote(&peer_node_id).unwrap();
+        services_clone.remove_remote(&peer_node_id);
     }));
 }
