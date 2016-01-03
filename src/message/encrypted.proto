@@ -1,0 +1,12 @@
+package message;
+
+message Encrypted {
+  enum CipherType {
+    AESGCM = 1;
+  }
+
+  optional CipherType cipher_type = 1;
+  optional bytes nonce = 2;
+  optional bytes cipher_text = 3;
+  optional bytes tag = 4;
+}

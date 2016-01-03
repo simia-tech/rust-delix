@@ -1,5 +1,6 @@
 
 mod container;
+mod encrypted;
 mod introduction;
 mod kind;
 mod peer;
@@ -10,6 +11,8 @@ mod service;
 mod services;
 
 pub use message::container::Container;
+pub use message::encrypted::Encrypted;
+pub use message::encrypted::Encrypted_CipherType;
 pub use message::introduction::Introduction;
 pub use message::kind::Kind;
 pub use message::peer::Peer;

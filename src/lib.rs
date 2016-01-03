@@ -15,6 +15,7 @@ limitations under the License.
 */
 
 extern crate byteorder;
+extern crate crypto;
 extern crate protobuf;
 extern crate rand;
 extern crate rustc_serialize;
