@@ -15,7 +15,7 @@
 
 use std::result;
 
-pub trait Cipher {
+pub trait Cipher : Send + Sync {
     fn encrypt(&self, &[u8]) -> Result<Vec<u8>>;
     fn decrypt(&self, &[u8]) -> Result<Vec<u8>>;
 }

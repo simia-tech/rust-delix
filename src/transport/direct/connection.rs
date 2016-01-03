@@ -25,9 +25,11 @@ use message;
 use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
 use node::{self, ID, request};
+use transport::cipher::{self, Cipher};
 
 pub struct Connection {
     stream: net::TcpStream,
+    cipher: Arc<Box<Cipher>>,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
@@ -50,31 +52,34 @@ pub enum Error {
     AddrParse(net::AddrParseError),
     Protobuf(protobuf::ProtobufError),
     Io(io::Error),
+    Cipher(cipher::Error),
 }
 
 impl Connection {
     pub fn new_inbound(s: net::TcpStream,
+                       cipher: Arc<Box<Cipher>>,
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)])
                        -> Result<Connection> {
 
-        let (mut connection, sender) = try!(Self::new(s, node_id, public_address));
+        let (mut connection, sender) = try!(Self::new(s, cipher.clone(), node_id, public_address));
 
-        try!(write_peers(&mut connection.stream, peers));
+        try!(write_peers(&mut connection.stream, &cipher, peers));
         sender.send(true).unwrap();
 
         Ok(connection)
     }
 
     pub fn new_outbound(s: net::TcpStream,
+                        cipher: Arc<Box<Cipher>>,
                         node_id: ID,
                         public_address: SocketAddr)
                         -> Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
-        let (mut connection, sender) = try!(Self::new(s, node_id, public_address));
+        let (mut connection, sender) = try!(Self::new(s, cipher.clone(), node_id, public_address));
 
-        let container = try!(read_container(&mut connection.stream));
+        let container = try!(read_container(&mut connection.stream, &cipher));
         let peers = try!(read_peers(&container));
         sender.send(true).unwrap();
 
@@ -82,11 +87,13 @@ impl Connection {
     }
 
     fn new(s: net::TcpStream,
+           cipher: Arc<Box<Cipher>>,
            node_id: ID,
            public_address: SocketAddr)
            -> Result<(Connection, mpsc::Sender<bool>)> {
 
         let mut stream = s.try_clone().unwrap();
+        let cipher_clone = cipher.clone();
 
         let on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
@@ -103,16 +110,16 @@ impl Connection {
         let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
 
-        try!(write_introduction(&mut stream, node_id, public_address));
+        try!(write_introduction(&mut stream, &cipher, node_id, public_address));
 
-        let container = try!(read_container(&mut stream));
+        let container = try!(read_container(&mut stream, &cipher));
         let (peer_node_id, peer_public_address) = try!(read_introduction(&container));
 
         let (sender, receiver) = mpsc::channel();
         let thread = Some(thread::spawn(move || {
             receiver.recv().unwrap();
             loop {
-                let container = match read_container(&mut stream) {
+                let container = match read_container(&mut stream, &cipher_clone) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
                         if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
@@ -134,7 +141,8 @@ impl Connection {
                     message::Kind::RequestMessage => {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let (request_id, name, data) = read_request(&container).unwrap();
-                            write_response(&mut stream, request_id, f(&name, &data)).unwrap();
+                            write_response(&mut stream, &cipher_clone, request_id, f(&name, &data))
+                                .unwrap();
                         }
                     }
                     message::Kind::ResponseMessage => {
@@ -152,6 +160,7 @@ impl Connection {
 
         Ok((Connection {
             stream: s,
+            cipher: cipher,
             thread: thread,
             node_id: node_id,
             peer_node_id: peer_node_id,
@@ -182,7 +191,7 @@ impl Connection {
     }
 
     pub fn send_services(&mut self, service_names: &[String]) -> Result<()> {
-        try!(write_services(&mut self.stream, service_names));
+        try!(write_services(&mut self.stream, &self.cipher, service_names));
         Ok(())
     }
 
@@ -191,7 +200,7 @@ impl Connection {
     }
 
     pub fn send_request(&mut self, id: u32, name: &str, data: &[u8]) -> Result<()> {
-        try!(write_request(&mut self.stream, id, name, data));
+        try!(write_request(&mut self.stream, &self.cipher, id, name, data));
         Ok(())
     }
 
@@ -270,16 +279,26 @@ impl From<io::Error> for Error {
     }
 }
 
-fn write_introduction(w: &mut Write, node_id: ID, public_address: SocketAddr) -> Result<()> {
+impl From<cipher::Error> for Error {
+    fn from(error: cipher::Error) -> Self {
+        Error::Cipher(error)
+    }
+}
+
+fn write_introduction(w: &mut Write,
+                      cipher: &Arc<Box<Cipher>>,
+                      node_id: ID,
+                      public_address: SocketAddr)
+                      -> Result<()> {
     let mut buffer = Vec::new();
     let mut introduction = message::Introduction::new();
     introduction.set_id(node_id.to_vec());
     introduction.set_public_address(format!("{}", public_address));
     try!(introduction.write_to_vec(&mut buffer));
-    write_container(w, message::Kind::IntroductionMessage, buffer)
+    write_container(w, cipher, message::Kind::IntroductionMessage, buffer)
 }
 
-fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
+fn write_peers(w: &mut Write, cipher: &Arc<Box<Cipher>>, peers: &[(ID, SocketAddr)]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut peers_packet = message::Peers::new();
     for peer in peers {
@@ -290,10 +309,13 @@ fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
         peers_packet.mut_peers().push(peer_packet);
     }
     try!(peers_packet.write_to_vec(&mut buffer));
-    write_container(w, message::Kind::PeersMessage, buffer)
+    write_container(w, cipher, message::Kind::PeersMessage, buffer)
 }
 
-fn write_services(w: &mut Write, service_names: &[String]) -> Result<()> {
+fn write_services(w: &mut Write,
+                  cipher: &Arc<Box<Cipher>>,
+                  service_names: &[String])
+                  -> Result<()> {
     let mut buffer = Vec::new();
     let mut services_packet = message::Services::new();
     for service_name in service_names {
@@ -302,20 +324,29 @@ fn write_services(w: &mut Write, service_names: &[String]) -> Result<()> {
         services_packet.mut_services().push(service_packet);
     }
     try!(services_packet.write_to_vec(&mut buffer));
-    write_container(w, message::Kind::ServicesMessage, buffer)
+    write_container(w, cipher, message::Kind::ServicesMessage, buffer)
 }
 
-fn write_request(w: &mut Write, id: u32, name: &str, data: &[u8]) -> Result<()> {
+fn write_request(w: &mut Write,
+                 cipher: &Arc<Box<Cipher>>,
+                 id: u32,
+                 name: &str,
+                 data: &[u8])
+                 -> Result<()> {
     let mut buffer = Vec::new();
     let mut request_packet = message::Request::new();
     request_packet.set_id(id);
     request_packet.set_name(name.to_string());
     request_packet.set_data(data.to_vec());
     try!(request_packet.write_to_vec(&mut buffer));
-    write_container(w, message::Kind::RequestMessage, buffer)
+    write_container(w, cipher, message::Kind::RequestMessage, buffer)
 }
 
-fn write_response(w: &mut Write, request_id: u32, response: request::Response) -> Result<()> {
+fn write_response(w: &mut Write,
+                  cipher: &Arc<Box<Cipher>>,
+                  request_id: u32,
+                  response: request::Response)
+                  -> Result<()> {
     let mut buffer = Vec::new();
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
@@ -336,19 +367,24 @@ fn write_response(w: &mut Write, request_id: u32, response: request::Response) -
         }
     }
     try!(response_packet.write_to_vec(&mut buffer));
-    write_container(w, message::Kind::ResponseMessage, buffer)
+    write_container(w, cipher, message::Kind::ResponseMessage, buffer)
 }
 
-fn write_container(w: &mut Write, kind: message::Kind, data: Vec<u8>) -> Result<()> {
+fn write_container(w: &mut Write,
+                   cipher: &Arc<Box<Cipher>>,
+                   kind: message::Kind,
+                   data: Vec<u8>)
+                   -> Result<()> {
     let mut container = message::Container::new();
     container.set_kind(kind);
     container.set_payload(data);
 
     let container_bytes = try!(container.write_to_bytes());
-    let container_size = container_bytes.len() as u64;
+    let encrypted_bytes = try!(cipher.encrypt(&container_bytes));
+    let encrypted_size = encrypted_bytes.len() as u64;
 
-    w.write_u64::<byteorder::BigEndian>(container_size).unwrap();
-    w.write(&container_bytes).unwrap();
+    w.write_u64::<byteorder::BigEndian>(encrypted_size).unwrap();
+    w.write(&encrypted_bytes).unwrap();
     w.flush().unwrap();
 
     Ok(())
@@ -409,18 +445,20 @@ fn read_packet<T: protobuf::Message + protobuf::MessageStatic>(container: &messa
     Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
 }
 
-fn read_container(r: &mut Read) -> Result<message::Container> {
-    let container_size = match r.read_u64::<byteorder::BigEndian>() {
+fn read_container(r: &mut Read, cipher: &Arc<Box<Cipher>>) -> Result<message::Container> {
+    let encrypted_size = match r.read_u64::<byteorder::BigEndian>() {
         Ok(number) => number as usize,
         Err(byteorder::Error::UnexpectedEOF) => return Err(Error::ConnectionLost),
         Err(byteorder::Error::Io(error)) => return Err(Error::Io(error)),
     };
 
-    let mut buffer = Vec::with_capacity(container_size);
+    let mut buffer = Vec::with_capacity(encrypted_size);
     unsafe {
-        buffer.set_len(container_size);
+        buffer.set_len(encrypted_size);
     }
     r.read(&mut buffer).unwrap();
 
-    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&buffer)))
+    let container_bytes = try!(cipher.decrypt(&mut buffer));
+
+    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&container_bytes)))
 }

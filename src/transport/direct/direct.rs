@@ -22,6 +22,7 @@ use std::thread;
 use time::Duration;
 
 use transport::{Result, Transport};
+use transport::cipher::Cipher;
 use transport::direct::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
 use transport::direct::tracker::Statistic;
 
@@ -32,13 +33,15 @@ pub struct Direct {
     running: Arc<AtomicBool>,
     local_address: SocketAddr,
     public_address: SocketAddr,
+    cipher: Arc<Box<Cipher>>,
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
     tracker: Arc<Tracker>,
 }
 
 impl Direct {
-    pub fn new(balancer: Box<Balancer>,
+    pub fn new(cipher: Box<Cipher>,
+               balancer: Box<Balancer>,
                local_address: SocketAddr,
                public_address: Option<SocketAddr>,
                request_timeout: Option<Duration>)
@@ -52,6 +55,7 @@ impl Direct {
             running: Arc::new(AtomicBool::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
+            cipher: Arc::new(cipher),
             connections: Arc::new(ConnectionMap::new()),
             services: Arc::new(ServiceMap::new(balancer)),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
@@ -75,6 +79,7 @@ impl Transport for Direct {
 
         let public_address = self.public_address;
         let running_clone = self.running.clone();
+        let cipher_clone = self.cipher.clone();
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
@@ -88,6 +93,7 @@ impl Transport for Direct {
                 let stream = stream.unwrap();
                 let peers = &connections_clone.id_public_address_pairs();
                 let mut connection = Connection::new_inbound(stream,
+                                                             cipher_clone.clone(),
                                                              node_id,
                                                              public_address,
                                                              peers)
@@ -124,6 +130,7 @@ impl Transport for Direct {
 
                 let stream = try!(TcpStream::connect(peer_public_address));
                 let (mut connection, peers) = try!(Connection::new_outbound(stream,
+                                                                            self.cipher.clone(),
                                                                             node_id,
                                                                             self.public_address));
                 tx.send(peers).unwrap();

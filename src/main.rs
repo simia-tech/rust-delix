@@ -22,6 +22,8 @@ extern crate getopts;
 extern crate time;
 #[cfg(not(test))]
 extern crate toml;
+#[cfg(not(test))]
+extern crate rustc_serialize;
 
 #[cfg(not(test))]
 mod arguments;

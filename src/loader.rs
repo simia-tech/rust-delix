@@ -18,12 +18,9 @@ use std::net::AddrParseError;
 use std::result;
 use time::Duration;
 
-use delix::node;
-use delix::node::Node;
-use delix::discovery::Constant;
-use delix::discovery::Discovery;
-use delix::transport::Transport;
-use delix::transport::Direct;
+use delix::node::{self, Node};
+use delix::discovery::{Constant, Discovery};
+use delix::transport::{Direct, Transport, cipher};
 use delix::transport::direct::{Balancer, balancer};
 use configuration::Configuration;
 
@@ -36,6 +33,9 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     NoDiscoveryType,
     UnknownDiscoveryType(String),
+    NoCipherType,
+    UnknownCipherType(String),
+    NoKey,
     NoTransportType,
     UnknownTransportType(String),
     NoBalancerType,
@@ -43,6 +43,7 @@ pub enum Error {
     NoLocalAddress,
     NodeError(node::Error),
     AddrParseError(AddrParseError),
+    Cipher(cipher::Error),
 }
 
 impl Loader {
@@ -61,6 +62,22 @@ impl Loader {
                                                          .collect())))
             }
             _ => return Err(Error::UnknownDiscoveryType(discovery_type)),
+        };
+
+        let cipher_type = match configuration.string_at("cipher.type") {
+            Some(cipher_type) => cipher_type,
+            None => return Err(Error::NoCipherType),
+        };
+
+        let cipher: Box<cipher::Cipher> = match cipher_type.as_ref() {
+            "symmetric" => {
+                let key = match configuration.bytes_at("cipher.key") {
+                    Some(key) => key,
+                    None => return Err(Error::NoKey),
+                };
+                Box::new(try!(cipher::Symmetric::new(&key, None)))
+            }
+            _ => return Err(Error::UnknownCipherType(cipher_type)),
         };
 
         let transport_type = match configuration.string_at("transport.type") {
@@ -91,7 +108,11 @@ impl Loader {
                     _ => return Err(Error::UnknownBalancerType(balancer_type)),
                 };
 
-                Box::new(Direct::new(balancer, local_address, public_address, request_timeout))
+                Box::new(Direct::new(cipher,
+                                     balancer,
+                                     local_address,
+                                     public_address,
+                                     request_timeout))
             }
             _ => return Err(Error::UnknownTransportType(transport_type)),
         };
@@ -110,5 +131,11 @@ impl From<node::Error> for Error {
 impl From<AddrParseError> for Error {
     fn from(error: AddrParseError) -> Self {
         Error::AddrParseError(error)
+    }
+}
+
+impl From<cipher::Error> for Error {
+    fn from(error: cipher::Error) -> Self {
+        Error::Cipher(error)
     }
 }

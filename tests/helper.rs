@@ -19,10 +19,11 @@ use std::net::SocketAddr;
 
 use delix::discovery::Constant;
 use delix::node::{Node, State};
-use delix::transport::Direct;
+use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
 
 pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
+    let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
                                                              .iter()
@@ -30,7 +31,8 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
                                                                  s.parse::<SocketAddr>().unwrap()
                                                              })
                                                              .collect()));
-    let transport = Box::new(Direct::new(balancer,
+    let transport = Box::new(Direct::new(cipher,
+                                         balancer,
                                          local_address.parse::<SocketAddr>().unwrap(),
                                          None,
                                          None));
