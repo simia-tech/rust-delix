@@ -59,7 +59,7 @@ impl Node {
                 if transport_clone.connection_count() == 0 {
                     if let Some(address) = discovery_clone.discover() {
                         if let Err(err) = transport_clone.join(address, node_id) {
-                            println!("{}: failed to connect to {}: {:?}", node_id, address, err);
+                            error!("{}: failed to connect to {}: {:?}", node_id, address, err);
                         }
                     }
                 }

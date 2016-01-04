@@ -4,8 +4,9 @@ version = "0.1.0"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
 
 [dependencies]
-byteorder = "0.4.2"
+byteorder = "0.4"
 getopts = "0.2"
+log = "0.3"
 protobuf = "1.0"
 rand = "0.3"
 rust-crypto = "0.2"

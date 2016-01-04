@@ -1,4 +1,7 @@
 
+[log]
+type = "console"
+
 [discovery]
 type = "constant"
 addresses = [ ]

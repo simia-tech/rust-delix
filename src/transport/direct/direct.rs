@@ -104,7 +104,7 @@ impl Transport for Direct {
                 connection.send_services(&services_clone.local_service_names())
                           .unwrap();
 
-                println!("{}: inbound {}", node_id, connection);
+                info!("{}: inbound {}", node_id, connection);
                 connections_clone.add(connection).unwrap();
             }
         }));
@@ -139,7 +139,7 @@ impl Transport for Direct {
 
                 try!(connection.send_services(&self.services.local_service_names()));
 
-                println!("{}: outbound {}", node_id, connection);
+                info!("{}: outbound {}", node_id, connection);
                 self.connections.add(connection).unwrap();
             }
 

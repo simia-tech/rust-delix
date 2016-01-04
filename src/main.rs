@@ -19,6 +19,9 @@ extern crate delix;
 #[cfg(not(test))]
 extern crate getopts;
 #[cfg(not(test))]
+#[macro_use]
+extern crate log;
+#[cfg(not(test))]
 extern crate time;
 #[cfg(not(test))]
 extern crate toml;
@@ -37,7 +40,7 @@ fn main() {
     let arguments = match ::arguments::Arguments::parse() {
         Ok(arguments) => arguments,
         Err(err) => {
-            println!("error while parsing arguments: {:?}", err);
+            error!("error while parsing arguments: {:?}", err);
             return;
         },
     };
@@ -45,7 +48,7 @@ fn main() {
     let configuration = match ::configuration::Configuration::read_file(&arguments.configuration_path) {
         Ok(configuration) => configuration,
         Err(err) => {
-            println!("error while reading configuration: {:?}", err);
+            error!("error while reading configuration: {:?}", err);
             return;
         },
     };
@@ -53,14 +56,14 @@ fn main() {
     let node = match ::loader::Loader::load_node(&configuration) {
         Ok(node) => node,
         Err(err) => {
-            println!("error while loading node: {:?}", err);
+            error!("error while loading node: {:?}", err);
             return;
         }
     };
 
     println!("delix {} loaded", node);
     loop {
-        println!("state {}", node);
+        info!("state {}", node);
         ::std::thread::sleep_ms(1000);
     }
 }

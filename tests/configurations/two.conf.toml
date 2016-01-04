@@ -1,4 +1,7 @@
 
+[log]
+type = "console"
+
 [discovery]
 type = "constant"
 addresses = [ "127.0.0.1:4001" ]

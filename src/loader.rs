@@ -18,6 +18,7 @@ use std::net::AddrParseError;
 use std::result;
 use time::Duration;
 
+use delix::logger;
 use delix::node::{self, Node};
 use delix::discovery::{Constant, Discovery};
 use delix::transport::{Direct, Transport, cipher};
@@ -31,6 +32,8 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
+    NoLogType,
+    UnknownLogType(String),
     NoDiscoveryType,
     UnknownDiscoveryType(String),
     NoCipherType,
@@ -48,6 +51,16 @@ pub enum Error {
 
 impl Loader {
     pub fn load_node(configuration: &Configuration) -> Result<Node> {
+        let log_type = match configuration.string_at("log.type") {
+            Some(log_type) => log_type,
+            None => return Err(Error::NoLogType),
+        };
+
+        match log_type.as_ref() {
+            "console" => logger::Console::init().unwrap(),
+            _ => return Err(Error::UnknownLogType(log_type)),
+        }
+
         let discovery_type = match configuration.string_at("discovery.type") {
             Some(discovery_type) => discovery_type,
             None => return Err(Error::NoDiscoveryType),
