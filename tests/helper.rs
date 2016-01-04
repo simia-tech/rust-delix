@@ -16,13 +16,15 @@
 extern crate delix;
 
 use std::net::SocketAddr;
+use std::sync::Arc;
 
 use delix::discovery::Constant;
 use delix::node::{Node, State};
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
+use delix::relay::{self, Relay};
 
-pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
+pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Arc<Node> {
     let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
@@ -36,10 +38,16 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Node {
                                          local_address.parse::<SocketAddr>().unwrap(),
                                          None,
                                          None));
-    Node::new(discovery, transport).unwrap()
+    Arc::new(Node::new(discovery, transport).unwrap())
 }
 
-pub fn assert_node(node: &Node, expected_state: State, expected_connection_count: usize) {
+pub fn build_http_static_relay(node: &Arc<Node>, address: &str) -> Arc<relay::HttpStatic> {
+    let relay = relay::HttpStatic::new(node.clone());
+    relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
+    Arc::new(relay)
+}
+
+pub fn assert_node(node: &Arc<Node>, expected_state: State, expected_connection_count: usize) {
     assert_eq!(expected_state, node.state());
     assert_eq!(expected_connection_count, node.connection_count());
 }

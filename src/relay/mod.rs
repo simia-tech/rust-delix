@@ -14,19 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-extern crate byteorder;
-extern crate crypto;
-extern crate hyper;
-#[macro_use]
-extern crate log;
-extern crate protobuf;
-extern crate rand;
-extern crate rustc_serialize;
-extern crate time;
+mod relay;
+mod http_static;
 
-pub mod discovery;
-pub mod logger;
-pub mod message;
-pub mod node;
-pub mod relay;
-pub mod transport;
+pub use relay::relay::{Relay, Result};
+pub use relay::http_static::HttpStatic;

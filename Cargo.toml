@@ -6,6 +6,7 @@ authors = ["Philipp Brüll <bruell@simia.tech>"]
 [dependencies]
 byteorder = "0.4"
 getopts = "0.2"
+hyper = "0.7"
 log = "0.3"
 protobuf = "1.0"
 rand = "0.3"
