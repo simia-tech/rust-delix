@@ -4,7 +4,7 @@ type = "console"
 
 [discovery]
 type = "constant"
-addresses = [ ]
+addresses = [ "127.0.0.1:4001" ]
 
 [cipher]
 type = "symmetric"
@@ -12,15 +12,14 @@ key = "000102030405060708090a0b0c0d0e0f"
 
 [transport]
 type = "direct"
-public_address = "127.0.0.1:4001"
-local_address = "127.0.0.1:4001"
-request_timeout_ms = 500
+local_address = "127.0.0.1:4003"
+request_timeout_ms = 5000
 balancer = { type = "dynamic_round_robin" }
 
 [[relay]]
 type = "http_static"
-address = "127.0.0.1:4200"
+address = "127.0.0.1:4203"
 
 [[relay.service]]
-name = "test"
-address = "127.0.0.1:5000"
+name = "google"
+address = "110.164.6.231:80"

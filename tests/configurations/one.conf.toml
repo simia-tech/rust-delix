@@ -13,5 +13,13 @@ key = "000102030405060708090a0b0c0d0e0f"
 [transport]
 type = "direct"
 local_address = "127.0.0.1:4001"
-request_timeout_ms = 500
+request_timeout_ms = 5000
 balancer = { type = "dynamic_round_robin" }
+
+[[relay]]
+type = "http_static"
+address = "127.0.0.1:4201"
+
+[[relay.service]]
+name = "google"
+address = "110.164.6.231:80"

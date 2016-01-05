@@ -17,5 +17,5 @@ limitations under the License.
 mod relay;
 mod http_static;
 
-pub use relay::relay::{Relay, Result};
+pub use relay::relay::{Error, Relay, Result};
 pub use relay::http_static::HttpStatic;

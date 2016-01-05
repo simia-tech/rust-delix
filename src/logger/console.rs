@@ -19,10 +19,11 @@ pub struct Console;
 
 impl Console {
     pub fn init() -> Result<(), log::SetLoggerError> {
-        log::set_logger(|maximal_log_level| {
+        let result = log::set_logger(|maximal_log_level| {
             maximal_log_level.set(log::LogLevelFilter::Debug);
             Box::new(Console)
-        })
+        });
+        result
     }
 }
 

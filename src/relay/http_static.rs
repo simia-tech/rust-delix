@@ -36,17 +36,16 @@ impl HttpStatic {
         }
     }
 
-    pub fn add_service(&self, name: &str, address: &str) {
-        let address = address.parse::<SocketAddr>().unwrap();
+    pub fn add_service(&self, name: &str, address: SocketAddr) {
+        let name_clone = name.to_string();
         self.node
             .register(name,
                       Box::new(move |request| {
                           let mut stream = net::TcpStream::connect(address).unwrap();
                           stream.write_all(request).unwrap();
 
-                          let mut response = Vec::new();
-                          stream.read_to_end(&mut response).unwrap();
-
+                          let response = read_header_and_body(&stream, |_, _| {});
+                          info!("handled request to {}", name_clone);
                           Ok(response)
                       }))
             .unwrap();
@@ -68,7 +67,12 @@ impl Relay for HttpStatic {
 
                 let mut stream = stream.unwrap();
 
-                let (request, name) = read_request(&stream);
+                let mut name = String::new();
+                let request = read_header_and_body(&stream, |key, value| {
+                    if key == "x-delix-service" {
+                        name = value.to_string();
+                    }
+                });
 
                 let response = match node_clone.request(&name, &request) {
                     Ok(response) => response,
@@ -104,9 +108,8 @@ impl Drop for HttpStatic {
     }
 }
 
-fn read_request<R: Read>(r: R) -> (Vec<u8>, String) {
+fn read_header_and_body<R: Read, F: FnMut(&str, &str)>(r: R, mut f: F) -> Vec<u8> {
     let mut header = Vec::new();
-    let mut name = String::new();
     let mut content_length = 0;
     let mut reader = io::BufReader::new(r);
     loop {
@@ -121,34 +124,32 @@ fn read_request<R: Read>(r: R) -> (Vec<u8>, String) {
         {
             let parts = line.split(':').collect::<Vec<_>>();
             if parts.len() == 2 {
-                match parts[0].to_lowercase().trim() {
-                    "content-length" => {
-                        content_length = parts[1]
-                                             .to_string()
-                                             .trim()
-                                             .parse::<usize>()
-                                             .unwrap();
-                    }
-                    "x-delix-service" => {
-                        name = parts[1].to_string().trim().to_string();
-                    }
-                    _ => {}
+                let key = parts[0].to_lowercase().trim().to_string();
+                let value = parts[1].to_string().trim().to_string();
+
+                if key == "content-length" {
+                    content_length = value.parse::<usize>().unwrap();
                 }
+
+                f(&key, &value);
             }
         }
 
         header.append(&mut line.into_bytes());
     }
 
-    let mut body = Vec::with_capacity(content_length);
-    unsafe {
-        body.set_len(content_length);
+    if content_length > 0 {
+        let mut body = Vec::with_capacity(content_length);
+        unsafe {
+            body.set_len(content_length);
+        }
+        reader.read(&mut body).unwrap();
+
+        let mut request = Vec::with_capacity(header.len() + body.len());
+        request.append(&mut header);
+        request.append(&mut body);
+        request
+    } else {
+        header
     }
-    reader.read(&mut body).unwrap();
-
-    let mut request = Vec::with_capacity(header.len() + body.len());
-    request.append(&mut header);
-    request.append(&mut body);
-
-    (request, name)
 }

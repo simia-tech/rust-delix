@@ -48,7 +48,11 @@ impl Configuration {
             }
         };
 
-        Ok(Configuration { root: value })
+        Ok(Self::new(value))
+    }
+
+    fn new(root: toml::Value) -> Configuration {
+        Configuration { root: root }
     }
 
     pub fn i64_at(&self, path: &str) -> Option<i64> {
@@ -73,6 +77,16 @@ impl Configuration {
 
     pub fn bytes_at(&self, path: &str) -> Option<Vec<u8>> {
         self.string_at(path).and_then(|value| value.from_hex().ok())
+    }
+
+    pub fn configurations_at(&self, path: &str) -> Option<Vec<Configuration>> {
+        self.root.lookup(path).and_then(|value| {
+            value.as_slice().map(|slice| {
+                slice.iter()
+                     .map(|value| Configuration::new(value.clone()))
+                     .collect()
+            })
+        })
     }
 }
 

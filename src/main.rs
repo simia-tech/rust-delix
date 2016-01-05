@@ -39,31 +39,45 @@ mod loader;
 fn main() {
     let arguments = match ::arguments::Arguments::parse() {
         Ok(arguments) => arguments,
-        Err(err) => {
-            error!("error while parsing arguments: {:?}", err);
+        Err(error) => {
+            error!("error while parsing arguments: {:?}", error);
             return;
         },
     };
 
     let configuration = match ::configuration::Configuration::read_file(&arguments.configuration_path) {
         Ok(configuration) => configuration,
-        Err(err) => {
-            error!("error while reading configuration: {:?}", err);
+        Err(error) => {
+            error!("error while reading configuration: {:?}", error);
             return;
         },
     };
 
-    let node = match ::loader::Loader::load_node(&configuration) {
+    let loader = ::loader::Loader::new(configuration);
+
+    if let Err(error) = loader.load_log() {
+        error!("error while loading log: {:?}", error);
+        return;
+    }
+
+    let node = match loader.load_node() {
         Ok(node) => node,
-        Err(err) => {
-            error!("error while loading node: {:?}", err);
+        Err(error) => {
+            error!("error while loading node: {:?}", error);
             return;
         }
     };
 
-    println!("delix {} loaded", node);
+    let relays = match loader.load_relays(&node) {
+        Ok(relays) => relays,
+        Err(error) => {
+            error!("error while loading relays: {:?}", error);
+            return;
+        }
+    };
+
     loop {
         info!("state {}", node);
-        ::std::thread::sleep_ms(1000);
+        ::std::thread::sleep_ms(5000);
     }
 }
