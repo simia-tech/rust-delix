@@ -13,8 +13,9 @@
 // limitations under the License.
 //
 
-use std::net::{SocketAddr, TcpListener};
-use std::sync::{Arc, RwLock};
+use std::io::{self, BufRead, Read, Write};
+use std::net::{self, SocketAddr};
+use std::sync::{Arc, RwLock, atomic};
 use std::thread;
 
 use node::Node;
@@ -22,7 +23,8 @@ use relay::{Relay, Result};
 
 pub struct HttpStatic {
     node: Arc<Node>,
-    join_handle: RwLock<Option<thread::JoinHandle<()>>>,
+    join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
+    running: Arc<atomic::AtomicBool>,
 }
 
 impl HttpStatic {
@@ -30,22 +32,123 @@ impl HttpStatic {
         HttpStatic {
             node: node,
             join_handle: RwLock::new(None),
+            running: Arc::new(atomic::AtomicBool::new(false)),
         }
     }
 
-    pub fn add_service(&self, name: &str, address: &str) {}
+    pub fn add_service(&self, name: &str, address: &str) {
+        let address = address.parse::<SocketAddr>().unwrap();
+        self.node
+            .register(name,
+                      Box::new(move |request| {
+                          let mut stream = net::TcpStream::connect(address).unwrap();
+                          stream.write_all(request).unwrap();
+
+                          let mut response = Vec::new();
+                          stream.read_to_end(&mut response).unwrap();
+
+                          Ok(response)
+                      }))
+            .unwrap();
+    }
 }
 
 impl Relay for HttpStatic {
     fn bind(&self, address: SocketAddr) -> Result<()> {
-        let tcp_listener = try!(TcpListener::bind(address));
+        let tcp_listener = try!(net::TcpListener::bind(address));
 
-        *self.join_handle.write().unwrap() = Some(thread::spawn(move || {
+        let node_clone = self.node.clone();
+        let running_clone = self.running.clone();
+        *self.join_handle.write().unwrap() = Some((thread::spawn(move || {
+            running_clone.store(true, atomic::Ordering::SeqCst);
             for stream in tcp_listener.incoming() {
-                println!("got stream: {:?}", stream);
+                if !running_clone.load(atomic::Ordering::SeqCst) {
+                    break;
+                }
+
+                let mut stream = stream.unwrap();
+
+                let (request, name) = read_request(&stream);
+
+                let response = match node_clone.request(&name, &request) {
+                    Ok(response) => response,
+                    Err(error) => {
+                        println!("request error: {:?}", error);
+                        return;
+                    }
+                };
+
+                stream.write_all(&response).unwrap();
+                stream.flush().unwrap();
             }
-        }));
+        }),
+                                                   address));
 
         Ok(())
     }
+
+    fn unbind(&self) -> Result<()> {
+        self.running.store(false, atomic::Ordering::SeqCst);
+        if let Some((join_handle, address)) = self.join_handle.write().unwrap().take() {
+            // connect to local address to enable the thread to escape the accept loop.
+            try!(net::TcpStream::connect(address));
+            join_handle.join().unwrap();
+        }
+        Ok(())
+    }
+}
+
+impl Drop for HttpStatic {
+    fn drop(&mut self) {
+        self.unbind().unwrap();
+    }
+}
+
+fn read_request<R: Read>(r: R) -> (Vec<u8>, String) {
+    let mut header = Vec::new();
+    let mut name = String::new();
+    let mut content_length = 0;
+    let mut reader = io::BufReader::new(r);
+    loop {
+        let mut line = String::new();
+        reader.read_line(&mut line).unwrap();
+
+        if line.trim().len() == 0 {
+            header.append(&mut line.into_bytes());
+            break;
+        }
+
+        {
+            let parts = line.split(':').collect::<Vec<_>>();
+            if parts.len() == 2 {
+                match parts[0].to_lowercase().trim() {
+                    "content-length" => {
+                        content_length = parts[1]
+                                             .to_string()
+                                             .trim()
+                                             .parse::<usize>()
+                                             .unwrap();
+                    }
+                    "x-delix-service" => {
+                        name = parts[1].to_string().trim().to_string();
+                    }
+                    _ => {}
+                }
+            }
+        }
+
+        header.append(&mut line.into_bytes());
+    }
+
+    let mut body = Vec::with_capacity(content_length);
+    unsafe {
+        body.set_len(content_length);
+    }
+    reader.read(&mut body).unwrap();
+
+    let mut request = Vec::with_capacity(header.len() + body.len());
+    request.append(&mut header);
+    request.append(&mut body);
+
+    (request, name)
 }

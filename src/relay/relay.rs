@@ -19,6 +19,7 @@ use std::result;
 
 pub trait Relay {
     fn bind(&self, SocketAddr) -> Result<()>;
+    fn unbind(&self) -> Result<()>;
 }
 
 pub type Result<T> = result::Result<T, Error>;

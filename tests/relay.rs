@@ -14,7 +14,7 @@
 //
 
 extern crate delix;
-extern crate hyper;
+#[macro_use] extern crate hyper;
 
 mod helper;
 
@@ -28,6 +28,8 @@ use delix::node::State;
 
 use helper::{assert_node, build_node, build_http_static_relay};
 
+header! { (XDelixService, "X-Delix-Service") => [String] }
+
 #[test]
 fn static_http_with_nodes() {
     let mut listening = Server::http("127.0.0.1:5000").unwrap().handle(|mut request: server::Request, response: server::Response| {
@@ -39,13 +41,13 @@ fn static_http_with_nodes() {
     relay_one.add_service("echo", "127.0.0.1:5000");
 
     let node_two = build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
-    build_http_static_relay(&node_two, "127.0.0.1:4002");
+    let relay_two = build_http_static_relay(&node_two, "127.0.0.1:4002");
 
     thread::sleep_ms(1000);
     assert_node(&node_one, State::Joined, 1);
     assert_node(&node_two, State::Joined, 1);
 
-    let mut response = Client::new().post("http://127.0.0.1:4002").body("test message").send().unwrap();
+    let mut response = Client::new().post("http://127.0.0.1:4002").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
     assert_eq!(hyper::Ok, response.status);
     let mut response_body = String::new();
     response.read_to_string(&mut response_body).unwrap();
