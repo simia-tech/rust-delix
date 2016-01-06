@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-use ansi_term::Colour;
+use ansi_term::{Colour, Style};
 use log;
 
 pub struct Console {
@@ -58,17 +58,18 @@ impl log::Log for Console {
             return;
         }
 
-        let tag = match record.level() {
-            log::LogLevel::Error => Colour::Red.paint("ERROR"),
-            log::LogLevel::Warn => Colour::Yellow.paint(" WARN"),
-            log::LogLevel::Info => Colour::Cyan.paint(" INFO"),
-            log::LogLevel::Debug => Colour::Blue.paint("DEBUG"),
-            log::LogLevel::Trace => Colour::White.paint("TRACE"),
+        let (tag, bold) = match record.level() {
+            log::LogLevel::Error => (Colour::Red.paint("ERROR"), true),
+            log::LogLevel::Warn => (Colour::Yellow.paint(" WARN"), false),
+            log::LogLevel::Info => (Colour::Cyan.paint(" INFO"), false),
+            log::LogLevel::Debug => (Colour::Blue.paint("DEBUG"), false),
+            log::LogLevel::Trace => (Colour::White.paint("TRACE"), false),
         };
 
-        println!("[{}] [{}] {}",
-                 tag,
-                 record.metadata().target(),
-                 record.args());
+        let mut text = format!("{}", record.args());
+        if bold {
+            text = Style::new().bold().paint(text).to_string();
+        }
+        println!("[{}] [{}] {}", tag, target, text);
     }
 }
