@@ -148,7 +148,7 @@ impl Loader {
                     _ => return Err(Error::UnknownBalancerType(balancer_type)),
                 };
 
-                info!("loaded and bound direct transport to {}", local_address);
+                info!("loaded direct transport - listening at {}", local_address);
 
                 Box::new(Direct::new(cipher,
                                      balancer,
@@ -174,10 +174,7 @@ impl Loader {
                 let relay: Box<Relay> = match relay_type.as_ref() {
                     "http_static" => {
                         let http_static = relay::HttpStatic::new(node.clone());
-                        let address = match configuration.string_at("address") {
-                            Some(address) => try!(address.parse::<SocketAddr>()),
-                            None => return Err(Error::NoAddress),
-                        };
+                        let address = configuration.string_at("address");
 
                         if let Some(configurations) = configuration.configurations_at("service") {
                             for configuration in configurations {
@@ -193,9 +190,14 @@ impl Loader {
                             }
                         }
 
-                        try!(http_static.bind(address));
+                        if let Some(address) = address {
+                            let address = try!(address.parse::<SocketAddr>());
+                            try!(http_static.bind(address));
+                            info!("loaded http static relay - listening at {}", address);
+                        } else {
+                            info!("loaded http static relay");
+                        }
 
-                        info!("loaded and bound http static relay to {}", address);
 
                         Box::new(http_static)
                     }
