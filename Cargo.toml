@@ -4,6 +4,7 @@ version = "0.1.0"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
 
 [dependencies]
+ansi_term = "0.7"
 byteorder = "0.4"
 getopts = "0.2"
 chunked_transfer = "0.3"

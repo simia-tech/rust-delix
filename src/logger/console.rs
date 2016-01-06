@@ -13,34 +13,62 @@
 // limitations under the License.
 //
 
+use ansi_term::Colour;
 use log;
 
-pub struct Console;
+pub struct Console {
+    level_filter: log::LogLevelFilter,
+    target_prefix: String,
+}
 
 impl Console {
-    pub fn init(log_level_filter: log::LogLevelFilter) -> Result<(), log::SetLoggerError> {
+    pub fn init(level_filter: log::LogLevelFilter,
+                target_prefix: &str)
+                -> Result<(), log::SetLoggerError> {
         let result = log::set_logger(|maximal_log_level| {
-            maximal_log_level.set(log_level_filter);
-            Box::new(Console::new())
+            maximal_log_level.set(level_filter);
+            Box::new(Console::new(level_filter, target_prefix))
         });
         result
     }
 }
 
 impl Console {
-    pub fn new() -> Console {
-        Console
+    pub fn new(level_filter: log::LogLevelFilter, target_prefix: &str) -> Console {
+        Console {
+            level_filter: level_filter,
+            target_prefix: target_prefix.to_string(),
+        }
     }
 }
 
 impl log::Log for Console {
     fn enabled(&self, metadata: &log::LogMetadata) -> bool {
-        metadata.level() <= log::LogLevel::Info
+        metadata.level() <= self.level_filter
     }
 
     fn log(&self, record: &log::LogRecord) {
-        if self.enabled(record.metadata()) {
-            println!("{}: {}", record.level(), record.args());
+        let metadata = record.metadata();
+        if !self.enabled(metadata) {
+            return;
         }
+
+        let target = metadata.target();
+        if !target.starts_with(&self.target_prefix) {
+            return;
+        }
+
+        let tag = match record.level() {
+            log::LogLevel::Error => Colour::Red.paint("ERROR"),
+            log::LogLevel::Warn => Colour::Yellow.paint(" WARN"),
+            log::LogLevel::Info => Colour::Cyan.paint(" INFO"),
+            log::LogLevel::Debug => Colour::Blue.paint("DEBUG"),
+            log::LogLevel::Trace => Colour::White.paint("TRACE"),
+        };
+
+        println!("[{}] [{}] {}",
+                 tag,
+                 record.metadata().target(),
+                 record.args());
     }
 }

@@ -35,7 +35,7 @@ static START: sync::Once = sync::ONCE_INIT;
 
 pub fn set_up() {
     START.call_once(|| {
-        logger::Console::init(log::LogLevelFilter::Debug).unwrap();
+        logger::Console::init(log::LogLevelFilter::Trace, "delix").unwrap();
     });
 }
 

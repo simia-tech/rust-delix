@@ -85,7 +85,7 @@ impl Loader {
 
         match log_type.as_ref() {
             "console" => {
-                logger::Console::init(log_level_filter).unwrap();
+                logger::Console::init(log_level_filter, "delix").unwrap();
                 info!("loaded console log");
             }
             _ => return Err(Error::UnknownLogType(log_type)),
