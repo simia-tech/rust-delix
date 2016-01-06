@@ -21,26 +21,28 @@ use std::thread::sleep_ms;
 
 use delix::node::State;
 
-use helper::{assert_node, build_node};
-
 #[test]
 fn two_nodes() {
-    let node_one = build_node("127.0.0.1:3001", &[]);
-    let node_two = build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
+    helper::set_up();
+
+    let node_one = helper::build_node("127.0.0.1:3001", &[]);
+    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
 
     sleep_ms(1000);
-    assert_node(&node_one, State::Joined, 1);
-    assert_node(&node_two, State::Joined, 1);
+    helper::assert_node(&node_one, State::Joined, 1);
+    helper::assert_node(&node_two, State::Joined, 1);
 }
 
 #[test]
 fn three_nodes() {
-    let node_one = build_node("127.0.0.1:3011", &[]);
-    let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
-    let node_three = build_node("127.0.0.1:3013", &["127.0.0.1:3011"]);
+    helper::set_up();
+    
+    let node_one = helper::build_node("127.0.0.1:3011", &[]);
+    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"]);
 
     sleep_ms(1000);
-    assert_node(&node_one, State::Joined, 2);
-    assert_node(&node_two, State::Joined, 2);
-    assert_node(&node_three, State::Joined, 2);
+    helper::assert_node(&node_one, State::Joined, 2);
+    helper::assert_node(&node_two, State::Joined, 2);
+    helper::assert_node(&node_three, State::Joined, 2);
 }

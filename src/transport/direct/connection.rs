@@ -128,7 +128,7 @@ impl Connection {
                         break;
                     }
                     Err(err) => {
-                        println!("{}: error reading connection: {:?}", node_id, err);
+                        error!("{}: error reading connection: {:?}", node_id, err);
                         break;
                     }
                 };
@@ -152,7 +152,7 @@ impl Connection {
                         }
                     }
                     _ => {
-                        println!("{}: got unexpected container {:?}", node_id, container);
+                        error!("{}: got unexpected container {:?}", node_id, container);
                     }
                 }
             }

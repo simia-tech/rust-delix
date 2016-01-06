@@ -18,12 +18,18 @@ use log;
 pub struct Console;
 
 impl Console {
-    pub fn init() -> Result<(), log::SetLoggerError> {
+    pub fn init(log_level_filter: log::LogLevelFilter) -> Result<(), log::SetLoggerError> {
         let result = log::set_logger(|maximal_log_level| {
-            maximal_log_level.set(log::LogLevelFilter::Debug);
-            Box::new(Console)
+            maximal_log_level.set(log_level_filter);
+            Box::new(Console::new())
         });
         result
+    }
+}
+
+impl Console {
+    pub fn new() -> Console {
+        Console
     }
 }
 

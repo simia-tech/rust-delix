@@ -54,9 +54,9 @@ impl HttpStatic {
                           stream.write_all(request).unwrap();
 
                           let response = read_header_and_body(&stream, |_, _| {});
-                          info!("handled request to {} (respond {} bytes)",
-                                name_clone,
-                                response.len());
+                          debug!("handled request to {} (respond {} bytes)",
+                                 name_clone,
+                                 response.len());
                           Ok(response)
                       }))
             .unwrap();

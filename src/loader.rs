@@ -18,6 +18,7 @@ use std::net::AddrParseError;
 use std::result;
 use std::sync::Arc;
 use time::Duration;
+use log;
 
 use delix::logger;
 use delix::node::{self, Node};
@@ -69,9 +70,22 @@ impl Loader {
             None => return Err(Error::NoLogType),
         };
 
+        let log_level_filter = match self.configuration
+                                         .string_at("log.level")
+                                         .unwrap_or("off".to_string())
+                                         .as_ref() {
+            "off" => log::LogLevelFilter::Off,
+            "error" => log::LogLevelFilter::Error,
+            "warn" => log::LogLevelFilter::Warn,
+            "info" => log::LogLevelFilter::Info,
+            "debug" => log::LogLevelFilter::Debug,
+            "trace" => log::LogLevelFilter::Trace,
+            _ => log::LogLevelFilter::Off,
+        };
+
         match log_type.as_ref() {
             "console" => {
-                logger::Console::init().unwrap();
+                logger::Console::init(log_level_filter).unwrap();
                 info!("loaded console log");
             }
             _ => return Err(Error::UnknownLogType(log_type)),

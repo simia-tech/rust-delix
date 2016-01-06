@@ -15,19 +15,29 @@
 
 extern crate delix;
 extern crate hyper;
+extern crate log;
 
 use std::io::Read;
 use std::net::SocketAddr;
-use std::sync::Arc;
+use std::sync::{self, Arc};
 
 use self::hyper::client::response::Response;
 use self::hyper::status::StatusCode;
 
 use delix::discovery::Constant;
+use delix::logger;
 use delix::node::{Node, State};
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
 use delix::relay::{self, Relay};
+
+static START: sync::Once = sync::ONCE_INIT;
+
+pub fn set_up() {
+    START.call_once(|| {
+        logger::Console::init(log::LogLevelFilter::Debug).unwrap();
+    });
+}
 
 pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Arc<Node> {
     let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());

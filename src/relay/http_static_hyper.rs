@@ -42,11 +42,11 @@ impl HttpStatic {
         self.node
             .register(name,
                       Box::new(move |encoded_request| {
-                          println!("got request");
+                          debug!("got request");
 
                           let request = decode_request(encoded_request);
 
-                          println!("request: {:?}", request);
+                          debug!("request: {:?}", request);
 
                           Ok(Vec::new())
                       }))
@@ -64,7 +64,7 @@ impl Relay for HttpStatic {
             // };
             let encoded_request = encode_request(&mut request);
             let encoded_response = node_clone.request("echo", &encoded_request);
-            println!("got response {:?}", encoded_response);
+            debug!("got response {:?}", encoded_response);
 
             response.send(b"test message").unwrap();
         };

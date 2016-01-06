@@ -1,6 +1,7 @@
 
 [log]
 type = "console"
+level = "debug"
 
 [discovery]
 type = "constant"

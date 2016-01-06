@@ -21,40 +21,42 @@ use std::thread::sleep_ms;
 
 use delix::node::State;
 
-use helper::{assert_node, build_node};
-
 #[test]
 fn loose() {
-    let node_one = build_node("127.0.0.1:3001", &[]);
+    helper::set_up();
+
+    let node_one = helper::build_node("127.0.0.1:3001", &[]);
     {
-        let node_two = build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
+        let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
 
         sleep_ms(1000);
-        assert_node(&node_one, State::Joined, 1);
-        assert_node(&node_two, State::Joined, 1);
+        helper::assert_node(&node_one, State::Joined, 1);
+        helper::assert_node(&node_two, State::Joined, 1);
     }
 
     sleep_ms(1000);
-    assert_node(&node_one, State::Discovering, 0);
+    helper::assert_node(&node_one, State::Discovering, 0);
 }
 
 #[test]
 fn loose_and_service_clean_up() {
-    let node_one = build_node("127.0.0.1:3011", &[]);
+    helper::set_up();
+
+    let node_one = helper::build_node("127.0.0.1:3011", &[]);
     {
-        let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+        let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
         node_two.register("echo", Box::new(|request| {
             Ok(request.to_vec())
         })).unwrap();
 
         sleep_ms(1000);
-        assert_node(&node_one, State::Joined, 1);
-        assert_node(&node_two, State::Joined, 1);
+        helper::assert_node(&node_one, State::Joined, 1);
+        helper::assert_node(&node_two, State::Joined, 1);
         assert_eq!(1, node_one.service_count());
         assert_eq!(1, node_two.service_count());
     }
 
     sleep_ms(1000);
-    assert_node(&node_one, State::Discovering, 0);
+    helper::assert_node(&node_one, State::Discovering, 0);
     assert_eq!(0, node_one.service_count());
 }
