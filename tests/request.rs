@@ -96,18 +96,18 @@ fn balanced_echos_from_two_remotes() {
     helper::assert_node(&node_three, State::Joined, 2);
 
     // in the first round the balancer has no statistic, so every serivice gets a request in order.
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
-    assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("echo two", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 
     // in the second round the balancer can access some respond time statistic, so this round
     // contains two requests to node one and one to node two.
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
-    assert_eq!(b"echo two".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("echo two", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 
     // if a service deregisters in the middle of a round, the changes should be processed
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
     node_two.deregister("echo").unwrap();
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
-    assert_eq!(b"echo one".to_vec(), node_three.request("echo", b"").unwrap());
+    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 }
