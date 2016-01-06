@@ -16,7 +16,7 @@
 extern crate delix;
 #[macro_use] extern crate hyper;
 
-mod helper;
+#[allow(dead_code)] mod helper;
 
 use std::io::{self, Read};
 use std::net::SocketAddr;
@@ -70,6 +70,8 @@ fn http_static_with_missing_service() {
 
     let mut response = Client::new().post("http://127.0.0.1:4020").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
     assert_response(StatusCode::BadGateway, b"service [echo] not found", &mut response);
+
+    drop(relay);
 }
 
 #[test]

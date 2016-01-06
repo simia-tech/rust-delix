@@ -15,7 +15,7 @@
 
 extern crate delix;
 
-mod helper;
+#[allow(dead_code)] mod helper;
 
 use std::thread::sleep_ms;
 
