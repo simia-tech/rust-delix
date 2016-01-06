@@ -14,20 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-extern crate byteorder;
-extern crate crypto;
-#[macro_use] extern crate hyper;
-extern crate chunked_transfer;
-#[macro_use] extern crate log;
-extern crate protobuf;
-extern crate rand;
-extern crate rustc_serialize;
-extern crate time;
+mod tee_reader;
 
-pub mod discovery;
-pub mod logger;
-pub mod message;
-pub mod node;
-pub mod relay;
-pub mod transport;
-pub mod util;
+pub use util::tee_reader::TeeReader;

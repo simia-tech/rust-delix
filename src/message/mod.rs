@@ -1,6 +1,7 @@
 
 mod container;
 mod encrypted;
+mod http_request;
 mod introduction;
 mod kind;
 mod peer;
@@ -13,6 +14,10 @@ mod services;
 pub use message::container::Container;
 pub use message::encrypted::Encrypted;
 pub use message::encrypted::Encrypted_CipherType;
+pub use message::http_request::HttpRequest;
+pub use message::http_request::HttpRequest_Header;
+pub use message::http_request::HttpRequest_Method;
+pub use message::http_request::HttpRequest_Version;
 pub use message::introduction::Introduction;
 pub use message::kind::Kind;
 pub use message::peer::Peer;

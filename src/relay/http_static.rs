@@ -18,8 +18,11 @@ use std::net::{self, SocketAddr};
 use std::sync::{Arc, RwLock, atomic};
 use std::thread;
 
+use chunked_transfer;
+
 use node::Node;
 use relay::{Relay, Result};
+use util::TeeReader;
 
 pub struct HttpStatic {
     node: Arc<Node>,
@@ -45,7 +48,9 @@ impl HttpStatic {
                           stream.write_all(request).unwrap();
 
                           let response = read_header_and_body(&stream, |_, _| {});
-                          info!("handled request to {}", name_clone);
+                          info!("handled request to {} (respond {} bytes)",
+                                name_clone,
+                                response.len());
                           Ok(response)
                       }))
             .unwrap();
@@ -108,48 +113,62 @@ impl Drop for HttpStatic {
     }
 }
 
-fn read_header_and_body<R: Read, F: FnMut(&str, &str)>(r: R, mut f: F) -> Vec<u8> {
-    let mut header = Vec::new();
-    let mut content_length = 0;
-    let mut reader = io::BufReader::new(r);
+fn read_header_and_body<R: Read, F: FnMut(&str, &str)>(mut r: R, mut f: F) -> Vec<u8> {
+    let mut tee_reader = TeeReader::new(r);
+    {
+        let mut reader = io::BufReader::new(&mut tee_reader);
+
+        let mut content_length = 0;
+        let mut chunked_transfer_encoding = false;
+        read_header(&mut reader, |name, value| {
+            match name {
+                "content-length" => {
+                    content_length = value.parse::<usize>().unwrap();
+                }
+                "transfer-encoding" if value == "chunked" => {
+                    chunked_transfer_encoding = true;
+                }
+                _ => {}
+            }
+            f(name, value);
+        });
+
+        if content_length > 0 {
+            read_sized_body(&mut reader, content_length)
+        } else if chunked_transfer_encoding {
+            read_chunked_body(&mut reader)
+        };
+    }
+    tee_reader.take_buffer()
+}
+
+fn read_header<R: BufRead, F: FnMut(&str, &str)>(mut reader: R, mut f: F) {
     loop {
         let mut line = String::new();
         reader.read_line(&mut line).unwrap();
 
         if line.trim().len() == 0 {
-            header.append(&mut line.into_bytes());
             break;
         }
 
-        {
-            let parts = line.split(':').collect::<Vec<_>>();
-            if parts.len() == 2 {
-                let key = parts[0].to_lowercase().trim().to_string();
-                let value = parts[1].to_string().trim().to_string();
-
-                if key == "content-length" {
-                    content_length = value.parse::<usize>().unwrap();
-                }
-
-                f(&key, &value);
-            }
+        let parts = line.split(':').collect::<Vec<_>>();
+        if parts.len() == 2 {
+            let key = parts[0].to_lowercase().trim().to_string();
+            let value = parts[1].to_string().trim().to_string();
+            f(&key, &value);
         }
-
-        header.append(&mut line.into_bytes());
     }
+}
 
-    if content_length > 0 {
-        let mut body = Vec::with_capacity(content_length);
-        unsafe {
-            body.set_len(content_length);
-        }
-        reader.read(&mut body).unwrap();
-
-        let mut request = Vec::with_capacity(header.len() + body.len());
-        request.append(&mut header);
-        request.append(&mut body);
-        request
-    } else {
-        header
+fn read_sized_body<R: Read>(mut reader: R, content_length: usize) {
+    let mut body = Vec::with_capacity(content_length);
+    unsafe {
+        body.set_len(content_length);
     }
+    reader.read(&mut body).unwrap();
+}
+
+fn read_chunked_body<R: Read>(reader: R) {
+    let mut decoder = chunked_transfer::Decoder::new(reader);
+    decoder.read_to_end(&mut Vec::new()).unwrap();
 }

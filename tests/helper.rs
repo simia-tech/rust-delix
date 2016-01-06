@@ -41,9 +41,11 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Arc<Node>
     Arc::new(Node::new(discovery, transport).unwrap())
 }
 
-pub fn build_http_static_relay(node: &Arc<Node>, address: &str) -> Arc<relay::HttpStatic> {
+pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::HttpStatic> {
     let relay = relay::HttpStatic::new(node.clone());
-    relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
+    if let Some(address) = address {
+        relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
+    }
     Arc::new(relay)
 }
 
