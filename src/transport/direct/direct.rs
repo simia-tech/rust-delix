@@ -173,10 +173,11 @@ impl Transport for Direct {
     fn request(&self, name: &str, data: &[u8]) -> request::Response {
         self.services.select(name,
                              |handler| {
-                                 let (request_id, _) = self.tracker
-                                                           .begin(name, &Link::Local);
+                                 let (request_id, response_rx) = self.tracker
+                                                                     .begin(name, &Link::Local);
                                  let response = handler(data);
                                  self.tracker.end(request_id, None).unwrap();
+                                 drop(response_rx);
                                  response
                              },
                              |peer_node_id| {
