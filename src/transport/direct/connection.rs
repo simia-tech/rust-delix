@@ -368,6 +368,10 @@ fn write_response(w: &mut Write,
             response_packet.set_kind(message::Response_Kind::Internal);
             response_packet.set_data(message.bytes().collect());
         }
+        Err(request::Error::TestDuration(data)) => {
+            response_packet.set_kind(message::Response_Kind::TestDuration);
+            response_packet.set_data(data);
+        }
     }
     try!(response_packet.write_to_vec(&mut buffer));
     write_container(w, cipher, message::Kind::ResponseMessage, buffer)
@@ -439,6 +443,9 @@ fn read_response(container: &message::Container) -> Result<(u32, request::Respon
         message::Response_Kind::Internal => {
             Err(request::Error::Internal(String::from_utf8(response_packet.get_data().to_vec())
                                              .unwrap()))
+        }
+        message::Response_Kind::TestDuration => {
+            Err(request::Error::TestDuration(response_packet.get_data().to_vec()))
         }
     };
     Ok((response_packet.get_request_id(), result))

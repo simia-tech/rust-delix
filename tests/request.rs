@@ -19,7 +19,7 @@ extern crate delix;
 
 use std::thread;
 
-use delix::node::State;
+use delix::node::{State, request};
 
 #[test]
 fn single_echo_from_local() {
@@ -78,14 +78,12 @@ fn balanced_echos_from_two_remotes() {
 
     let node_one = helper::build_node("127.0.0.1:3031", &[]);
     node_one.register("echo", Box::new(|_| {
-        thread::sleep_ms(10);
-        Ok(b"echo one".to_vec())
+        Err(request::Error::TestDuration(b"40".to_vec()))
     })).unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
     node_two.register("echo", Box::new(|_| {
-        thread::sleep_ms(100);
-        Ok(b"echo two".to_vec())
+        Err(request::Error::TestDuration(b"100".to_vec()))
     })).unwrap();
 
     let node_three = helper::build_node("127.0.0.1:3033", &["127.0.0.1:3031"]);
@@ -96,18 +94,18 @@ fn balanced_echos_from_two_remotes() {
     helper::assert_node(&node_three, State::Joined, 2);
 
     // in the first round the balancer has no statistic, so every serivice gets a request in order.
-    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
-    assert_eq!("echo two", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("100", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 
     // in the second round the balancer can access some respond time statistic, so this round
     // contains two requests to node one and one to node two.
-    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
-    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
-    assert_eq!("echo two", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("100", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 
     // if a service deregisters in the middle of a round, the changes should be processed
-    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
     node_two.deregister("echo").unwrap();
-    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
-    assert_eq!("echo one", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+    assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 }

@@ -78,6 +78,6 @@ fn main() {
 
     loop {
         info!("state {}", node);
-        ::std::thread::sleep_ms(5000);
+        ::std::thread::sleep_ms(4000);
     }
 }
