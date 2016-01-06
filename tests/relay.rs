@@ -20,15 +20,12 @@ mod helper;
 
 use std::io::{self, Read};
 use std::net::SocketAddr;
-use std::thread;
 
 use hyper::client::Client;
 use hyper::server::{self, Server};
+use hyper::status::StatusCode;
 
-use delix::node::State;
-use delix::relay::Relay;
-
-use helper::{assert_node, build_node, build_http_static_relay};
+use helper::{assert_response, build_node, build_http_static_relay};
 
 header! { (XDelixService, "X-Delix-Service") => [String] }
 
@@ -40,24 +37,13 @@ fn http_static_with_sized_response() {
         response.send(&body).unwrap();
     }).unwrap();
 
-    let node_one = build_node("127.0.0.1:3001", &[]);
-    let relay_one = build_http_static_relay(&node_one, None);
-    relay_one.add_service("echo", "127.0.0.1:5000".parse::<SocketAddr>().unwrap());
-
-    let node_two = build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
-    let relay_two = build_http_static_relay(&node_two, Some("127.0.0.1:4000"));
-
-    thread::sleep_ms(1000);
-    assert_node(&node_one, State::Joined, 1);
-    assert_node(&node_two, State::Joined, 1);
+    let node = build_node("127.0.0.1:3001", &[]);
+    let relay = build_http_static_relay(&node, Some("127.0.0.1:4000"));
+    relay.add_service("echo", "127.0.0.1:5000".parse::<SocketAddr>().unwrap());
 
     let mut response = Client::new().post("http://127.0.0.1:4000").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
-    assert_eq!(hyper::Ok, response.status);
-    let mut response_body = String::new();
-    response.read_to_string(&mut response_body).unwrap();
-    assert_eq!("test message", &response_body);
+    assert_response(StatusCode::Ok, b"test message", &mut response);
 
-    relay_two.unbind().unwrap();
     listening.close().unwrap();
 }
 
@@ -67,23 +53,31 @@ fn http_static_with_chunked_response() {
         io::copy(&mut request, &mut response.start().unwrap()).unwrap();
     }).unwrap();
 
-    let node_one = build_node("127.0.0.1:3011", &[]);
-    let relay_one = build_http_static_relay(&node_one, None);
-    relay_one.add_service("echo", "127.0.0.1:5010".parse::<SocketAddr>().unwrap());
-
-    let node_two = build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
-    let relay_two = build_http_static_relay(&node_two, Some("127.0.0.1:4010"));
-
-    thread::sleep_ms(1000);
-    assert_node(&node_one, State::Joined, 1);
-    assert_node(&node_two, State::Joined, 1);
+    let node = build_node("127.0.0.1:3011", &[]);
+    let relay = build_http_static_relay(&node, Some("127.0.0.1:4010"));
+    relay.add_service("echo", "127.0.0.1:5010".parse::<SocketAddr>().unwrap());
 
     let mut response = Client::new().post("http://127.0.0.1:4010").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
-    assert_eq!(hyper::Ok, response.status);
-    let mut response_body = String::new();
-    response.read_to_string(&mut response_body).unwrap();
-    assert_eq!("test message", &response_body);
+    assert_response(StatusCode::Ok, b"test message", &mut response);
 
-    relay_two.unbind().unwrap();
     listening.close().unwrap();
+}
+
+#[test]
+fn http_static_with_missing_service() {
+    let node = build_node("127.0.0.1:3021", &[]);
+    let relay = build_http_static_relay(&node, Some("127.0.0.1:4020"));
+
+    let mut response = Client::new().post("http://127.0.0.1:4020").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+    assert_response(StatusCode::BadGateway, b"service [echo] not found", &mut response);
+}
+
+#[test]
+fn http_static_with_unreachable_service() {
+    let node = build_node("127.0.0.1:3031", &[]);
+    let relay = build_http_static_relay(&node, Some("127.0.0.1:4030"));
+    relay.add_service("echo", "127.0.0.1:5030".parse::<SocketAddr>().unwrap());
+
+    let mut response = Client::new().post("http://127.0.0.1:4030").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+    assert_response(StatusCode::ServiceUnavailable, b"service [echo] is unavailable", &mut response);
 }

@@ -175,8 +175,7 @@ impl Transport for Direct {
                              |handler| {
                                  let (request_id, _) = self.tracker
                                                            .begin(name, &Link::Local);
-                                 let response = handler(data)
-                                                    .map_err(|text| request::Error::Internal(text));
+                                 let response = handler(data);
                                  self.tracker.end(request_id, None).unwrap();
                                  response
                              },
@@ -217,9 +216,7 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
 
     let services_clone = services.clone();
     connection.set_on_request(Box::new(move |name, data| {
-        services_clone.select_local(name, |handler| {
-            handler(data).map_err(|text| request::Error::Internal(text))
-        })
+        services_clone.select_local(name, |handler| handler(data))
     }));
 
     let tracker_clone = tracker.clone();

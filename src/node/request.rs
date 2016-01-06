@@ -13,15 +13,14 @@
 // limitations under the License.
 //
 
-use std::result;
+pub type Handler = Fn(&[u8]) -> Response + Send;
 
-pub type Handler = Fn(&[u8]) -> result::Result<Vec<u8>, String> + Send;
-
-pub type Response = result::Result<Vec<u8>, Error>;
+pub type Response = Result<Vec<u8>, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
     ServiceDoesNotExists,
+    ServiceUnavailable,
     Timeout,
     Internal(String),
 }

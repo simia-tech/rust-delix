@@ -20,7 +20,7 @@ use std::thread;
 
 use chunked_transfer;
 
-use node::Node;
+use node::{Node, request};
 use relay::{Relay, Result};
 use util::TeeReader;
 
@@ -28,6 +28,12 @@ pub struct HttpStatic {
     node: Arc<Node>,
     join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
     running: Arc<atomic::AtomicBool>,
+}
+
+enum StatusCode {
+    InternalServerError,
+    BadGateway,
+    ServiceUnavailable,
 }
 
 impl HttpStatic {
@@ -43,8 +49,8 @@ impl HttpStatic {
         let name_clone = name.to_string();
         self.node
             .register(name,
-                      Box::new(move |request| {
-                          let mut stream = net::TcpStream::connect(address).unwrap();
+                      Box::new(move |request| -> request::Response {
+                          let mut stream = try!(net::TcpStream::connect(address));
                           stream.write_all(request).unwrap();
 
                           let response = read_header_and_body(&stream, |_, _| {});
@@ -81,9 +87,17 @@ impl Relay for HttpStatic {
 
                 let response = match node_clone.request(&name, &request) {
                     Ok(response) => response,
+                    Err(request::Error::ServiceDoesNotExists) => {
+                        build_text_response(StatusCode::BadGateway,
+                                            &format!("service [{}] not found", name))
+                    }
+                    Err(request::Error::ServiceUnavailable) => {
+                        build_text_response(StatusCode::ServiceUnavailable,
+                                            &format!("service [{}] is unavailable", name))
+                    }
                     Err(error) => {
-                        println!("request error: {:?}", error);
-                        return;
+                        build_text_response(StatusCode::InternalServerError,
+                                            &format!("error [{:?}]", error))
                     }
                 };
 
@@ -110,6 +124,15 @@ impl Relay for HttpStatic {
 impl Drop for HttpStatic {
     fn drop(&mut self) {
         self.unbind().unwrap();
+    }
+}
+
+impl From<io::Error> for request::Error {
+    fn from(error: io::Error) -> Self {
+        match error.kind() {
+            io::ErrorKind::ConnectionRefused => request::Error::ServiceUnavailable,
+            _ => request::Error::Internal(format!("{:?}", error.kind())),
+        }
     }
 }
 
@@ -171,4 +194,18 @@ fn read_sized_body<R: Read>(mut reader: R, content_length: usize) {
 fn read_chunked_body<R: Read>(reader: R) {
     let mut decoder = chunked_transfer::Decoder::new(reader);
     decoder.read_to_end(&mut Vec::new()).unwrap();
+}
+
+fn build_text_response(status_code: StatusCode, message: &str) -> Vec<u8> {
+    match status_code {
+        StatusCode::InternalServerError => {
+            format!("HTTP/1.1 500 Internal Server Error\r\n\r\n{}", message).into_bytes()
+        }
+        StatusCode::BadGateway => {
+            format!("HTTP/1.1 502 Bad Gateway\r\n\r\n{}", message).into_bytes()
+        }
+        StatusCode::ServiceUnavailable => {
+            format!("HTTP/1.1 503 Service Unavailable\r\n\r\n{}", message).into_bytes()
+        }
+    }
 }

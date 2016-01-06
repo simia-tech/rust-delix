@@ -14,9 +14,14 @@
 //
 
 extern crate delix;
+extern crate hyper;
 
+use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::Arc;
+
+use self::hyper::client::response::Response;
+use self::hyper::status::StatusCode;
 
 use delix::discovery::Constant;
 use delix::node::{Node, State};
@@ -52,4 +57,13 @@ pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<r
 pub fn assert_node(node: &Arc<Node>, expected_state: State, expected_connection_count: usize) {
     assert_eq!(expected_state, node.state());
     assert_eq!(expected_connection_count, node.connection_count());
+}
+
+pub fn assert_response(expected_status_code: StatusCode,
+                       expected_body: &[u8],
+                       response: &mut Response) {
+    assert_eq!(expected_status_code, response.status);
+    let mut response_body = String::new();
+    response.read_to_string(&mut response_body).unwrap();
+    assert_eq!(String::from_utf8_lossy(expected_body), response_body);
 }
