@@ -173,6 +173,7 @@ impl ServiceMap {
             };
             entry.local_handler = None;
             entry.links.retain(|link| !Link::is_local(&&link));
+            entry.queue.retain(|link| !Link::is_local(&&link));
             entry.links.len() == 0
         };
         if remove {
@@ -186,6 +187,7 @@ impl ServiceMap {
         let mut names = Vec::new();
         for (name, entry) in entries.iter_mut() {
             entry.links.retain(|link| !Link::is_remote(link, peer_node_id));
+            entry.queue.retain(|link| !Link::is_remote(link, peer_node_id));
             if entry.links.len() == 0 {
                 names.push(name.to_string());
             }
