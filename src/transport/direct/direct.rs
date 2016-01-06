@@ -24,7 +24,7 @@ use time::Duration;
 use transport::{Result, Transport};
 use transport::cipher::Cipher;
 use transport::direct::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
-use transport::direct::tracker::Statistic;
+use transport::direct::tracker::{self, Statistic};
 
 use node::{ID, request};
 
@@ -176,7 +176,12 @@ impl Transport for Direct {
                                  let (request_id, response_rx) = self.tracker
                                                                      .begin(name, &Link::Local);
                                  let response = handler(data);
-                                 self.tracker.end(request_id, None).unwrap();
+                                 if let Err(tracker::Error::AlreadyEnded) = self.tracker
+                                                                                .end(request_id,
+                                                                                     None) {
+                                     debug!("got response for request ({}) that already timed out",
+                                            request_id);
+                                 }
                                  drop(response_rx);
                                  response
                              },
@@ -222,7 +227,10 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
 
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, response| {
-        tracker_clone.end(request_id, Some(response)).unwrap();
+        if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, Some(response)) {
+            debug!("got response for request ({}) that already timed out",
+                   request_id);
+        }
     }));
 
     let services_clone = services.clone();

@@ -38,6 +38,7 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
+    AlreadyEnded,
     Store(store::Error),
 }
 
@@ -133,7 +134,10 @@ unsafe impl Sync for Tracker {}
 
 impl From<store::Error> for Error {
     fn from(error: store::Error) -> Self {
-        Error::Store(error)
+        match error {
+            store::Error::IdDoesNotExists => Error::AlreadyEnded,
+            _ => Error::Store(error),
+        }
     }
 }
 
@@ -145,7 +149,7 @@ mod tests {
     use time::Duration;
     use node::request;
     use super::{Error, Tracker};
-    use super::super::{Statistic, store};
+    use super::super::Statistic;
     use super::super::super::Link;
 
     #[test]
@@ -191,6 +195,21 @@ mod tests {
     }
 
     #[test]
+    fn request_end_after_timeout() {
+        let tracker = Tracker::new(Arc::new(Statistic::new()), Some(Duration::milliseconds(50)));
+
+        let (id, response_rx) = tracker.begin("test", &Link::Local);
+        assert_eq!(1, tracker.len());
+        thread::sleep_ms(100);
+
+        assert_eq!(Err(request::Error::Timeout), response_rx.recv().unwrap());
+        assert_eq!(0, tracker.len());
+
+        assert_eq!(Err(Error::AlreadyEnded),
+                   tracker.end(id, Some(Ok(b"test".to_vec()))));
+    }
+
+    #[test]
     fn concurrent_request_tracking() {
         let tracker = Arc::new(Tracker::new(Arc::new(Statistic::new()), None));
 
@@ -223,7 +242,7 @@ mod tests {
             threads.push(thread::spawn(move || -> request::Response {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
-                assert_eq!(Err(Error::Store(store::Error::IdDoesNotExists)),
+                assert_eq!(Err(Error::AlreadyEnded),
                            tracker.end(id, Some(Ok(b"test".to_vec()))));
                 response_rx.recv().unwrap()
             }));

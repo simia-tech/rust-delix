@@ -55,7 +55,12 @@ impl Balancer for DynamicRoundRobin {
 
         let counts = durations.iter()
                               .map(|&duration| {
-                                  longest.num_milliseconds() / duration.num_milliseconds()
+                                  let ms = duration.num_milliseconds();
+                                  if ms == 0 {
+                                      1
+                                  } else {
+                                      longest.num_milliseconds() / ms
+                                  }
                               })
                               .collect::<Vec<_>>();
 
@@ -67,4 +72,46 @@ impl Balancer for DynamicRoundRobin {
         }
         result
     }
+}
+
+#[cfg(test)]
+mod tests {
+
+    use std::sync::Arc;
+    use time::Duration;
+
+    use super::DynamicRoundRobin;
+    use super::super::Balancer;
+    use node::ID;
+    use transport::direct::Link;
+    use transport::direct::tracker::{Statistic, Subject};
+
+    #[test]
+    fn round_building_without_statistic() {
+        let statistic = Arc::new(Statistic::new());
+        let balancer = DynamicRoundRobin::new();
+        balancer.assign_statistic(statistic);
+
+        let link_one = Link::Local;
+        let link_two = Link::Remote(ID::new_random());
+
+        let round = balancer.build_round("test", &[link_one.clone(), link_two.clone()]);
+        assert_eq!(vec![link_one, link_two], round);
+    }
+
+    #[test]
+    fn round_building_with_some_statistic() {
+        let statistic = Arc::new(Statistic::new());
+        statistic.push(Subject::local("test"), Duration::milliseconds(100));
+
+        let balancer = DynamicRoundRobin::new();
+        balancer.assign_statistic(statistic);
+
+        let link_one = Link::Local;
+        let link_two = Link::Remote(ID::new_random());
+
+        let round = balancer.build_round("test", &[link_one.clone(), link_two.clone()]);
+        assert_eq!(vec![link_one, link_two], round);
+    }
+
 }
