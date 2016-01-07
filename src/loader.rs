@@ -65,10 +65,7 @@ impl Loader {
     }
 
     pub fn load_log(&self) -> Result<()> {
-        let log_type = match self.configuration.string_at("log.type") {
-            Some(log_type) => log_type,
-            None => return Err(Error::NoLogType),
-        };
+        let log_type = try!(self.configuration.string_at("log.type").ok_or(Error::NoLogType));
 
         let log_level_filter = match self.configuration
                                          .string_at("log.level")
@@ -95,10 +92,9 @@ impl Loader {
     }
 
     pub fn load_node(&self) -> Result<Arc<Node>> {
-        let discovery_type = match self.configuration.string_at("discovery.type") {
-            Some(discovery_type) => discovery_type,
-            None => return Err(Error::NoDiscoveryType),
-        };
+        let discovery_type = try!(self.configuration
+                                      .string_at("discovery.type")
+                                      .ok_or(Error::NoDiscoveryType));
 
         let discovery: Box<Discovery> = match discovery_type.as_ref() {
             "constant" => {
@@ -114,10 +110,9 @@ impl Loader {
             _ => return Err(Error::UnknownDiscoveryType(discovery_type)),
         };
 
-        let cipher_type = match self.configuration.string_at("cipher.type") {
-            Some(cipher_type) => cipher_type,
-            None => return Err(Error::NoCipherType),
-        };
+        let cipher_type = try!(self.configuration
+                                   .string_at("cipher.type")
+                                   .ok_or(Error::NoCipherType));
 
         let cipher: Box<cipher::Cipher> = match cipher_type.as_ref() {
             "symmetric" => {
@@ -132,30 +127,30 @@ impl Loader {
             _ => return Err(Error::UnknownCipherType(cipher_type)),
         };
 
-        let transport_type = match self.configuration.string_at("transport.type") {
-            Some(transport_type) => transport_type,
-            None => return Err(Error::NoTransportType),
-        };
+        let transport_type = try!(self.configuration
+                                      .string_at("transport.type")
+                                      .ok_or(Error::NoTransportType));
 
         let transport: Box<Transport> = match transport_type.as_ref() {
             "direct" => {
-                let local_address = match self.configuration.string_at("transport.local_address") {
-                    Some(local_address) => try!(local_address.parse::<SocketAddr>()),
-                    None => return Err(Error::NoLocalAddress),
-                };
+                let local_address = try!(try!(self.configuration
+                                                  .string_at("transport.local_address")
+                                                  .ok_or(Error::NoLocalAddress))
+                                             .parse::<SocketAddr>());
+
                 let public_address = match self.configuration
                                                .string_at("transport.public_address") {
                     Some(public_address) => Some(try!(public_address.parse::<SocketAddr>())),
                     None => None,
                 };
+
                 let request_timeout = self.configuration
                                           .i64_at("transport.request_timeout_ms")
                                           .map(|value| Duration::milliseconds(value));
 
-                let balancer_type = match self.configuration.string_at("transport.balancer.type") {
-                    Some(balancer_type) => balancer_type,
-                    None => return Err(Error::NoBalancerType),
-                };
+                let balancer_type = try!(self.configuration
+                                             .string_at("transport.balancer.type")
+                                             .ok_or(Error::NoBalancerType));
 
                 let balancer: Box<Balancer> = match balancer_type.as_ref() {
                     "dynamic_round_robin" => Box::new(balancer::DynamicRoundRobin::new()),
@@ -180,10 +175,7 @@ impl Loader {
         let mut relays = Vec::new();
         if let Some(configurations) = self.configuration.configurations_at("relay") {
             for configuration in configurations {
-                let relay_type = match configuration.string_at("type") {
-                    Some(relay_type) => relay_type,
-                    None => return Err(Error::NoRelayType),
-                };
+                let relay_type = try!(configuration.string_at("type").ok_or(Error::NoRelayType));
 
                 let relay: Box<Relay> = match relay_type.as_ref() {
                     "http_static" => {
@@ -192,14 +184,11 @@ impl Loader {
 
                         if let Some(configurations) = configuration.configurations_at("service") {
                             for configuration in configurations {
-                                let name = match configuration.string_at("name") {
-                                    Some(name) => name,
-                                    None => return Err(Error::NoName),
-                                };
-                                let address = match configuration.string_at("address") {
-                                    Some(address) => try!(address.parse::<SocketAddr>()),
-                                    None => return Err(Error::NoAddress),
-                                };
+                                let name = try!(configuration.string_at("name")
+                                                             .ok_or(Error::NoName));
+                                let address = try!(try!(configuration.string_at("address")
+                                                                     .ok_or(Error::NoAddress))
+                                                       .parse::<SocketAddr>());
                                 http_static.add_service(&name, address);
                             }
                         }
@@ -211,7 +200,6 @@ impl Loader {
                         } else {
                             info!("loaded http static relay");
                         }
-
 
                         Box::new(http_static)
                     }
