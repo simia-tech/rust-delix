@@ -15,14 +15,14 @@
 
 use std::io;
 
-pub struct TeeReader<R> {
+pub struct Tee<R> {
     reader: R,
     buffer: Option<Vec<u8>>,
 }
 
-impl<R: io::Read> TeeReader<R> {
-    pub fn new(reader: R) -> TeeReader<R> {
-        TeeReader {
+impl<R: io::Read> Tee<R> {
+    pub fn new(reader: R) -> Tee<R> {
+        Tee {
             reader: reader,
             buffer: Some(Vec::new()),
         }
@@ -35,7 +35,7 @@ impl<R: io::Read> TeeReader<R> {
     }
 }
 
-impl<R: io::Read> io::Read for TeeReader<R> {
+impl<R: io::Read> io::Read for Tee<R> {
     fn read(&mut self, b: &mut [u8]) -> io::Result<usize> {
         let result = self.reader.read(b);
         if let Ok(count) = result {

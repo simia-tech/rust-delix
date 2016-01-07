@@ -13,16 +13,14 @@
 // limitations under the License.
 //
 
-use std::io::{self, BufRead, Read, Write};
+use std::io::{self, Read, Write};
 use std::net::{self, SocketAddr};
 use std::sync::{Arc, RwLock, atomic};
 use std::thread;
 
-use chunked_transfer;
-
 use node::{Node, request};
 use relay::{Relay, Result};
-use util::TeeReader;
+use util::reader;
 
 pub struct HttpStatic {
     node: Arc<Node>,
@@ -55,7 +53,11 @@ impl HttpStatic {
                           let mut stream = try!(net::TcpStream::connect(address));
                           stream.write_all(request).unwrap();
 
-                          let response = read_header_and_body(&stream, |_, _| {});
+                          let mut http_reader = reader::Http::new(&mut stream, |_, _| {
+                          });
+                          let mut response = Vec::new();
+                          http_reader.read_to_end(&mut response).unwrap();
+
                           debug!("handled request to {} (respond {} bytes)",
                                  name_clone,
                                  response.len());
@@ -81,22 +83,26 @@ impl Relay for HttpStatic {
 
                 let mut stream = stream.unwrap();
 
-                let mut name = String::new();
-                let request = read_header_and_body(&stream, |key, value| {
-                    if key == header_field {
-                        name = value.to_string();
-                    }
-                });
+                let mut service_name = String::new();
+                let mut request = Vec::new();
+                {
+                    let mut http_reader = reader::Http::new(&mut stream, |name, value| {
+                        if name == header_field {
+                            service_name = value.to_string();
+                        }
+                    });
+                    http_reader.read_to_end(&mut request).unwrap();
+                }
 
-                let response = match node_clone.request(&name, &request) {
+                let response = match node_clone.request(&service_name, &request) {
                     Ok(response) => response,
                     Err(request::Error::ServiceDoesNotExists) => {
                         build_text_response(StatusCode::BadGateway,
-                                            &format!("service [{}] not found", name))
+                                            &format!("service [{}] not found", service_name))
                     }
                     Err(request::Error::ServiceUnavailable) => {
                         build_text_response(StatusCode::ServiceUnavailable,
-                                            &format!("service [{}] is unavailable", name))
+                                            &format!("service [{}] is unavailable", service_name))
                     }
                     Err(error) => {
                         build_text_response(StatusCode::InternalServerError,
@@ -137,66 +143,6 @@ impl From<io::Error> for request::Error {
             _ => request::Error::Internal(format!("{:?}", error.kind())),
         }
     }
-}
-
-fn read_header_and_body<R: Read, F: FnMut(&str, &str)>(mut r: R, mut f: F) -> Vec<u8> {
-    let mut tee_reader = TeeReader::new(r);
-    {
-        let mut reader = io::BufReader::new(&mut tee_reader);
-
-        let mut content_length = 0;
-        let mut chunked_transfer_encoding = false;
-        read_header(&mut reader, |name, value| {
-            match name {
-                "content-length" => {
-                    content_length = value.parse::<usize>().unwrap();
-                }
-                "transfer-encoding" if value == "chunked" => {
-                    chunked_transfer_encoding = true;
-                }
-                _ => {}
-            }
-            f(name, value);
-        });
-
-        if content_length > 0 {
-            read_sized_body(&mut reader, content_length)
-        } else if chunked_transfer_encoding {
-            read_chunked_body(&mut reader)
-        };
-    }
-    tee_reader.take_buffer()
-}
-
-fn read_header<R: BufRead, F: FnMut(&str, &str)>(mut reader: R, mut f: F) {
-    loop {
-        let mut line = String::new();
-        reader.read_line(&mut line).unwrap();
-
-        if line.trim().len() == 0 {
-            break;
-        }
-
-        let parts = line.split(':').collect::<Vec<_>>();
-        if parts.len() == 2 {
-            let key = parts[0].to_lowercase().trim().to_string();
-            let value = parts[1].to_string().trim().to_string();
-            f(&key, &value);
-        }
-    }
-}
-
-fn read_sized_body<R: Read>(mut reader: R, content_length: usize) {
-    let mut body = Vec::with_capacity(content_length);
-    unsafe {
-        body.set_len(content_length);
-    }
-    reader.read(&mut body).unwrap();
-}
-
-fn read_chunked_body<R: Read>(reader: R) {
-    let mut decoder = chunked_transfer::Decoder::new(reader);
-    decoder.read_to_end(&mut Vec::new()).unwrap();
 }
 
 fn build_text_response(status_code: StatusCode, message: &str) -> Vec<u8> {

@@ -14,4 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-pub mod reader;
+mod http;
+mod tee;
+
+pub use util::reader::http::Http;
+pub use util::reader::tee::Tee;
