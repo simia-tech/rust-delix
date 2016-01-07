@@ -67,6 +67,8 @@ fn multiple_echos_from_remote() {
     thread::sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
+    assert_eq!(1, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
 
     assert_eq!(b"test message one".to_vec(), node_two.request("echo", b"test message one").unwrap());
     assert_eq!(b"test message two".to_vec(), node_two.request("echo", b"test message two").unwrap());
@@ -92,6 +94,9 @@ fn balanced_echos_from_two_remotes() {
     helper::assert_node(&node_one, State::Joined, 2);
     helper::assert_node(&node_two, State::Joined, 2);
     helper::assert_node(&node_three, State::Joined, 2);
+    assert_eq!(1, node_one.service_count());
+    assert_eq!(1, node_two.service_count());
+    assert_eq!(1, node_three.service_count());
 
     // in the first round the balancer has no statistic, so every serivice gets a request in order.
     assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));

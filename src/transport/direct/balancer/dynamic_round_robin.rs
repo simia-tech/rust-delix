@@ -48,6 +48,8 @@ impl Balancer for DynamicRoundRobin {
                              .map(|link| statistic.average(name, link))
                              .collect::<Vec<_>>();
 
+        debug!("durations: {:?}", durations);
+
         let longest = durations.iter().max().unwrap();
         if longest == &Duration::zero() {
             return links.to_vec();
@@ -63,6 +65,8 @@ impl Balancer for DynamicRoundRobin {
                                   }
                               })
                               .collect::<Vec<_>>();
+
+        debug!("counts: {:?}", counts);
 
         let mut result = Vec::new();
         for (index, &count) in counts.iter().enumerate() {
