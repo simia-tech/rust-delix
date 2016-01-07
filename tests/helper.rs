@@ -57,7 +57,7 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Arc<Node>
 }
 
 pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::HttpStatic> {
-    let relay = relay::HttpStatic::new(node.clone());
+    let relay = relay::HttpStatic::new(node.clone(), "X-Delix-Service");
     if let Some(address) = address {
         relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
     }

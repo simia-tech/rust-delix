@@ -26,6 +26,7 @@ use util::TeeReader;
 
 pub struct HttpStatic {
     node: Arc<Node>,
+    header_field: String,
     join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
     running: Arc<atomic::AtomicBool>,
 }
@@ -37,9 +38,10 @@ enum StatusCode {
 }
 
 impl HttpStatic {
-    pub fn new(node: Arc<Node>) -> HttpStatic {
+    pub fn new(node: Arc<Node>, header_field: &str) -> HttpStatic {
         HttpStatic {
             node: node,
+            header_field: header_field.to_string(),
             join_handle: RwLock::new(None),
             running: Arc::new(atomic::AtomicBool::new(false)),
         }
@@ -69,6 +71,7 @@ impl Relay for HttpStatic {
 
         let node_clone = self.node.clone();
         let running_clone = self.running.clone();
+        let header_field = self.header_field.to_lowercase().trim().to_string();
         *self.join_handle.write().unwrap() = Some((thread::spawn(move || {
             running_clone.store(true, atomic::Ordering::SeqCst);
             for stream in tcp_listener.incoming() {
@@ -80,7 +83,7 @@ impl Relay for HttpStatic {
 
                 let mut name = String::new();
                 let request = read_header_and_body(&stream, |key, value| {
-                    if key == "x-delix-service" {
+                    if key == header_field {
                         name = value.to_string();
                     }
                 });

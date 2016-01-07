@@ -19,7 +19,7 @@ balancer = { type = "dynamic_round_robin" }
 
 [[relay]]
 type = "http_static"
-address = "127.0.0.1:4203"
+header_field = "X-Delix-Service"
 
 [[relay.service]]
 name = "google"

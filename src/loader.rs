@@ -179,8 +179,11 @@ impl Loader {
 
                 let relay: Box<Relay> = match relay_type.as_ref() {
                     "http_static" => {
-                        let http_static = relay::HttpStatic::new(node.clone());
                         let address = configuration.string_at("address");
+                        let header_field = configuration.string_at("header_field")
+                                                        .unwrap_or("X-Delix-Service".to_string());
+
+                        let http_static = relay::HttpStatic::new(node.clone(), &header_field);
 
                         if let Some(configurations) = configuration.configurations_at("service") {
                             for configuration in configurations {
