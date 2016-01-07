@@ -175,24 +175,28 @@ impl Transport for Direct {
                              |handler| {
                                  let (request_id, response_rx) = self.tracker
                                                                      .begin(name, &Link::Local);
-                                 let response = handler(data);
-                                 if let Err(tracker::Error::AlreadyEnded) = self.tracker
-                                                                                .end(request_id,
-                                                                                     None) {
-                                     debug!("got response for request ({}) that already timed out",
-                                            request_id);
-                                 }
-                                 drop(response_rx);
-                                 response
+                                 let handler_clone = handler.clone();
+                                 let tracker_clone = self.tracker.clone();
+                                 let data_clone = data.to_vec();
+                                 thread::spawn(move || {
+                                     let response = (*handler_clone.lock().unwrap())(&data_clone);
+                                     if let Err(tracker::Error::AlreadyEnded) =
+                                            tracker_clone.end(request_id, response) {
+                                         debug!("got response for request ({}) that already \
+                                                 timed out",
+                                                request_id);
+                                     }
+                                 });
+                                 response_rx.recv().unwrap()
                              },
                              |peer_node_id| {
-                                 let (request_id, repsonse_rx) =
+                                 let (request_id, response_rx) =
                                      self.tracker
                                          .begin(name, &Link::Remote(peer_node_id));
                                  self.connections
                                      .send_request(&peer_node_id, request_id, name, data)
                                      .unwrap();
-                                 repsonse_rx.recv().unwrap()
+                                 response_rx.recv().unwrap()
                              })
     }
 }
@@ -227,7 +231,7 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
 
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, response| {
-        if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, Some(response)) {
+        if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, response) {
             debug!("got response for request ({}) that already timed out",
                    request_id);
         }

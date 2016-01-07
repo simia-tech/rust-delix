@@ -37,7 +37,7 @@ fn http_static_with_sized_response() {
         response.send(&body).unwrap();
     }).unwrap();
 
-    let node = helper::build_node("127.0.0.1:3001", &[]);
+    let node = helper::build_node("127.0.0.1:3001", &[], None);
     let relay = helper::build_http_static_relay(&node, Some("127.0.0.1:4000"));
     relay.add_service("echo", "127.0.0.1:5000".parse::<SocketAddr>().unwrap());
 
@@ -55,7 +55,7 @@ fn http_static_with_chunked_response() {
         io::copy(&mut request, &mut response.start().unwrap()).unwrap();
     }).unwrap();
 
-    let node = helper::build_node("127.0.0.1:3011", &[]);
+    let node = helper::build_node("127.0.0.1:3011", &[], None);
     let relay = helper::build_http_static_relay(&node, Some("127.0.0.1:4010"));
     relay.add_service("echo", "127.0.0.1:5010".parse::<SocketAddr>().unwrap());
 
@@ -69,7 +69,7 @@ fn http_static_with_chunked_response() {
 fn http_static_with_missing_service() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3021", &[]);
+    let node = helper::build_node("127.0.0.1:3021", &[], None);
     let relay = helper::build_http_static_relay(&node, Some("127.0.0.1:4020"));
 
     let mut response = Client::new().post("http://127.0.0.1:4020").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
@@ -82,7 +82,7 @@ fn http_static_with_missing_service() {
 fn http_static_with_unreachable_service() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3031", &[]);
+    let node = helper::build_node("127.0.0.1:3031", &[], None);
     let relay = helper::build_http_static_relay(&node, Some("127.0.0.1:4030"));
     relay.add_service("echo", "127.0.0.1:5030".parse::<SocketAddr>().unwrap());
 

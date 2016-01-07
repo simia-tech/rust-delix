@@ -20,50 +20,83 @@ extern crate delix;
 use std::sync::mpsc;
 use std::thread;
 
-use delix::node::State;
+use delix::node::{State, request};
 
 #[test]
 fn single_echo_from_local() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3001", &[]);
+    let node = helper::build_node("127.0.0.1:3001", &[], None);
     node.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
     thread::sleep_ms(100);
     helper::assert_node(&node, State::Discovering, 0);
 
-    let response = node.request("echo", b"test message").unwrap();
-    assert_eq!(b"test message".to_vec(), response);
+    assert_eq!("test message", String::from_utf8_lossy(&node.request("echo", b"test message").unwrap()));
+}
+
+#[test]
+fn single_echo_from_local_with_timeout() {
+    helper::set_up();
+
+    let node = helper::build_node("127.0.0.1:3011", &[], Some(10));
+    node.register("echo", Box::new(|request| {
+        thread::sleep_ms(20);
+        Ok(request.to_vec())
+    })).unwrap();
+
+    thread::sleep_ms(100);
+    helper::assert_node(&node, State::Discovering, 0);
+
+    assert_eq!(Err(request::Error::Timeout), node.request("echo", b""));
 }
 
 #[test]
 fn single_echo_from_remote() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3011", &[]);
+    let node_one = helper::build_node("127.0.0.1:3021", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+    let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
     thread::sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
-    let response = node_two.request("echo", b"test message").unwrap();
-    assert_eq!(b"test message".to_vec(), response);
+    assert_eq!("test message", String::from_utf8_lossy(&node_two.request("echo", b"test message").unwrap()));
+}
+
+#[test]
+fn single_echo_from_remote_with_timeout() {
+    helper::set_up();
+
+    let node_one = helper::build_node("127.0.0.1:3031", &[], None);
+    node_one.register("echo", Box::new(|request| {
+        thread::sleep_ms(20);
+        Ok(request.to_vec())
+    })).unwrap();
+
+    let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
+
+    thread::sleep_ms(1000);
+    helper::assert_node(&node_one, State::Joined, 1);
+    helper::assert_node(&node_two, State::Joined, 1);
+
+    assert_eq!(Err(request::Error::Timeout), node_two.request("echo", b""));
 }
 
 #[test]
 fn multiple_echos_from_remote() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3021", &[]);
+    let node_one = helper::build_node("127.0.0.1:3041", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
+    let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
     thread::sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);
@@ -79,18 +112,18 @@ fn multiple_echos_from_remote() {
 fn balanced_echos_from_two_remotes() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3031", &[]);
+    let node_one = helper::build_node("127.0.0.1:3051", &[], None);
 
     let (tx, rx) = mpsc::channel();
 
-    let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"]);
+    let node_two = helper::build_node("127.0.0.1:3052", &["127.0.0.1:3051"], None);
     let tx_clone = tx.clone();
     node_two.register("echo", Box::new(move |request| {
         tx_clone.send("two").unwrap();
         Ok(request.to_vec())
     })).unwrap();
 
-    let node_three = helper::build_node("127.0.0.1:3033", &["127.0.0.1:3031"]);
+    let node_three = helper::build_node("127.0.0.1:3053", &["127.0.0.1:3051"], None);
     let tx_clone = tx.clone();
     node_three.register("echo", Box::new(move |request| {
         tx_clone.send("three").unwrap();

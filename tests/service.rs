@@ -26,11 +26,11 @@ use delix::node::request;
 fn distribution_over_incoming_connection() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[]);
+    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
+    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
     sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);
@@ -44,9 +44,9 @@ fn distribution_over_incoming_connection() {
 fn distribution_over_outgoing_connection() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3011", &[]);
+    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
 
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
     node_two.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
@@ -62,8 +62,8 @@ fn distribution_over_outgoing_connection() {
 fn distribution_in_joined_network() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3021", &[]);
-    let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"]);
+    let node_one = helper::build_node("127.0.0.1:3021", &[], None);
+    let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
     sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);
@@ -81,7 +81,7 @@ fn distribution_in_joined_network() {
 fn deregistration() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3031", &[]);
+    let node = helper::build_node("127.0.0.1:3031", &[], None);
     node.register("echo", Box::new(|request| Ok(request.to_vec())))
         .unwrap();
     node.deregister("echo").unwrap();
@@ -96,11 +96,11 @@ fn deregistration() {
 fn deregistration_in_joined_network() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3041", &[]);
+    let node_one = helper::build_node("127.0.0.1:3041", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"]);
+    let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
     sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);

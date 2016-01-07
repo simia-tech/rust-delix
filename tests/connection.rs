@@ -25,9 +25,9 @@ use delix::node::State;
 fn loose() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[]);
+    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
     {
-        let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
+        let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
         sleep_ms(1000);
         helper::assert_node(&node_one, State::Joined, 1);
@@ -42,9 +42,9 @@ fn loose() {
 fn loose_and_service_clean_up() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3011", &[]);
+    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
     {
-        let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
+        let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
         node_two.register("echo", Box::new(|request| {
             Ok(request.to_vec())
         })).unwrap();

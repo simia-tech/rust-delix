@@ -96,12 +96,10 @@ impl Tracker {
         (id, response_rx)
     }
 
-    pub fn end(&self, id: u32, response: Option<request::Response>) -> Result<()> {
+    pub fn end(&self, id: u32, response: request::Response) -> Result<()> {
         let (response_tx, subject, started_at) = try!(self.store.remove(&id));
 
-        if let Some(response) = response {
-            response_tx.send(response).unwrap();
-        }
+        response_tx.send(response).unwrap();
 
         self.statistic.push(subject, time::now_utc() - started_at);
 
@@ -145,7 +143,7 @@ impl From<store::Error> for Error {
 mod tests {
 
     use std::thread;
-    use std::sync::{Arc, mpsc};
+    use std::sync::Arc;
     use time::Duration;
     use node::request;
     use super::{Error, Tracker};
@@ -157,20 +155,9 @@ mod tests {
         let tracker = Tracker::new(Arc::new(Statistic::new()), None);
 
         let (id, response_rx) = tracker.begin("test", &Link::Local);
-        tracker.end(id, Some(Ok(b"test".to_vec()))).unwrap();
+        tracker.end(id, Ok(b"test".to_vec())).unwrap();
 
         assert_eq!(Ok(b"test".to_vec()), response_rx.recv().unwrap());
-        assert_eq!(0, tracker.len());
-    }
-
-    #[test]
-    fn request_tracking_without_response() {
-        let tracker = Tracker::new(Arc::new(Statistic::new()), None);
-
-        let (id, response_rx) = tracker.begin("test", &Link::Local);
-        tracker.end(id, None).unwrap();
-
-        assert_eq!(Err(mpsc::RecvError), response_rx.recv());
         assert_eq!(0, tracker.len());
     }
 
@@ -188,7 +175,7 @@ mod tests {
         let (request_id, response_rx) = tracker.begin("test", &Link::Local);
         assert_eq!(1, tracker.len());
         thread::sleep_ms(10);
-        tracker.end(request_id, Some(Ok(b"test".to_vec()))).unwrap();
+        tracker.end(request_id, Ok(b"test".to_vec())).unwrap();
 
         assert_eq!(Ok(b"test".to_vec()), response_rx.recv().unwrap());
         assert_eq!(0, tracker.len());
@@ -206,7 +193,7 @@ mod tests {
         assert_eq!(0, tracker.len());
 
         assert_eq!(Err(Error::AlreadyEnded),
-                   tracker.end(id, Some(Ok(b"test".to_vec()))));
+                   tracker.end(id, Ok(b"test".to_vec())));
     }
 
     #[test]
@@ -219,7 +206,7 @@ mod tests {
             threads.push(thread::spawn(move || -> request::Response {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
-                tracker.end(id, Some(Ok(b"test".to_vec()))).unwrap();
+                tracker.end(id, Ok(b"test".to_vec())).unwrap();
                 response_rx.recv().unwrap()
             }));
         }
@@ -243,7 +230,7 @@ mod tests {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
                 assert_eq!(Err(Error::AlreadyEnded),
-                           tracker.end(id, Some(Ok(b"test".to_vec()))));
+                           tracker.end(id, Ok(b"test".to_vec())));
                 response_rx.recv().unwrap()
             }));
         }

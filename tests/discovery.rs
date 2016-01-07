@@ -25,8 +25,8 @@ use delix::node::State;
 fn two_nodes() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[]);
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"]);
+    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
+    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
     sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 1);
@@ -36,10 +36,10 @@ fn two_nodes() {
 #[test]
 fn three_nodes() {
     helper::set_up();
-    
-    let node_one = helper::build_node("127.0.0.1:3011", &[]);
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"]);
-    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"]);
+
+    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
+    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
+    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
 
     sleep_ms(1000);
     helper::assert_node(&node_one, State::Joined, 2);

@@ -15,7 +15,7 @@
 
 use std::collections::HashMap;
 use std::result;
-use std::sync::RwLock;
+use std::sync::{Arc, Mutex, RwLock};
 
 use node::{ID, request};
 use transport::direct::{self, Link};
@@ -26,7 +26,7 @@ pub struct ServiceMap {
 }
 
 struct Entry {
-    local_handler: Option<Box<request::Handler>>,
+    local_handler: Option<Arc<Mutex<Box<request::Handler>>>>,
     links: Vec<Link>,
     queue: Vec<Link>,
 }
@@ -61,7 +61,7 @@ impl ServiceMap {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        entry.local_handler = Some(f);
+        entry.local_handler = Some(Arc::new(Mutex::new(f)));
         entry.links.push(Link::Local);
 
         Ok(())
@@ -85,7 +85,7 @@ impl ServiceMap {
     }
 
     pub fn select<L, R>(&self, name: &str, local_handler: L, remote_handler: R) -> request::Response
-        where L: Fn(&Box<request::Handler>) -> request::Response,
+        where L: Fn(&Arc<Mutex<Box<request::Handler>>>) -> request::Response,
               R: Fn(ID) -> request::Response
     {
         let mut entries = self.entries.write().unwrap();
@@ -143,7 +143,7 @@ impl ServiceMap {
         };
 
         if let Link::Local = *link {
-            local_handler(entry.local_handler.as_ref().unwrap())
+            local_handler(&*entry.local_handler.as_ref().unwrap().lock().unwrap())
         } else {
             unreachable!();
         }

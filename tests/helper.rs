@@ -16,6 +16,7 @@
 extern crate delix;
 extern crate hyper;
 extern crate log;
+extern crate time;
 
 use std::io::Read;
 use std::net::SocketAddr;
@@ -23,6 +24,7 @@ use std::sync::{self, Arc, mpsc};
 
 use self::hyper::client::response::Response;
 use self::hyper::status::StatusCode;
+use self::time::Duration;
 
 use delix::discovery::Constant;
 use delix::logger;
@@ -39,7 +41,10 @@ pub fn set_up() {
     });
 }
 
-pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Arc<Node> {
+pub fn build_node(local_address: &str,
+                  discover_addresses: &[&str],
+                  request_timeout: Option<i64>)
+                  -> Arc<Node> {
     let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
@@ -52,7 +57,9 @@ pub fn build_node(local_address: &str, discover_addresses: &[&str]) -> Arc<Node>
                                          balancer,
                                          local_address.parse::<SocketAddr>().unwrap(),
                                          None,
-                                         None));
+                                         request_timeout.map(|value| {
+                                             Duration::milliseconds(value)
+                                         })));
     Arc::new(Node::new(discovery, transport).unwrap())
 }
 
