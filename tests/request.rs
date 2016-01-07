@@ -98,9 +98,13 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!(1, node_two.service_count());
     assert_eq!(1, node_three.service_count());
 
+    println!("--- round ---");
+
     // in the first round the balancer has no statistic, so every serivice gets a request in order.
     assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
     assert_eq!("100", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+
+    println!("--- round ---");
 
     // in the second round the balancer can access some respond time statistic, so this round
     // contains two requests to node one and one to node two.
@@ -108,9 +112,13 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
     assert_eq!("100", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
 
+    println!("--- round ---");
+
     // if a service deregisters in the middle of a round, the changes should be processed
     assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
     node_two.deregister("echo").unwrap();
     assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
     assert_eq!("40", String::from_utf8_lossy(&node_three.request("echo", b"").unwrap()));
+
+    println!("--- round ---");
 }

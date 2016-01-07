@@ -41,6 +41,8 @@ impl Balancer for DynamicRoundRobin {
             return links.to_vec();
         }
 
+        debug!("links: {:?}", links);
+
         let statistic_option = self.statistic.read().unwrap();
         let statistic = statistic_option.as_ref().unwrap();
 
