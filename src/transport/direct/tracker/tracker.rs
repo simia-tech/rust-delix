@@ -99,17 +99,11 @@ impl Tracker {
     pub fn end(&self, id: u32, response: Option<request::Response>) -> Result<()> {
         let (response_tx, subject, started_at) = try!(self.store.remove(&id));
 
-        let mut duration = time::now_utc() - started_at;
         if let Some(response) = response {
-            if let Err(request::Error::TestDuration(data)) = response {
-                duration = Duration::milliseconds(String::from_utf8_lossy(&data).parse().unwrap());
-                response_tx.send(Ok(data)).unwrap();
-            } else {
-                response_tx.send(response).unwrap();
-            }
+            response_tx.send(response).unwrap();
         }
 
-        self.statistic.push(subject, duration);
+        self.statistic.push(subject, time::now_utc() - started_at);
 
         Ok(())
     }

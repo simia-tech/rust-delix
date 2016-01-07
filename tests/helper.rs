@@ -19,7 +19,7 @@ extern crate log;
 
 use std::io::Read;
 use std::net::SocketAddr;
-use std::sync::{self, Arc};
+use std::sync::{self, Arc, mpsc};
 
 use self::hyper::client::response::Response;
 use self::hyper::status::StatusCode;
@@ -64,6 +64,18 @@ pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<r
     Arc::new(relay)
 }
 
+pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
+    let mut result = Vec::new();
+    loop {
+        result.push(match rx.try_recv() {
+            Ok(value) => value,
+            Err(mpsc::TryRecvError::Empty) => break,
+            Err(error) => panic!(error),
+        });
+    }
+    result
+}
+
 pub fn assert_node(node: &Arc<Node>, expected_state: State, expected_connection_count: usize) {
     assert_eq!(expected_state, node.state());
     assert_eq!(expected_connection_count, node.connection_count());
@@ -76,4 +88,10 @@ pub fn assert_response(expected_status_code: StatusCode,
     let mut response_body = String::new();
     response.read_to_string(&mut response_body).unwrap();
     assert_eq!(String::from_utf8_lossy(expected_body), response_body);
+}
+
+pub fn assert_contains_all<T: PartialEq>(expected: &[T], actual: &Vec<T>) {
+    for e in expected {
+        assert!(actual.contains(e));
+    }
 }

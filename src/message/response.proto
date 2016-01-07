@@ -8,7 +8,6 @@ message Response {
     ServiceUnavailable = 3;
     Timeout = 4;
     Internal = 5;
-    TestDuration = 6;
   }
 
   optional uint32 request_id = 1;

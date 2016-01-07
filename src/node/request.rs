@@ -23,7 +23,4 @@ pub enum Error {
     ServiceUnavailable,
     Timeout,
     Internal(String),
-
-    // this is used only during tests to simulate a request duration
-    TestDuration(Vec<u8>),
 }
