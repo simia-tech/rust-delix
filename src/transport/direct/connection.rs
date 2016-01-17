@@ -444,14 +444,11 @@ fn read_packet<T: protobuf::Message + protobuf::MessageStatic>(container: &messa
     Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
 }
 
-fn read_container(reader: &mut Read) -> Result<message::Container> {
-    let size = try!(reader.read_u64::<byteorder::BigEndian>()) as usize;
+fn read_container(stream: &mut cipher::Stream) -> Result<message::Container> {
+    let size = try!(stream.read_u64::<byteorder::BigEndian>());
 
-    let mut bytes = Vec::with_capacity(size);
-    unsafe {
-        bytes.set_len(size);
-    }
-    reader.read(&mut bytes).unwrap();
+    let mut bytes = Vec::new();
+    try!(stream.try_clone().unwrap().take(size).read_to_end(&mut bytes));
 
     Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
 }

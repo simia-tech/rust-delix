@@ -63,13 +63,14 @@ impl io::Write for Stream {
 impl io::Read for Stream {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.buffer.position() as usize >= self.buffer.get_ref().len() {
-            let encrypted_size = try!(self.tcp_stream.read_u64::<byteorder::BigEndian>()) as usize;
+            let encrypted_size = try!(self.tcp_stream.read_u64::<byteorder::BigEndian>());
 
-            let mut encrypted_bytes = Vec::with_capacity(encrypted_size);
-            unsafe {
-                encrypted_bytes.set_len(encrypted_size);
-            }
-            try!(self.tcp_stream.read(&mut encrypted_bytes));
+            let mut encrypted_bytes = Vec::new();
+            try!(self.tcp_stream
+                     .try_clone()
+                     .unwrap()
+                     .take(encrypted_size)
+                     .read_to_end(&mut encrypted_bytes));
 
             let decrypted_bytes = try!(self.cipher.decrypt(&encrypted_bytes));
             self.buffer = io::Cursor::new(decrypted_bytes);
