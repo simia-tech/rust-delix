@@ -16,6 +16,7 @@
 use std::result;
 
 pub trait Cipher : Send + Sync {
+    fn box_clone(&self) -> Box<Cipher>;
     fn encrypt(&self, &[u8]) -> Result<Vec<u8>>;
     fn decrypt(&self, &[u8]) -> Result<Vec<u8>>;
 }

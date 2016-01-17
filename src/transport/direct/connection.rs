@@ -28,8 +28,7 @@ use node::{self, ID, request};
 use transport::cipher::{self, Cipher};
 
 pub struct Connection {
-    stream: net::TcpStream,
-    cipher: Arc<Box<Cipher>>,
+    stream: cipher::Stream,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
@@ -56,44 +55,50 @@ pub enum Error {
 }
 
 impl Connection {
-    pub fn new_inbound(s: net::TcpStream,
+    pub fn new_inbound(tcp_stream: net::TcpStream,
                        cipher: Arc<Box<Cipher>>,
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)])
                        -> Result<Connection> {
 
-        let (mut connection, sender) = try!(Self::new(s, cipher.clone(), node_id, public_address));
+        let mut stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
 
-        try!(write_peers(&mut connection.stream, &cipher, peers));
+        let (connection, sender) = try!(Self::new(stream.try_clone().unwrap(),
+                                                  node_id,
+                                                  public_address));
+
+        try!(write_peers(&mut stream, peers));
         sender.send(true).unwrap();
 
         Ok(connection)
     }
 
-    pub fn new_outbound(s: net::TcpStream,
+    pub fn new_outbound(tcp_stream: net::TcpStream,
                         cipher: Arc<Box<Cipher>>,
                         node_id: ID,
                         public_address: SocketAddr)
                         -> Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
-        let (mut connection, sender) = try!(Self::new(s, cipher.clone(), node_id, public_address));
+        let mut stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
 
-        let container = try!(read_container(&mut connection.stream, &cipher));
+        let (connection, sender) = try!(Self::new(stream.try_clone().unwrap(),
+                                                  node_id,
+                                                  public_address));
+
+        let container = try!(read_container(&mut stream));
         let peers = try!(read_peers(&container));
         sender.send(true).unwrap();
 
         Ok((connection, peers))
     }
 
-    fn new(s: net::TcpStream,
-           cipher: Arc<Box<Cipher>>,
+    fn new(mut stream: cipher::Stream,
            node_id: ID,
            public_address: SocketAddr)
            -> Result<(Connection, mpsc::Sender<bool>)> {
 
-        let mut stream = s.try_clone().unwrap();
-        let cipher_clone = cipher.clone();
+        let mut stream_clone = stream.try_clone().unwrap();
 
         let on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
@@ -110,16 +115,16 @@ impl Connection {
         let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
 
-        try!(write_introduction(&mut stream, &cipher, node_id, public_address));
+        try!(write_introduction(&mut stream, node_id, public_address));
 
-        let container = try!(read_container(&mut stream, &cipher));
+        let container = try!(read_container(&mut stream));
         let (peer_node_id, peer_public_address) = try!(read_introduction(&container));
 
         let (sender, receiver) = mpsc::channel();
         let thread = Some(thread::spawn(move || {
             receiver.recv().unwrap();
             loop {
-                let container = match read_container(&mut stream, &cipher_clone) {
+                let container = match read_container(&mut stream_clone) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
                         if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
@@ -141,8 +146,7 @@ impl Connection {
                     message::Kind::RequestMessage => {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let (request_id, name, data) = read_request(&container).unwrap();
-                            write_response(&mut stream, &cipher_clone, request_id, f(&name, &data))
-                                .unwrap();
+                            write_response(&mut stream_clone, request_id, f(&name, &data)).unwrap();
                         }
                     }
                     message::Kind::ResponseMessage => {
@@ -159,8 +163,7 @@ impl Connection {
         }));
 
         Ok((Connection {
-            stream: s,
-            cipher: cipher,
+            stream: stream,
             thread: thread,
             node_id: node_id,
             peer_node_id: peer_node_id,
@@ -183,15 +186,15 @@ impl Connection {
     }
 
     pub fn peer_address(&self) -> Option<SocketAddr> {
-        self.stream.peer_addr().ok()
+        self.stream.get_ref().peer_addr().ok()
     }
 
     pub fn local_address(&self) -> Option<SocketAddr> {
-        self.stream.local_addr().ok()
+        self.stream.get_ref().local_addr().ok()
     }
 
     pub fn send_services(&mut self, service_names: &[String]) -> Result<()> {
-        try!(write_services(&mut self.stream, &self.cipher, service_names));
+        try!(write_services(&mut self.stream, service_names));
         Ok(())
     }
 
@@ -200,7 +203,7 @@ impl Connection {
     }
 
     pub fn send_request(&mut self, id: u32, name: &str, data: &[u8]) -> Result<()> {
-        try!(write_request(&mut self.stream, &self.cipher, id, name, data));
+        try!(write_request(&mut self.stream, id, name, data));
         Ok(())
     }
 
@@ -246,11 +249,24 @@ impl fmt::Display for Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.stream.shutdown(net::Shutdown::Both).unwrap();
+        self.stream.get_ref().shutdown(net::Shutdown::Both).unwrap();
         self.thread.take().unwrap().join().unwrap();
 
         if let Some(ref f) = *self.on_drop.lock().unwrap() {
             f(self.peer_node_id);
+        }
+    }
+}
+
+impl From<byteorder::Error> for Error {
+    fn from(error: byteorder::Error) -> Self {
+        match error {
+            byteorder::Error::Io(ref err) if err.kind() == io::ErrorKind::Other &&
+                                             format!("{}", error) == "unexpected EOF" => {
+                Error::ConnectionLost
+            }
+            byteorder::Error::Io(err) => Error::Io(err),
+            byteorder::Error::UnexpectedEOF => Error::ConnectionLost,
         }
     }
 }
@@ -285,20 +301,16 @@ impl From<cipher::Error> for Error {
     }
 }
 
-fn write_introduction(w: &mut Write,
-                      cipher: &Arc<Box<Cipher>>,
-                      node_id: ID,
-                      public_address: SocketAddr)
-                      -> Result<()> {
+fn write_introduction(w: &mut Write, node_id: ID, public_address: SocketAddr) -> Result<()> {
     let mut buffer = Vec::new();
     let mut introduction = message::Introduction::new();
     introduction.set_id(node_id.to_vec());
     introduction.set_public_address(format!("{}", public_address));
     try!(introduction.write_to_vec(&mut buffer));
-    write_container(w, cipher, message::Kind::IntroductionMessage, buffer)
+    write_container(w, message::Kind::IntroductionMessage, buffer)
 }
 
-fn write_peers(w: &mut Write, cipher: &Arc<Box<Cipher>>, peers: &[(ID, SocketAddr)]) -> Result<()> {
+fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut peers_packet = message::Peers::new();
     for peer in peers {
@@ -309,13 +321,10 @@ fn write_peers(w: &mut Write, cipher: &Arc<Box<Cipher>>, peers: &[(ID, SocketAdd
         peers_packet.mut_peers().push(peer_packet);
     }
     try!(peers_packet.write_to_vec(&mut buffer));
-    write_container(w, cipher, message::Kind::PeersMessage, buffer)
+    write_container(w, message::Kind::PeersMessage, buffer)
 }
 
-fn write_services(w: &mut Write,
-                  cipher: &Arc<Box<Cipher>>,
-                  service_names: &[String])
-                  -> Result<()> {
+fn write_services(w: &mut Write, service_names: &[String]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut services_packet = message::Services::new();
     for service_name in service_names {
@@ -324,29 +333,20 @@ fn write_services(w: &mut Write,
         services_packet.mut_services().push(service_packet);
     }
     try!(services_packet.write_to_vec(&mut buffer));
-    write_container(w, cipher, message::Kind::ServicesMessage, buffer)
+    write_container(w, message::Kind::ServicesMessage, buffer)
 }
 
-fn write_request(w: &mut Write,
-                 cipher: &Arc<Box<Cipher>>,
-                 id: u32,
-                 name: &str,
-                 data: &[u8])
-                 -> Result<()> {
+fn write_request(w: &mut Write, id: u32, name: &str, data: &[u8]) -> Result<()> {
     let mut buffer = Vec::new();
     let mut request_packet = message::Request::new();
     request_packet.set_id(id);
     request_packet.set_name(name.to_string());
     request_packet.set_data(data.to_vec());
     try!(request_packet.write_to_vec(&mut buffer));
-    write_container(w, cipher, message::Kind::RequestMessage, buffer)
+    write_container(w, message::Kind::RequestMessage, buffer)
 }
 
-fn write_response(w: &mut Write,
-                  cipher: &Arc<Box<Cipher>>,
-                  request_id: u32,
-                  response: request::Response)
-                  -> Result<()> {
+fn write_response(w: &mut Write, request_id: u32, response: request::Response) -> Result<()> {
     let mut buffer = Vec::new();
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
@@ -370,24 +370,19 @@ fn write_response(w: &mut Write,
         }
     }
     try!(response_packet.write_to_vec(&mut buffer));
-    write_container(w, cipher, message::Kind::ResponseMessage, buffer)
+    write_container(w, message::Kind::ResponseMessage, buffer)
 }
 
-fn write_container(w: &mut Write,
-                   cipher: &Arc<Box<Cipher>>,
-                   kind: message::Kind,
-                   data: Vec<u8>)
-                   -> Result<()> {
+fn write_container(w: &mut Write, kind: message::Kind, data: Vec<u8>) -> Result<()> {
     let mut container = message::Container::new();
     container.set_kind(kind);
     container.set_payload(data);
 
-    let container_bytes = try!(container.write_to_bytes());
-    let encrypted_bytes = try!(cipher.encrypt(&container_bytes));
-    let encrypted_size = encrypted_bytes.len() as u64;
+    let bytes = try!(container.write_to_bytes());
+    let size = bytes.len() as u64;
 
-    w.write_u64::<byteorder::BigEndian>(encrypted_size).unwrap();
-    w.write(&encrypted_bytes).unwrap();
+    w.write_u64::<byteorder::BigEndian>(size).unwrap();
+    w.write(&bytes).unwrap();
     w.flush().unwrap();
 
     Ok(())
@@ -449,20 +444,14 @@ fn read_packet<T: protobuf::Message + protobuf::MessageStatic>(container: &messa
     Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
 }
 
-fn read_container(r: &mut Read, cipher: &Arc<Box<Cipher>>) -> Result<message::Container> {
-    let encrypted_size = match r.read_u64::<byteorder::BigEndian>() {
-        Ok(number) => number as usize,
-        Err(byteorder::Error::UnexpectedEOF) => return Err(Error::ConnectionLost),
-        Err(byteorder::Error::Io(error)) => return Err(Error::Io(error)),
-    };
+fn read_container(reader: &mut Read) -> Result<message::Container> {
+    let size = try!(reader.read_u64::<byteorder::BigEndian>()) as usize;
 
-    let mut buffer = Vec::with_capacity(encrypted_size);
+    let mut bytes = Vec::with_capacity(size);
     unsafe {
-        buffer.set_len(encrypted_size);
+        bytes.set_len(size);
     }
-    r.read(&mut buffer).unwrap();
+    reader.read(&mut bytes).unwrap();
 
-    let container_bytes = try!(cipher.decrypt(&mut buffer));
-
-    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&container_bytes)))
+    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
 }

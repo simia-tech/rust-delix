@@ -50,6 +50,10 @@ impl Symmetric {
 }
 
 impl Cipher for Symmetric {
+    fn box_clone(&self) -> Box<Cipher> {
+        Box::new(Self::new(&self.key, None).unwrap())
+    }
+
     fn encrypt(&self, plain_text: &[u8]) -> Result<Vec<u8>> {
         let nonce_random = random::<[u8; NONCE_SIZE]>().to_vec();
         let nonce = self.nonce.as_ref().unwrap_or(&nonce_random);
@@ -149,6 +153,16 @@ mod tests {
     fn decrypt() {
         for set in sets().iter() {
             let cipher = Symmetric::new(&set.key, Some(&set.nonce)).unwrap();
+            let plain_text = cipher.decrypt(&set.cipher_text).unwrap();
+            assert_eq!(String::from_utf8_lossy(&set.plain_text),
+                       String::from_utf8_lossy(&plain_text));
+        }
+    }
+
+    #[test]
+    fn decrypt_with_cloned_cipher() {
+        for set in sets().iter() {
+            let cipher = Symmetric::new(&set.key, Some(&set.nonce)).unwrap().box_clone();
             let plain_text = cipher.decrypt(&set.cipher_text).unwrap();
             assert_eq!(String::from_utf8_lossy(&set.plain_text),
                        String::from_utf8_lossy(&plain_text));

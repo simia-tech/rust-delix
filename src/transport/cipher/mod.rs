@@ -14,7 +14,9 @@
 //
 
 pub mod cipher;
+pub mod stream;
 pub mod symmetric;
 
 pub use transport::cipher::cipher::{Cipher, Error, Result};
+pub use transport::cipher::stream::Stream;
 pub use transport::cipher::symmetric::Symmetric;
