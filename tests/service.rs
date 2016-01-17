@@ -114,7 +114,7 @@ fn deregistration_in_joined_network() {
     assert_eq!(0, node_one.service_count());
     assert_eq!(1, node_two.service_count());
 
-    assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request("echo", b"test"));
+    assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request_bytes("echo", b"test"));
 
     assert_eq!(0, node_one.service_count());
     assert_eq!(0, node_two.service_count());

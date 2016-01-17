@@ -105,7 +105,7 @@ impl Node {
         self.transport.service_count()
     }
 
-    pub fn request(&self, name: &str, request: &[u8]) -> request::Response {
+    pub fn request_bytes(&self, name: &str, request: &[u8]) -> request::Response {
         Ok(try!(self.transport.request(name, request)))
     }
 }

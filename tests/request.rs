@@ -33,7 +33,7 @@ fn single_echo_from_local() {
     thread::sleep_ms(100);
     helper::assert_node(&node, State::Discovering, 0);
 
-    assert_eq!("test message", String::from_utf8_lossy(&node.request("echo", b"test message").unwrap()));
+    assert_eq!("test message", String::from_utf8_lossy(&node.request_bytes("echo", b"test message").unwrap()));
 }
 
 #[test]
@@ -49,7 +49,7 @@ fn single_echo_from_local_with_timeout() {
     thread::sleep_ms(100);
     helper::assert_node(&node, State::Discovering, 0);
 
-    assert_eq!(Err(request::Error::Timeout), node.request("echo", b""));
+    assert_eq!(Err(request::Error::Timeout), node.request_bytes("echo", b""));
 }
 
 #[test]
@@ -66,7 +66,7 @@ fn single_echo_from_remote() {
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
-    assert_eq!("test message", String::from_utf8_lossy(&node_two.request("echo", b"test message").unwrap()));
+    assert_eq!("test message", String::from_utf8_lossy(&node_two.request_bytes("echo", b"test message").unwrap()));
 }
 
 #[test]
@@ -85,7 +85,7 @@ fn single_echo_from_remote_with_timeout() {
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
-    assert_eq!(Err(request::Error::Timeout), node_two.request("echo", b""));
+    assert_eq!(Err(request::Error::Timeout), node_two.request_bytes("echo", b""));
 }
 
 #[test]
@@ -104,8 +104,8 @@ fn multiple_echos_from_remote() {
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
 
-    assert_eq!(b"test message one".to_vec(), node_two.request("echo", b"test message one").unwrap());
-    assert_eq!(b"test message two".to_vec(), node_two.request("echo", b"test message two").unwrap());
+    assert_eq!(b"test message one".to_vec(), node_two.request_bytes("echo", b"test message one").unwrap());
+    assert_eq!(b"test message two".to_vec(), node_two.request_bytes("echo", b"test message two").unwrap());
 }
 
 #[test]
@@ -138,15 +138,15 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!(1, node_two.service_count());
     assert_eq!(1, node_three.service_count());
 
-    assert_eq!("test", String::from_utf8_lossy(&node_one.request("echo", b"test").unwrap()));
-    assert_eq!("test", String::from_utf8_lossy(&node_one.request("echo", b"test").unwrap()));
+    assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
+    assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
 
     helper::assert_contains_all(&["two", "three"], &helper::recv_all(&rx));
 
     node_three.deregister("echo").unwrap();
 
-    assert_eq!("test", String::from_utf8_lossy(&node_one.request("echo", b"test").unwrap()));
-    assert_eq!("test", String::from_utf8_lossy(&node_one.request("echo", b"test").unwrap()));
+    assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
+    assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
 
     helper::assert_contains_all(&["two", "two"], &helper::recv_all(&rx));
 }

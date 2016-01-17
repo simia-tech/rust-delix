@@ -94,7 +94,7 @@ impl Relay for HttpStatic {
                     http_reader.read_to_end(&mut request).unwrap();
                 }
 
-                let response = match node_clone.request(&service_name, &request) {
+                let response = match node_clone.request_bytes(&service_name, &request) {
                     Ok(response) => response,
                     Err(request::Error::ServiceDoesNotExists) => {
                         build_text_response(StatusCode::BadGateway,
