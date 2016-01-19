@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-use std::io::{self, Write};
+use std::io;
 
 use byteorder::{self, WriteBytesExt};
 
@@ -37,13 +37,11 @@ impl<T> Chunk<T> where T: io::Write
 impl<T> io::Write for Chunk<T> where T: io::Write
 {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        debug!("write chunk {}", buffer.len());
-        self.parent.write_u64::<byteorder::BigEndian>(buffer.len() as u64).unwrap();
-        Ok(self.parent.write(buffer).unwrap())
+        try!(self.parent.write_u64::<byteorder::BigEndian>(buffer.len() as u64));
+        self.parent.write(buffer)
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        debug!("flush chunk");
         self.parent.flush()
     }
 }
@@ -51,9 +49,7 @@ impl<T> io::Write for Chunk<T> where T: io::Write
 impl<T> Drop for Chunk<T> where T: io::Write
 {
     fn drop(&mut self) {
-        // debug!("drop chunk 1");
-        // self.write(&[]).unwrap();
-        // debug!("drop chunk 2");
+        self.parent.write_u64::<byteorder::BigEndian>(0).unwrap();
     }
 }
 

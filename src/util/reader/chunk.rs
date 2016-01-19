@@ -41,9 +41,7 @@ impl<T> io::Read for Chunk<T> where T: io::Read
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.buffer.position() as usize >= self.buffer.get_ref().len() {
             let size = try!(self.parent.read_u64::<byteorder::BigEndian>()) as usize;
-            debug!("read size {}", size);
             if size == 0 {
-                debug!("read 0 / buffer {}", buffer.len());
                 return Ok(0);
             }
 
@@ -52,14 +50,11 @@ impl<T> io::Read for Chunk<T> where T: io::Read
                 bytes.set_len(size);
             }
             assert_eq!(size, try!(self.parent.read(&mut bytes)));
-            debug!("read bytes {}", size);
 
             self.buffer = io::Cursor::new(bytes);
         }
 
-        let result = try!(self.buffer.read(buffer));
-        debug!("read {} / buffer {}", result, buffer.len());
-        Ok(result)
+        self.buffer.read(buffer)
     }
 }
 

@@ -71,12 +71,6 @@ pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<r
     Arc::new(relay)
 }
 
-pub fn echo(request: &mut request::Reader) -> request::Response {
-    let mut buffer = Vec::new();
-    request.read_to_end(&mut buffer).unwrap();
-    Ok(Box::new(io::Cursor::new(buffer)))
-}
-
 pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
     let mut result = Vec::new();
     loop {

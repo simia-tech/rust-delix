@@ -133,7 +133,6 @@ impl Connection {
                 let container = match read_container(&mut stream_clone) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
-                        debug!("{}: connection lost", node_id);
                         if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
                             f(peer_node_id);
                         }
@@ -158,44 +157,17 @@ impl Connection {
                     message::Kind::RequestMessage => {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let (request_id, name) = read_request(&container).unwrap();
-                            debug!("{}: request 1", node_id);
 
-                            // let response =
-                            // f(&name,
-                            // Box::new(reader::Chunk::new(stream_clone.try_clone()
-                            // .unwrap())));
-                            //
+                            let response =
+                                f(&name,
+                                  Box::new(reader::Chunk::new(stream_clone.try_clone()
+                                                                          .unwrap())));
 
-                            // let buffer = {
-                            //     let mut buffer = Vec::with_capacity(16);
-                            //     unsafe {
-                            //         buffer.set_len(16);
-                            //     }
-                            //
-                            //     let number = stream_clone.read(&mut buffer).unwrap();
-                            //     debug!("buffer {:?} / {}", buffer, number);
-                            //
-                            //     buffer
-                            // };
-
-                            let buffer = {
-                                let mut reader = reader::Chunk::new(&mut stream_clone);
-                                let mut buffer = Vec::new();
-                                reader.read_to_end(&mut buffer).unwrap();
-                                buffer
-                            };
-
-                            debug!("{}: request 2 / buffer {}", node_id, buffer.len());
-                            write_response(&mut stream_clone,
-                                           request_id,
-                                           Ok(Box::new(io::Cursor::new(buffer))))
-                                .unwrap();
-                            debug!("{}: request 3", node_id);
+                            write_response(&mut stream_clone, request_id, response).unwrap();
                         }
                     }
                     message::Kind::ResponseMessage => {
                         if let Some(ref f) = *on_response_clone.lock().unwrap() {
-                            debug!("{}: got response", node_id);
                             let (request_id, response) = read_response(&container).unwrap();
                             f(request_id, response);
                         }
@@ -262,23 +234,8 @@ impl Connection {
                         name: &str,
                         reader: &mut request::Reader)
                         -> Result<()> {
-        debug!("{}: send 1", self.node_id);
         try!(write_request(&mut self.stream, id, name));
-        debug!("{}: send 2", self.node_id);
-
-        assert_eq!(8, self.stream.write(&[0, 0, 0, 0, 0, 0, 0, 16]).unwrap());
-        assert_eq!(16, io::copy(reader, &mut self.stream).unwrap());
-        assert_eq!(8, self.stream.write(&[0, 0, 0, 0, 0, 0, 0, 0]).unwrap());
-
-        // {
-        //     let mut writer = writer::Chunk::new(&mut self.stream);
-        //     debug!("{}: send request with {} bytes",
-        //            self.node_id,
-        //            try!(io::copy(reader, &mut writer)));
-        //     self.stream.flush().unwrap();
-        // }
-
-        debug!("{}: send 3", self.node_id);
+        try!(io::copy(reader, &mut writer::Chunk::new(&mut self.stream)));
         Ok(())
     }
 
@@ -441,7 +398,6 @@ fn write_response(w: &mut Write, request_id: u32, response: request::Response) -
         Ok(mut reader) => {
             let mut data = Vec::new();
             try!(reader.read_to_end(&mut data));
-            debug!("response {:?}", data);
             response_packet.set_kind(message::Response_Kind::OK);
             response_packet.set_data(data);
         }
