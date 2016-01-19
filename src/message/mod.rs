@@ -26,4 +26,4 @@ pub use message::request::Request;
 pub use message::response::Response;
 pub use message::response::Response_Kind;
 pub use message::service::Service;
-pub use message::services::Services;
+pub use message::services::{AddServices, RemoveServices};

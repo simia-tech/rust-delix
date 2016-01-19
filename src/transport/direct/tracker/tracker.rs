@@ -142,6 +142,7 @@ impl From<store::Error> for Error {
 #[cfg(test)]
 mod tests {
 
+    use std::io;
     use std::thread;
     use std::sync::Arc;
     use time::Duration;
@@ -155,9 +156,13 @@ mod tests {
         let tracker = Tracker::new(Arc::new(Statistic::new()), None);
 
         let (id, response_rx) = tracker.begin("test", &Link::Local);
-        tracker.end(id, Ok(b"test".to_vec())).unwrap();
+        tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
 
-        assert_eq!(Ok(b"test".to_vec()), response_rx.recv().unwrap());
+        let mut response = response_rx.recv().unwrap().unwrap();
+        let mut response_bytes = Vec::new();
+        response.read_to_end(&mut response_bytes).unwrap();
+
+        assert_eq!(b"test".to_vec(), response_bytes);
         assert_eq!(0, tracker.len());
     }
 
@@ -169,15 +174,20 @@ mod tests {
         assert_eq!(1, tracker.len());
         thread::sleep_ms(100);
 
-        assert_eq!(Err(request::Error::Timeout), response_rx.recv().unwrap());
+        assert_eq!(Some(request::Error::Timeout),
+                   response_rx.recv().unwrap().err());
         assert_eq!(0, tracker.len());
 
         let (request_id, response_rx) = tracker.begin("test", &Link::Local);
         assert_eq!(1, tracker.len());
         thread::sleep_ms(10);
-        tracker.end(request_id, Ok(b"test".to_vec())).unwrap();
+        tracker.end(request_id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
 
-        assert_eq!(Ok(b"test".to_vec()), response_rx.recv().unwrap());
+        let mut response = response_rx.recv().unwrap().unwrap();
+        let mut response_bytes = Vec::new();
+        response.read_to_end(&mut response_bytes).unwrap();
+
+        assert_eq!(b"test".to_vec(), response_bytes);
         assert_eq!(0, tracker.len());
     }
 
@@ -189,11 +199,12 @@ mod tests {
         assert_eq!(1, tracker.len());
         thread::sleep_ms(100);
 
-        assert_eq!(Err(request::Error::Timeout), response_rx.recv().unwrap());
+        assert_eq!(Some(request::Error::Timeout),
+                   response_rx.recv().unwrap().err());
         assert_eq!(0, tracker.len());
 
         assert_eq!(Err(Error::AlreadyEnded),
-                   tracker.end(id, Ok(b"test".to_vec())));
+                   tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))));
     }
 
     #[test]
@@ -206,13 +217,16 @@ mod tests {
             threads.push(thread::spawn(move || -> request::Response {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
-                tracker.end(id, Ok(b"test".to_vec())).unwrap();
+                tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
                 response_rx.recv().unwrap()
             }));
         }
 
         for thread in threads {
-            assert_eq!(Ok(b"test".to_vec()), thread.join().unwrap());
+            let mut response = thread.join().unwrap().unwrap();
+            let mut response_bytes = Vec::new();
+            response.read_to_end(&mut response_bytes).unwrap();
+            assert_eq!(b"test".to_vec(), response_bytes);
         }
 
         assert_eq!(0, tracker.len());
@@ -230,13 +244,13 @@ mod tests {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
                 assert_eq!(Err(Error::AlreadyEnded),
-                           tracker.end(id, Ok(b"test".to_vec())));
+                           tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))));
                 response_rx.recv().unwrap()
             }));
         }
 
         for thread in threads {
-            assert_eq!(Err(request::Error::Timeout), thread.join().unwrap());
+            assert_eq!(Some(request::Error::Timeout), thread.join().unwrap().err());
         }
 
         assert_eq!(0, tracker.len());

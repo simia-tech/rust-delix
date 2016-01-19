@@ -14,8 +14,9 @@
 //
 
 use std::fmt;
+use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -101,7 +102,7 @@ impl Transport for Direct {
 
                 set_up(&mut connection, &services_clone, &tracker_clone);
 
-                connection.send_services(&services_clone.local_service_names())
+                connection.send_add_services(&services_clone.local_service_names())
                           .unwrap();
 
                 info!("{}: inbound {}", node_id, connection);
@@ -137,7 +138,7 @@ impl Transport for Direct {
 
                 set_up(&mut connection, &self.services, &self.tracker);
 
-                try!(connection.send_services(&self.services.local_service_names()));
+                try!(connection.send_add_services(&self.services.local_service_names()));
 
                 info!("{}: outbound {}", node_id, connection);
                 self.connections.add(connection).unwrap();
@@ -156,13 +157,16 @@ impl Transport for Direct {
     fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
         try!(self.services.insert_local(name, f));
 
-        self.connections.send_services(&self.services.local_service_names()).unwrap();
+        self.connections.send_add_services(&vec![name.to_string()]).unwrap();
 
         Ok(())
     }
 
     fn deregister(&self, name: &str) -> Result<()> {
         try!(self.services.remove_local(name));
+
+        self.connections.send_remove_services(&vec![name.to_string()]).unwrap();
+
         Ok(())
     }
 
@@ -170,16 +174,22 @@ impl Transport for Direct {
         self.services.len()
     }
 
-    fn request(&self, name: &str, data: &[u8]) -> request::Response {
+    fn request(&self, name: &str, reader: Box<io::Read + Send + Sync>) -> request::Response {
+        let reader = Arc::new(Mutex::new(Some(reader)));
         self.services.select(name,
                              |handler| {
                                  let (request_id, response_rx) = self.tracker
                                                                      .begin(name, &Link::Local);
+                                 let reader_clone = reader.clone();
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
-                                 let data_clone = data.to_vec();
                                  thread::spawn(move || {
-                                     let response = (*handler_clone.lock().unwrap())(&data_clone);
+                                     let reader = reader_clone.lock()
+                                                              .unwrap()
+                                                              .take()
+                                                              .unwrap();
+                                     let response = (*handler_clone.lock()
+                                                                   .unwrap())(reader);
                                      if let Err(tracker::Error::AlreadyEnded) =
                                             tracker_clone.end(request_id, response) {
                                          debug!("got response for request ({}) that already \
@@ -194,7 +204,13 @@ impl Transport for Direct {
                                      self.tracker
                                          .begin(name, &Link::Remote(peer_node_id));
                                  self.connections
-                                     .send_request(&peer_node_id, request_id, name, data)
+                                     .send_request(&peer_node_id,
+                                                   request_id,
+                                                   name,
+                                                   reader.lock()
+                                                         .unwrap()
+                                                         .as_mut()
+                                                         .unwrap())
                                      .unwrap();
                                  response_rx.recv().unwrap()
                              })
@@ -218,15 +234,19 @@ impl Drop for Direct {
 
 fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc<Tracker>) {
     let services_clone = services.clone();
-    connection.set_on_services(Box::new(move |peer_node_id, services| {
-        for service in services {
-            services_clone.insert_remote(&service, peer_node_id).unwrap();
-        }
+    connection.set_on_add_services(Box::new(move |peer_node_id, services| {
+        services_clone.insert_remotes(&services, peer_node_id);
+    }));
+
+    let services_clone = services.clone();
+    connection.set_on_remove_services(Box::new(move |peer_node_id, services| {
+        services_clone.remove_remotes(&services, &peer_node_id);
     }));
 
     let services_clone = services.clone();
     connection.set_on_request(Box::new(move |name, data| {
-        services_clone.select_local(name, |handler| handler(data))
+        services_clone.select_local(name,
+                                    |handler| handler(Box::new(io::Cursor::new(data.to_vec()))))
     }));
 
     let tracker_clone = tracker.clone();
@@ -239,6 +259,6 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
 
     let services_clone = services.clone();
     connection.set_on_drop(Box::new(move |peer_node_id| {
-        services_clone.remove_remote(&peer_node_id);
+        services_clone.remove_all_remotes(&peer_node_id);
     }));
 }

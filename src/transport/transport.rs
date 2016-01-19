@@ -29,7 +29,7 @@ pub trait Transport : Send + Sync {
     fn deregister(&self, &str) -> Result<()>;
     fn service_count(&self) -> usize;
 
-    fn request(&self, &str, &[u8]) -> request::Response;
+    fn request(&self, &str, Box<io::Read + Send + Sync>) -> request::Response;
 }
 
 pub type Result<T> = result::Result<T, Error>;

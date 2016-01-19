@@ -49,19 +49,14 @@ impl HttpStatic {
         let name_clone = name.to_string();
         self.node
             .register(name,
-                      Box::new(move |request| -> request::Response {
+                      Box::new(move |mut request| -> request::Response {
                           let mut stream = try!(net::TcpStream::connect(address));
-                          stream.write_all(request).unwrap();
+                          io::copy(&mut request, &mut stream).unwrap();
 
-                          let mut http_reader = reader::Http::new(&mut stream, |_, _| {
-                          });
-                          let mut response = Vec::new();
-                          http_reader.read_to_end(&mut response).unwrap();
+                          debug!("handled request to {}", name_clone);
 
-                          debug!("handled request to {} (respond {} bytes)",
-                                 name_clone,
-                                 response.len());
-                          Ok(response)
+                          Ok(Box::new(reader::Http::new(stream, |_, _| {
+                          })))
                       }))
             .unwrap();
     }
@@ -94,7 +89,8 @@ impl Relay for HttpStatic {
                     http_reader.read_to_end(&mut request).unwrap();
                 }
 
-                let response = match node_clone.request_bytes(&service_name, &request) {
+                let mut response = match node_clone.request(&service_name,
+                                                            Box::new(io::Cursor::new(request))) {
                     Ok(response) => response,
                     Err(request::Error::ServiceDoesNotExists) => {
                         build_text_response(StatusCode::BadGateway,
@@ -110,7 +106,7 @@ impl Relay for HttpStatic {
                     }
                 };
 
-                stream.write_all(&response).unwrap();
+                io::copy(&mut response, &mut stream).unwrap();
                 stream.flush().unwrap();
             }
         }),
@@ -145,8 +141,8 @@ impl From<io::Error> for request::Error {
     }
 }
 
-fn build_text_response(status_code: StatusCode, message: &str) -> Vec<u8> {
-    match status_code {
+fn build_text_response(status_code: StatusCode, message: &str) -> Box<io::Read + Send> {
+    Box::new(io::Cursor::new(match status_code {
         StatusCode::InternalServerError => {
             format!("HTTP/1.1 500 Internal Server Error\r\n\r\n{}", message).into_bytes()
         }
@@ -156,5 +152,5 @@ fn build_text_response(status_code: StatusCode, message: &str) -> Vec<u8> {
         StatusCode::ServiceUnavailable => {
             format!("HTTP/1.1 503 Service Unavailable\r\n\r\n{}", message).into_bytes()
         }
-    }
+    }))
 }

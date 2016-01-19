@@ -35,7 +35,8 @@ pub struct Connection {
     peer_node_id: ID,
     peer_public_address: SocketAddr,
 
-    on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
+    on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
+    on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> request::Response + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) + Send>>>>,
     on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
@@ -100,9 +101,13 @@ impl Connection {
 
         let mut stream_clone = stream.try_clone().unwrap();
 
-        let on_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
+        let on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
-        let on_services_clone = on_services.clone();
+        let on_add_services_clone = on_add_services.clone();
+
+        let on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
+            Arc::new(Mutex::new(None));
+        let on_remove_services_clone = on_remove_services.clone();
 
         let on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> request::Response + Send>>>> =
             Arc::new(Mutex::new(None));
@@ -138,9 +143,14 @@ impl Connection {
                     }
                 };
                 match container.get_kind() {
-                    message::Kind::ServicesMessage => {
-                        if let Some(ref f) = *on_services_clone.lock().unwrap() {
-                            f(peer_node_id, read_services(&container).unwrap());
+                    message::Kind::AddServicesMessage => {
+                        if let Some(ref f) = *on_add_services_clone.lock().unwrap() {
+                            f(peer_node_id, read_add_services(&container).unwrap());
+                        }
+                    }
+                    message::Kind::RemoveServicesMessage => {
+                        if let Some(ref f) = *on_remove_services_clone.lock().unwrap() {
+                            f(peer_node_id, read_remove_services(&container).unwrap());
                         }
                     }
                     message::Kind::RequestMessage => {
@@ -168,7 +178,8 @@ impl Connection {
             node_id: node_id,
             peer_node_id: peer_node_id,
             peer_public_address: peer_public_address,
-            on_services: on_services,
+            on_add_services: on_add_services,
+            on_remove_services: on_remove_services,
             on_request: on_request,
             on_response: on_response,
             on_shutdown: on_shutdown,
@@ -193,17 +204,30 @@ impl Connection {
         self.stream.get_ref().local_addr().ok()
     }
 
-    pub fn send_services(&mut self, service_names: &[String]) -> Result<()> {
-        try!(write_services(&mut self.stream, service_names));
+    pub fn send_add_services(&mut self, service_names: &[String]) -> Result<()> {
+        try!(write_add_services(&mut self.stream, service_names));
         Ok(())
     }
 
-    pub fn set_on_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
-        *self.on_services.lock().unwrap() = Some(f);
+    pub fn set_on_add_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
+        *self.on_add_services.lock().unwrap() = Some(f);
     }
 
-    pub fn send_request(&mut self, id: u32, name: &str, data: &[u8]) -> Result<()> {
-        try!(write_request(&mut self.stream, id, name, data));
+    pub fn send_remove_services(&mut self, service_names: &[String]) -> Result<()> {
+        try!(write_remove_services(&mut self.stream, service_names));
+        Ok(())
+    }
+
+    pub fn set_on_remove_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
+        *self.on_remove_services.lock().unwrap() = Some(f);
+    }
+
+    pub fn send_request(&mut self,
+                        id: u32,
+                        name: &str,
+                        reader: &mut Box<io::Read + Send + Sync>)
+                        -> Result<()> {
+        try!(write_request(&mut self.stream, id, name, reader));
         Ok(())
     }
 
@@ -324,24 +348,43 @@ fn write_peers(w: &mut Write, peers: &[(ID, SocketAddr)]) -> Result<()> {
     write_container(w, message::Kind::PeersMessage, buffer)
 }
 
-fn write_services(w: &mut Write, service_names: &[String]) -> Result<()> {
+fn write_add_services(w: &mut Write, service_names: &[String]) -> Result<()> {
     let mut buffer = Vec::new();
-    let mut services_packet = message::Services::new();
+    let mut services_packet = message::AddServices::new();
     for service_name in service_names {
         let mut service_packet = message::Service::new();
         service_packet.set_name((*service_name).to_string());
         services_packet.mut_services().push(service_packet);
     }
     try!(services_packet.write_to_vec(&mut buffer));
-    write_container(w, message::Kind::ServicesMessage, buffer)
+    write_container(w, message::Kind::AddServicesMessage, buffer)
 }
 
-fn write_request(w: &mut Write, id: u32, name: &str, data: &[u8]) -> Result<()> {
+fn write_remove_services(w: &mut Write, service_names: &[String]) -> Result<()> {
+    let mut buffer = Vec::new();
+    let mut services_packet = message::RemoveServices::new();
+    for service_name in service_names {
+        let mut service_packet = message::Service::new();
+        service_packet.set_name((*service_name).to_string());
+        services_packet.mut_services().push(service_packet);
+    }
+    try!(services_packet.write_to_vec(&mut buffer));
+    write_container(w, message::Kind::RemoveServicesMessage, buffer)
+}
+
+fn write_request(w: &mut Write,
+                 id: u32,
+                 name: &str,
+                 reader: &mut Box<io::Read + Send + Sync>)
+                 -> Result<()> {
+    let mut data = Vec::new();
+    try!(reader.read_to_end(&mut data));
+
     let mut buffer = Vec::new();
     let mut request_packet = message::Request::new();
     request_packet.set_id(id);
     request_packet.set_name(name.to_string());
-    request_packet.set_data(data.to_vec());
+    request_packet.set_data(data);
     try!(request_packet.write_to_vec(&mut buffer));
     write_container(w, message::Kind::RequestMessage, buffer)
 }
@@ -351,7 +394,9 @@ fn write_response(w: &mut Write, request_id: u32, response: request::Response) -
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
     match response {
-        Ok(data) => {
+        Ok(mut reader) => {
+            let mut data = Vec::new();
+            try!(reader.read_to_end(&mut data));
             response_packet.set_kind(message::Response_Kind::OK);
             response_packet.set_data(data);
         }
@@ -408,8 +453,17 @@ fn read_peers(container: &message::Container) -> Result<Vec<(ID, SocketAddr)>> {
            .collect())
 }
 
-fn read_services(container: &message::Container) -> Result<Vec<String>> {
-    Ok(try!(read_packet::<message::Services>(&container))
+fn read_add_services(container: &message::Container) -> Result<Vec<String>> {
+    Ok(try!(read_packet::<message::AddServices>(&container))
+           .get_services()
+           .to_vec()
+           .iter()
+           .map(|service_packet| service_packet.get_name().to_string())
+           .collect())
+}
+
+fn read_remove_services(container: &message::Container) -> Result<Vec<String>> {
+    Ok(try!(read_packet::<message::RemoveServices>(&container))
            .get_services()
            .to_vec()
            .iter()
@@ -427,7 +481,9 @@ fn read_request(container: &message::Container) -> Result<(u32, String, Vec<u8>)
 fn read_response(container: &message::Container) -> Result<(u32, request::Response)> {
     let response_packet = try!(read_packet::<message::Response>(&container));
     let result = match response_packet.get_kind() {
-        message::Response_Kind::OK => Ok(response_packet.get_data().to_vec()),
+        message::Response_Kind::OK => {
+            Ok(Box::new(io::Cursor::new(response_packet.get_data().to_vec())) as Box<io::Read + Send>)
+        }
         message::Response_Kind::ServiceDoesNotExists => Err(request::Error::ServiceDoesNotExists),
         message::Response_Kind::ServiceUnavailable => Err(request::Error::ServiceUnavailable),
         message::Response_Kind::Timeout => Err(request::Error::Timeout),

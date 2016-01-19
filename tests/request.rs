@@ -17,6 +17,8 @@ extern crate delix;
 
 #[allow(dead_code)] mod helper;
 
+use std::io;
+use std::iter;
 use std::sync::mpsc;
 use std::thread;
 
@@ -27,7 +29,7 @@ fn single_echo_from_local() {
     helper::set_up();
 
     let node = helper::build_node("127.0.0.1:3001", &[], None);
-    node.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     thread::sleep_ms(100);
@@ -43,7 +45,7 @@ fn single_echo_from_local_with_timeout() {
     let node = helper::build_node("127.0.0.1:3011", &[], Some(10));
     node.register("echo", Box::new(|request| {
         thread::sleep_ms(20);
-        Ok(request.to_vec())
+        Ok(request)
     })).unwrap();
 
     thread::sleep_ms(100);
@@ -57,7 +59,7 @@ fn single_echo_from_remote() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3021", &[], None);
-    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
@@ -76,7 +78,7 @@ fn single_echo_from_remote_with_timeout() {
     let node_one = helper::build_node("127.0.0.1:3031", &[], None);
     node_one.register("echo", Box::new(|request| {
         thread::sleep_ms(20);
-        Ok(request.to_vec())
+        Ok(request)
     })).unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
@@ -93,7 +95,7 @@ fn multiple_echos_from_remote() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3041", &[], None);
-    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
@@ -120,14 +122,14 @@ fn balanced_echos_from_two_remotes() {
     let tx_clone = tx.clone();
     node_two.register("echo", Box::new(move |request| {
         tx_clone.send("two").unwrap();
-        Ok(request.to_vec())
+        Ok(request)
     })).unwrap();
 
     let node_three = helper::build_node("127.0.0.1:3053", &["127.0.0.1:3051"], None);
     let tx_clone = tx.clone();
     node_three.register("echo", Box::new(move |request| {
         tx_clone.send("three").unwrap();
-        Ok(request.to_vec())
+        Ok(request)
     })).unwrap();
 
     thread::sleep_ms(1000);
@@ -149,4 +151,24 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
 
     helper::assert_contains_all(&["two", "two"], &helper::recv_all(&rx));
+}
+
+#[test]
+fn large_echo_from_local() {
+    helper::set_up();
+
+    let node = helper::build_node("127.0.0.1:3061", &[], None);
+    node.register("echo", Box::new(|request| Ok(request)))
+            .unwrap();
+
+    thread::sleep_ms(100);
+    helper::assert_node(&node, State::Discovering, 0);
+
+    let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
+    let request = Box::new(io::Cursor::new(request_bytes.clone()));
+    let mut response = node.request("echo", request).unwrap();
+    let mut response_bytes = Vec::new();
+    response.read_to_end(&mut response_bytes).unwrap();
+
+    assert_eq!(request_bytes, response_bytes);
 }

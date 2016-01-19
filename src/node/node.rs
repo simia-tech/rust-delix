@@ -14,6 +14,7 @@
 //
 
 use std::fmt;
+use std::io;
 use std::result;
 use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -37,6 +38,7 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     NoSocketAddr,
     Transport(transport::Error),
+    Request(request::Error),
 }
 
 impl Node {
@@ -105,8 +107,18 @@ impl Node {
         self.transport.service_count()
     }
 
-    pub fn request_bytes(&self, name: &str, request: &[u8]) -> request::Response {
-        Ok(try!(self.transport.request(name, request)))
+    pub fn request_bytes(&self,
+                         name: &str,
+                         request: &[u8])
+                         -> result::Result<Vec<u8>, request::Error> {
+        let mut response = try!(self.request(name, Box::new(io::Cursor::new(request.to_vec()))));
+        let mut response_bytes = Vec::new();
+        response.read_to_end(&mut response_bytes).unwrap();
+        Ok(response_bytes)
+    }
+
+    pub fn request(&self, name: &str, reader: Box<io::Read + Send + Sync>) -> request::Response {
+        Ok(try!(self.transport.request(name, Box::new(reader))))
     }
 }
 
@@ -130,5 +142,11 @@ impl Drop for Node {
 impl From<transport::Error> for Error {
     fn from(error: transport::Error) -> Self {
         Error::Transport(error)
+    }
+}
+
+impl From<request::Error> for Error {
+    fn from(error: request::Error) -> Self {
+        Error::Request(error)
     }
 }

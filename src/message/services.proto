@@ -2,7 +2,12 @@ package message;
 
 import "service.proto";
 
-// Services is the packet that is send to tell a node about services.
-message Services {
+// AddServices is the packet that is send to tell a node about new services.
+message AddServices {
+  repeated Service services = 1;
+}
+
+// RemoveServices is the packet that is send to tell a node about new services.
+message RemoveServices {
   repeated Service services = 1;
 }

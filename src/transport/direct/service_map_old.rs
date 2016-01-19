@@ -84,21 +84,6 @@ impl ServiceMap {
         Ok(())
     }
 
-    pub fn insert_remotes(&self, names: &[String], peer_node_id: ID) {
-        let mut entries = self.entries.write().unwrap();
-
-        for name in names {
-            if !entries.contains_key(name) {
-                entries.insert(name.to_string(), Entry::new());
-            }
-            let mut entry = entries.get_mut(name).unwrap();
-
-            if let None = entry.links.iter().find(|&link| Link::is_remote(link, &peer_node_id)) {
-                entry.links.push(Link::Remote(peer_node_id));
-            }
-        }
-    }
-
     pub fn select<L, R>(&self, name: &str, local_handler: L, remote_handler: R) -> request::Response
         where L: Fn(&Arc<Mutex<Box<request::Handler>>>) -> request::Response,
               R: Fn(ID) -> request::Response
@@ -197,42 +182,7 @@ impl ServiceMap {
         Ok(())
     }
 
-    pub fn remove_remote(&self, name: &str, peer_node_id: &ID) -> Result<()> {
-        let mut entries = self.entries.write().unwrap();
-        let remove = {
-            let mut entry = match entries.get_mut(name) {
-                Some(entry) => entry,
-                None => return Err(Error::ServiceDoesNotExists),
-            };
-            entry.links.retain(|link| !Link::is_remote(&&link, peer_node_id));
-            entry.queue.retain(|link| !Link::is_remote(&&link, peer_node_id));
-            entry.links.len() == 0
-        };
-        if remove {
-            entries.remove(name);
-        }
-        Ok(())
-    }
-
-    pub fn remove_remotes(&self, names: &[String], peer_node_id: &ID) {
-        let mut entries = self.entries.write().unwrap(); // block
-        for name in names {
-            let remove = {
-                let mut entry = match entries.get_mut(name) {
-                    Some(entry) => entry,
-                    None => continue,
-                };
-                entry.links.retain(|link| !Link::is_remote(&&link, peer_node_id));
-                entry.queue.retain(|link| !Link::is_remote(&&link, peer_node_id));
-                entry.links.len() == 0
-            };
-            if remove {
-                entries.remove(name);
-            }
-        }
-    }
-
-    pub fn remove_all_remotes(&self, peer_node_id: &ID) {
+    pub fn remove_remote(&self, peer_node_id: &ID) {
         let mut entries = self.entries.write().unwrap();
         let mut names = Vec::new();
         for (name, entry) in entries.iter_mut() {
@@ -286,8 +236,8 @@ mod tests {
         let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
 
-        assert!(service_map.insert_local("test", Box::new(|request| Ok(request))).is_ok());
-        assert!(service_map.insert_local("test", Box::new(|request| Ok(request)))
+        assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).is_ok());
+        assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec())))
                            .is_err());
         assert!(service_map.insert_remote("test", ID::new_random()).is_ok());
 
@@ -303,7 +253,7 @@ mod tests {
         assert!(service_map.insert_remote("test", node_id).is_ok());
         assert!(service_map.insert_remote("test", node_id).is_err());
         assert!(service_map.insert_remote("test", ID::new_random()).is_ok());
-        assert!(service_map.insert_local("test", Box::new(|request| Ok(request))).is_ok());
+        assert!(service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).is_ok());
 
         assert_eq!(vec!["test"], service_map.local_service_names());
     }
@@ -312,7 +262,7 @@ mod tests {
     fn remove_local() {
         let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
-        service_map.insert_local("test", Box::new(|request| Ok(request))).unwrap();
+        service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
         service_map.insert_remote("test", ID::new_random()).unwrap();
 
         assert!(service_map.remove_local("test").is_ok());
@@ -324,7 +274,7 @@ mod tests {
     fn remove_local_and_clean_up() {
         let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
-        service_map.insert_local("test", Box::new(|request| Ok(request))).unwrap();
+        service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
 
         assert!(service_map.remove_local("test").is_ok());
 
@@ -335,12 +285,11 @@ mod tests {
     fn remove_remote() {
         let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
-        let id_one = ID::new_random();
-        let id_two = ID::new_random();
-        service_map.insert_remote("test", id_one).unwrap();
-        service_map.insert_remote("test", id_two).unwrap();
+        let node_id = ID::new_random();
+        service_map.insert_remote("test", node_id).unwrap();
+        service_map.insert_local("test", Box::new(|request| Ok(request.to_vec()))).unwrap();
 
-        assert!(service_map.remove_remote("test", &id_one).is_ok());
+        service_map.remove_remote(&node_id);
 
         assert_eq!(1, service_map.len());
     }
@@ -349,35 +298,10 @@ mod tests {
     fn remove_remote_and_clean_up() {
         let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let service_map = ServiceMap::new(balancer);
-        let id = ID::new_random();
-        service_map.insert_remote("test", id).unwrap();
-
-        assert!(service_map.remove_remote("test", &id).is_ok());
-
-        assert_eq!(0, service_map.len());
-    }
-
-    #[test]
-    fn remove_all_remotes() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
-        let node_id = ID::new_random();
-        service_map.insert_remote("test", node_id).unwrap();
-        service_map.insert_local("test", Box::new(|request| Ok(request))).unwrap();
-
-        service_map.remove_all_remotes(&node_id);
-
-        assert_eq!(1, service_map.len());
-    }
-
-    #[test]
-    fn remove_all_remotes_and_clean_up() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
         let node_id = ID::new_random();
         service_map.insert_remote("test", node_id).unwrap();
 
-        service_map.remove_all_remotes(&node_id);
+        service_map.remove_remote(&node_id);
 
         assert_eq!(0, service_map.len());
     }

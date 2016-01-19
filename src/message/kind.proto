@@ -3,7 +3,8 @@ package message;
 enum Kind {
   IntroductionMessage = 1;
   PeersMessage = 2;
-  ServicesMessage = 3;
-  RequestMessage = 4;
-  ResponseMessage = 5;
+  AddServicesMessage = 3;
+  RemoveServicesMessage = 4;
+  RequestMessage = 5;
+  ResponseMessage = 6;
 }

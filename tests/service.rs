@@ -27,7 +27,7 @@ fn distribution_over_incoming_connection() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3001", &[], None);
-    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
@@ -47,7 +47,7 @@ fn distribution_over_outgoing_connection() {
     let node_one = helper::build_node("127.0.0.1:3011", &[], None);
 
     let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    node_two.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node_two.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     sleep_ms(1000);
@@ -69,7 +69,7 @@ fn distribution_in_joined_network() {
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
-    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     sleep_ms(200);
@@ -82,7 +82,7 @@ fn deregistration() {
     helper::set_up();
 
     let node = helper::build_node("127.0.0.1:3031", &[], None);
-    node.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node.register("echo", Box::new(|request| Ok(request)))
         .unwrap();
     node.deregister("echo").unwrap();
 
@@ -97,7 +97,7 @@ fn deregistration_in_joined_network() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3041", &[], None);
-    node_one.register("echo", Box::new(|request| Ok(request.to_vec())))
+    node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
@@ -110,12 +110,10 @@ fn deregistration_in_joined_network() {
     assert_eq!(1, node_two.service_count());
 
     node_one.deregister("echo").unwrap();
-
-    assert_eq!(0, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
-
-    assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request_bytes("echo", b"test"));
+    sleep_ms(100);
 
     assert_eq!(0, node_one.service_count());
     assert_eq!(0, node_two.service_count());
+
+    assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request_bytes("echo", b"test"));
 }

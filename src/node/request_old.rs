@@ -13,11 +13,9 @@
 // limitations under the License.
 //
 
-use std::io;
+pub type Handler = Fn(&[u8]) -> Response + Send;
 
-pub type Handler = Fn(Box<io::Read + Send + Sync>) -> Response + Send;
-
-pub type Response = Result<Box<io::Read + Send>, Error>;
+pub type Response = Result<Vec<u8>, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

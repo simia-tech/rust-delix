@@ -46,7 +46,7 @@ fn loose_and_service_clean_up() {
     {
         let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
         node_two.register("echo", Box::new(|request| {
-            Ok(request.to_vec())
+            Ok(request)
         })).unwrap();
 
         sleep_ms(1000);

@@ -15,6 +15,7 @@
 
 use std::collections::HashMap;
 use std::fmt;
+use std::io;
 use std::net::SocketAddr;
 use std::result;
 use std::sync::{Arc, RwLock, mpsc};
@@ -87,18 +88,31 @@ impl ConnectionMap {
         self.map.read().unwrap().len()
     }
 
-    pub fn send_services(&self, services: &[String]) -> Result<()> {
+    pub fn send_add_services(&self, services: &[String]) -> Result<()> {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
-            try!(connection.send_services(services));
+            try!(connection.send_add_services(services));
         }
         Ok(())
     }
 
-    pub fn send_request(&self, peer_node_id: &ID, id: u32, name: &str, data: &[u8]) -> Result<()> {
+    pub fn send_remove_services(&self, services: &[String]) -> Result<()> {
+        let mut map = self.map.write().unwrap();
+        for (_, connection) in map.iter_mut() {
+            try!(connection.send_remove_services(services));
+        }
+        Ok(())
+    }
+
+    pub fn send_request(&self,
+                        peer_node_id: &ID,
+                        id: u32,
+                        name: &str,
+                        reader: &mut Box<io::Read + Send + Sync>)
+                        -> Result<()> {
         let mut map = self.map.write().unwrap();
         let mut connection = map.get_mut(peer_node_id).unwrap();
-        Ok(try!(connection.send_request(id, name, data)))
+        Ok(try!(connection.send_request(id, name, reader)))
     }
 
     pub fn clear_on_shutdown(&self) {
