@@ -167,9 +167,11 @@ impl Connection {
                             //
 
                             let buffer = {
-                                let mut reader = reader::Chunk::new(&mut stream_clone);
-                                let mut buffer = Vec::new();
-                                reader.read_to_end(&mut buffer).unwrap();
+                                let mut buffer = Vec::with_capacity(20);
+                                unsafe {
+                                    buffer.set_len(20);
+                                }
+                                stream_clone.read(&mut buffer).unwrap();
                                 buffer
                             };
 
@@ -254,7 +256,7 @@ impl Connection {
         debug!("{}: send 2", self.node_id);
         debug!("{}: send request with {} bytes",
                self.node_id,
-               try!(io::copy(reader, &mut writer::Chunk::new(&mut self.stream))));
+               try!(io::copy(reader, &mut self.stream)));
         debug!("{}: send 3", self.node_id);
         try!(write!(&mut self.stream, "test"));
         debug!("{}: send 4", self.node_id);
