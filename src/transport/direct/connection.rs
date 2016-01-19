@@ -166,12 +166,22 @@ impl Connection {
                             // .unwrap())));
                             //
 
+                            // let buffer = {
+                            //     let mut buffer = Vec::with_capacity(16);
+                            //     unsafe {
+                            //         buffer.set_len(16);
+                            //     }
+                            //
+                            //     let number = stream_clone.read(&mut buffer).unwrap();
+                            //     debug!("buffer {:?} / {}", buffer, number);
+                            //
+                            //     buffer
+                            // };
+
                             let buffer = {
-                                let mut buffer = Vec::with_capacity(20);
-                                unsafe {
-                                    buffer.set_len(20);
-                                }
-                                stream_clone.read(&mut buffer).unwrap();
+                                let mut reader = reader::Chunk::new(&mut stream_clone);
+                                let mut buffer = Vec::new();
+                                reader.read_to_end(&mut buffer).unwrap();
                                 buffer
                             };
 
@@ -180,6 +190,7 @@ impl Connection {
                                            request_id,
                                            Ok(Box::new(io::Cursor::new(buffer))))
                                 .unwrap();
+                            debug!("{}: request 3", node_id);
                         }
                     }
                     message::Kind::ResponseMessage => {
@@ -254,12 +265,20 @@ impl Connection {
         debug!("{}: send 1", self.node_id);
         try!(write_request(&mut self.stream, id, name));
         debug!("{}: send 2", self.node_id);
-        debug!("{}: send request with {} bytes",
-               self.node_id,
-               try!(io::copy(reader, &mut self.stream)));
+
+        assert_eq!(8, self.stream.write(&[0, 0, 0, 0, 0, 0, 0, 16]).unwrap());
+        assert_eq!(16, io::copy(reader, &mut self.stream).unwrap());
+        assert_eq!(8, self.stream.write(&[0, 0, 0, 0, 0, 0, 0, 0]).unwrap());
+
+        // {
+        //     let mut writer = writer::Chunk::new(&mut self.stream);
+        //     debug!("{}: send request with {} bytes",
+        //            self.node_id,
+        //            try!(io::copy(reader, &mut writer)));
+        //     self.stream.flush().unwrap();
+        // }
+
         debug!("{}: send 3", self.node_id);
-        try!(write!(&mut self.stream, "test"));
-        debug!("{}: send 4", self.node_id);
         Ok(())
     }
 
@@ -531,7 +550,7 @@ fn read_container(stream: &mut io::Read) -> Result<message::Container> {
     unsafe {
         bytes.set_len(size);
     }
-    try!(stream.read(&mut bytes));
+    assert_eq!(size, try!(stream.read(&mut bytes)));
 
     Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
 }

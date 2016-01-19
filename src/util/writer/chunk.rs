@@ -51,7 +51,9 @@ impl<T> io::Write for Chunk<T> where T: io::Write
 impl<T> Drop for Chunk<T> where T: io::Write
 {
     fn drop(&mut self) {
-        self.write(&[]).unwrap();
+        // debug!("drop chunk 1");
+        // self.write(&[]).unwrap();
+        // debug!("drop chunk 2");
     }
 }
 
