@@ -18,7 +18,7 @@ extern crate hyper;
 extern crate log;
 extern crate time;
 
-use std::io::{self, Read};
+use std::io::Read;
 use std::net::SocketAddr;
 use std::sync::{self, Arc, mpsc};
 
@@ -28,7 +28,7 @@ use self::time::Duration;
 
 use delix::discovery::Constant;
 use delix::logger;
-use delix::node::{Node, State, request};
+use delix::node::{Node, State};
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
 use delix::relay::{self, Relay};

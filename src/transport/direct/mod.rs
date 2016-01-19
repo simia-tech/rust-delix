@@ -17,6 +17,7 @@ limitations under the License.
 pub mod balancer;
 mod connection;
 mod connection_map;
+pub mod container;
 mod direct;
 mod link;
 mod service_map;
