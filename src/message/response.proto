@@ -12,5 +12,6 @@ message Response {
 
   optional uint32 request_id = 1;
   optional Kind kind = 2;
-  optional bytes data = 3;
+  optional string message = 3;
+  optional bytes data = 4;
 }

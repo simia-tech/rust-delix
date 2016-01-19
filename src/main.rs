@@ -36,6 +36,7 @@ mod configuration;
 mod loader;
 
 #[cfg(not(test))]
+#[allow(unused_variables)]
 fn main() {
     let arguments = match ::arguments::Arguments::parse() {
         Ok(arguments) => arguments,

@@ -4,5 +4,4 @@ package message;
 message Request {
   optional uint32 id = 1;
   optional string name = 2;
-  optional bytes data = 3;
 }

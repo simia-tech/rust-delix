@@ -18,7 +18,7 @@ extern crate hyper;
 extern crate log;
 extern crate time;
 
-use std::io::Read;
+use std::io::{self, Read};
 use std::net::SocketAddr;
 use std::sync::{self, Arc, mpsc};
 
@@ -28,7 +28,7 @@ use self::time::Duration;
 
 use delix::discovery::Constant;
 use delix::logger;
-use delix::node::{Node, State};
+use delix::node::{Node, State, request};
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
 use delix::relay::{self, Relay};
@@ -69,6 +69,12 @@ pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<r
         relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
     }
     Arc::new(relay)
+}
+
+pub fn echo(request: &mut request::Reader) -> request::Response {
+    let mut buffer = Vec::new();
+    request.read_to_end(&mut buffer).unwrap();
+    Ok(Box::new(io::Cursor::new(buffer)))
 }
 
 pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {

@@ -14,7 +14,6 @@
 //
 
 use std::fmt;
-use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -174,7 +173,7 @@ impl Transport for Direct {
         self.services.len()
     }
 
-    fn request(&self, name: &str, reader: Box<io::Read + Send + Sync>) -> request::Response {
+    fn request(&self, name: &str, reader: Box<request::Reader>) -> request::Response {
         let reader = Arc::new(Mutex::new(Some(reader)));
         self.services.select(name,
                              |handler| {
@@ -244,9 +243,8 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
     }));
 
     let services_clone = services.clone();
-    connection.set_on_request(Box::new(move |name, data| {
-        services_clone.select_local(name,
-                                    |handler| handler(Box::new(io::Cursor::new(data.to_vec()))))
+    connection.set_on_request(Box::new(move |name, reader| {
+        services_clone.select_local(name, |handler| handler(reader))
     }));
 
     let tracker_clone = tracker.clone();

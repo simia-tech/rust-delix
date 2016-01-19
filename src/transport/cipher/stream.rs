@@ -80,6 +80,12 @@ impl io::Read for Stream {
     }
 }
 
+impl Drop for Stream {
+    fn drop(&mut self) {
+        debug!("drop stream");
+    }
+}
+
 impl From<cipher::Error> for io::Error {
     fn from(error: cipher::Error) -> Self {
         io::Error::new(io::ErrorKind::Other, format!("cipher error: {:?}", error))

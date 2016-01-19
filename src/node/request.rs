@@ -15,9 +15,11 @@
 
 use std::io;
 
-pub type Handler = Fn(Box<io::Read + Send + Sync>) -> Response + Send;
+pub type Reader = io::Read + Send;
 
-pub type Response = Result<Box<io::Read + Send>, Error>;
+pub type Handler = Fn(Box<Reader>) -> Response + Send;
+
+pub type Response = Result<Box<Reader>, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

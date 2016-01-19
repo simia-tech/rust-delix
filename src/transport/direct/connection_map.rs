@@ -15,13 +15,12 @@
 
 use std::collections::HashMap;
 use std::fmt;
-use std::io;
 use std::net::SocketAddr;
 use std::result;
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
-use node::ID;
+use node::{ID, request};
 use transport::direct::{self, Connection};
 
 pub struct ConnectionMap {
@@ -108,7 +107,7 @@ impl ConnectionMap {
                         peer_node_id: &ID,
                         id: u32,
                         name: &str,
-                        reader: &mut Box<io::Read + Send + Sync>)
+                        reader: &mut request::Reader)
                         -> Result<()> {
         let mut map = self.map.write().unwrap();
         let mut connection = map.get_mut(peer_node_id).unwrap();

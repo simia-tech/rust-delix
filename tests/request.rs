@@ -106,8 +106,11 @@ fn multiple_echos_from_remote() {
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
 
+    println!("ok 1");
     assert_eq!(b"test message one".to_vec(), node_two.request_bytes("echo", b"test message one").unwrap());
+    println!("ok 2");
     assert_eq!(b"test message two".to_vec(), node_two.request_bytes("echo", b"test message two").unwrap());
+    println!("ok 3");
 }
 
 #[test]

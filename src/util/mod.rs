@@ -15,3 +15,4 @@ limitations under the License.
 */
 
 pub mod reader;
+pub mod writer;

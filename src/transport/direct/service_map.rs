@@ -143,7 +143,7 @@ impl ServiceMap {
     }
 
     pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Response
-        where L: Fn(&Box<request::Handler>) -> request::Response
+        where L: FnOnce(&Box<request::Handler>) -> request::Response
     {
         let entries = self.entries.read().unwrap();
 

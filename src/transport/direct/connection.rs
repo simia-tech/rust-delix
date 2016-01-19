@@ -26,6 +26,7 @@ use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
 use node::{self, ID, request};
 use transport::cipher::{self, Cipher};
+use util::{reader, writer};
 
 pub struct Connection {
     stream: cipher::Stream,
@@ -37,7 +38,7 @@ pub struct Connection {
 
     on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
-    on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> request::Response + Send>>>>,
+    on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>>,
     on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) + Send>>>>,
     on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
     on_drop: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
@@ -109,7 +110,7 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_remove_services_clone = on_remove_services.clone();
 
-        let on_request: Arc<Mutex<Option<Box<Fn(&str, &[u8]) -> request::Response + Send>>>> =
+        let on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_request_clone = on_request.clone();
 
@@ -132,6 +133,7 @@ impl Connection {
                 let container = match read_container(&mut stream_clone) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
+                        debug!("{}: connection lost", node_id);
                         if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
                             f(peer_node_id);
                         }
@@ -155,12 +157,32 @@ impl Connection {
                     }
                     message::Kind::RequestMessage => {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
-                            let (request_id, name, data) = read_request(&container).unwrap();
-                            write_response(&mut stream_clone, request_id, f(&name, &data)).unwrap();
+                            let (request_id, name) = read_request(&container).unwrap();
+                            debug!("{}: request 1", node_id);
+
+                            // let response =
+                            // f(&name,
+                            // Box::new(reader::Chunk::new(stream_clone.try_clone()
+                            // .unwrap())));
+                            //
+
+                            let buffer = {
+                                let mut reader = reader::Chunk::new(&mut stream_clone);
+                                let mut buffer = Vec::new();
+                                reader.read_to_end(&mut buffer).unwrap();
+                                buffer
+                            };
+
+                            debug!("{}: request 2 / buffer {}", node_id, buffer.len());
+                            write_response(&mut stream_clone,
+                                           request_id,
+                                           Ok(Box::new(io::Cursor::new(buffer))))
+                                .unwrap();
                         }
                     }
                     message::Kind::ResponseMessage => {
                         if let Some(ref f) = *on_response_clone.lock().unwrap() {
+                            debug!("{}: got response", node_id);
                             let (request_id, response) = read_response(&container).unwrap();
                             f(request_id, response);
                         }
@@ -225,13 +247,22 @@ impl Connection {
     pub fn send_request(&mut self,
                         id: u32,
                         name: &str,
-                        reader: &mut Box<io::Read + Send + Sync>)
+                        reader: &mut request::Reader)
                         -> Result<()> {
-        try!(write_request(&mut self.stream, id, name, reader));
+        debug!("{}: send 1", self.node_id);
+        try!(write_request(&mut self.stream, id, name));
+        debug!("{}: send 2", self.node_id);
+        debug!("{}: send request with {} bytes",
+               self.node_id,
+               try!(io::copy(reader, &mut writer::Chunk::new(&mut self.stream))));
+        debug!("{}: send 3", self.node_id);
+        try!(write!(&mut self.stream, "test"));
+        debug!("{}: send 4", self.node_id);
         Ok(())
     }
 
-    pub fn set_on_request(&mut self, f: Box<Fn(&str, &[u8]) -> request::Response + Send>) {
+    pub fn set_on_request(&mut self,
+                          f: Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>) {
         *self.on_request.lock().unwrap() = Some(f);
     }
 
@@ -372,19 +403,11 @@ fn write_remove_services(w: &mut Write, service_names: &[String]) -> Result<()> 
     write_container(w, message::Kind::RemoveServicesMessage, buffer)
 }
 
-fn write_request(w: &mut Write,
-                 id: u32,
-                 name: &str,
-                 reader: &mut Box<io::Read + Send + Sync>)
-                 -> Result<()> {
-    let mut data = Vec::new();
-    try!(reader.read_to_end(&mut data));
-
+fn write_request(w: &mut Write, id: u32, name: &str) -> Result<()> {
     let mut buffer = Vec::new();
     let mut request_packet = message::Request::new();
     request_packet.set_id(id);
     request_packet.set_name(name.to_string());
-    request_packet.set_data(data);
     try!(request_packet.write_to_vec(&mut buffer));
     write_container(w, message::Kind::RequestMessage, buffer)
 }
@@ -397,6 +420,7 @@ fn write_response(w: &mut Write, request_id: u32, response: request::Response) -
         Ok(mut reader) => {
             let mut data = Vec::new();
             try!(reader.read_to_end(&mut data));
+            debug!("response {:?}", data);
             response_packet.set_kind(message::Response_Kind::OK);
             response_packet.set_data(data);
         }
@@ -411,7 +435,7 @@ fn write_response(w: &mut Write, request_id: u32, response: request::Response) -
         }
         Err(request::Error::Internal(message)) => {
             response_packet.set_kind(message::Response_Kind::Internal);
-            response_packet.set_data(message.bytes().collect());
+            response_packet.set_message(message);
         }
     }
     try!(response_packet.write_to_vec(&mut buffer));
@@ -426,9 +450,9 @@ fn write_container(w: &mut Write, kind: message::Kind, data: Vec<u8>) -> Result<
     let bytes = try!(container.write_to_bytes());
     let size = bytes.len() as u64;
 
-    w.write_u64::<byteorder::BigEndian>(size).unwrap();
-    w.write(&bytes).unwrap();
-    w.flush().unwrap();
+    try!(w.write_u64::<byteorder::BigEndian>(size));
+    try!(w.write(&bytes));
+    try!(w.flush());
 
     Ok(())
 }
@@ -471,11 +495,10 @@ fn read_remove_services(container: &message::Container) -> Result<Vec<String>> {
            .collect())
 }
 
-fn read_request(container: &message::Container) -> Result<(u32, String, Vec<u8>)> {
+fn read_request(container: &message::Container) -> Result<(u32, String)> {
     let request_packet = try!(read_packet::<message::Request>(&container));
     Ok((request_packet.get_id(),
-        request_packet.get_name().to_string(),
-        request_packet.get_data().to_vec()))
+        request_packet.get_name().to_string()))
 }
 
 fn read_response(container: &message::Container) -> Result<(u32, request::Response)> {
@@ -488,8 +511,7 @@ fn read_response(container: &message::Container) -> Result<(u32, request::Respon
         message::Response_Kind::ServiceUnavailable => Err(request::Error::ServiceUnavailable),
         message::Response_Kind::Timeout => Err(request::Error::Timeout),
         message::Response_Kind::Internal => {
-            Err(request::Error::Internal(String::from_utf8(response_packet.get_data().to_vec())
-                                             .unwrap()))
+            Err(request::Error::Internal(response_packet.get_message().to_string()))
         }
     };
     Ok((response_packet.get_request_id(), result))
@@ -500,11 +522,14 @@ fn read_packet<T: protobuf::Message + protobuf::MessageStatic>(container: &messa
     Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
 }
 
-fn read_container(stream: &mut cipher::Stream) -> Result<message::Container> {
-    let size = try!(stream.read_u64::<byteorder::BigEndian>());
+fn read_container(stream: &mut io::Read) -> Result<message::Container> {
+    let size = try!(stream.read_u64::<byteorder::BigEndian>()) as usize;
 
-    let mut bytes = Vec::new();
-    try!(stream.try_clone().unwrap().take(size).read_to_end(&mut bytes));
+    let mut bytes = Vec::with_capacity(size);
+    unsafe {
+        bytes.set_len(size);
+    }
+    try!(stream.read(&mut bytes));
 
     Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
 }
