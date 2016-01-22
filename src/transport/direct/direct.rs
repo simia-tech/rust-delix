@@ -173,7 +173,7 @@ impl Transport for Direct {
         self.services.len()
     }
 
-    fn request(&self, name: &str, reader: Box<request::Reader>) -> request::Response {
+    fn request(&self, name: &str, reader: Box<request::Reader>) -> request::Result {
         let reader = Arc::new(Mutex::new(Some(reader)));
         self.services.select(name,
                              |handler| {

@@ -14,12 +14,15 @@
 //
 
 use std::io;
+use std::result;
 
 pub type Reader = io::Read + Send;
 
-pub type Handler = Fn(Box<Reader>) -> Response + Send;
+pub type ResponseWriter = io::Write + Send;
 
-pub type Response = Result<Box<Reader>, Error>;
+pub type Handler = Fn(Box<Reader>) -> Result + Send;
+
+pub type Result = result::Result<Box<Reader>, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

@@ -81,7 +81,7 @@ impl Tracker {
         }
     }
 
-    pub fn begin(&self, name: &str, link: &Link) -> (u32, mpsc::Receiver<request::Response>) {
+    pub fn begin(&self, name: &str, link: &Link) -> (u32, mpsc::Receiver<request::Result>) {
         let (response_tx, response_rx) = mpsc::channel();
         let id = self.current_id.fetch_add(1, atomic::Ordering::SeqCst) as u32;
         let subject = Subject::from_name_and_link(name, link);
@@ -96,7 +96,7 @@ impl Tracker {
         (id, response_rx)
     }
 
-    pub fn end(&self, id: u32, response: request::Response) -> Result<()> {
+    pub fn end(&self, id: u32, response: request::Result) -> Result<()> {
         let (response_tx, subject, started_at) = try!(self.store.remove(&id));
 
         response_tx.send(response).unwrap();
@@ -214,7 +214,7 @@ mod tests {
         let mut threads = Vec::new();
         for _ in 0..10 {
             let tracker = tracker.clone();
-            threads.push(thread::spawn(move || -> request::Response {
+            threads.push(thread::spawn(move || {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
                 tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
@@ -240,7 +240,7 @@ mod tests {
         let mut threads = Vec::new();
         for _ in 0..10 {
             let tracker = tracker.clone();
-            threads.push(thread::spawn(move || -> request::Response {
+            threads.push(thread::spawn(move || {
                 let (id, response_rx) = tracker.begin("test", &Link::Local);
                 thread::sleep_ms(100);
                 assert_eq!(Err(Error::AlreadyEnded),

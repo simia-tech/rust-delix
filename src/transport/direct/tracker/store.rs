@@ -23,7 +23,7 @@ use transport::direct::tracker::Subject;
 use time;
 
 pub struct Store {
-    entries: RwLock<HashMap<u32, (mpsc::Sender<request::Response>, Subject, time::Tm)>>,
+    entries: RwLock<HashMap<u32, (mpsc::Sender<request::Result>, Subject, time::Tm)>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -41,7 +41,7 @@ impl Store {
 
     pub fn insert(&self,
                   id: u32,
-                  response_tx: mpsc::Sender<request::Response>,
+                  response_tx: mpsc::Sender<request::Result>,
                   subject: Subject,
                   started_at: time::Tm)
                   -> Result<bool> {
@@ -54,7 +54,7 @@ impl Store {
         Ok(entries.len() == 1)
     }
 
-    pub fn remove(&self, id: &u32) -> Result<(mpsc::Sender<request::Response>, Subject, time::Tm)> {
+    pub fn remove(&self, id: &u32) -> Result<(mpsc::Sender<request::Result>, Subject, time::Tm)> {
         let mut entries = self.entries.write().unwrap();
         if !entries.contains_key(&id) {
             return Err(Error::IdDoesNotExists);
@@ -65,10 +65,10 @@ impl Store {
         Err(Error::IdDoesNotExists)
     }
 
-    pub fn remove_all_started_before(&self,
-                                     threshold: time::Tm)
-                                     -> (Vec<(u32, mpsc::Sender<request::Response>)>,
-                                         Option<time::Tm>) {
+    pub fn remove_all_started_before
+        (&self,
+         threshold: time::Tm)
+         -> (Vec<(u32, mpsc::Sender<request::Result>)>, Option<time::Tm>) {
 
         let mut entries = self.entries.write().unwrap();
 
@@ -192,7 +192,7 @@ mod tests {
         });
     }
 
-    fn build_tx_and_time(seconds: i64) -> (mpsc::Sender<request::Response>, time::Tm) {
+    fn build_tx_and_time(seconds: i64) -> (mpsc::Sender<request::Result>, time::Tm) {
         let (response_tx, _) = mpsc::channel();
         (response_tx, build_time(seconds))
     }

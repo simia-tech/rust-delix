@@ -39,8 +39,8 @@ pub struct Connection {
 
     on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
-    on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>>,
-    on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) + Send>>>>,
+    on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Result + Send>>>>,
+    on_response: Arc<Mutex<Option<Box<Fn(u32, request::Result) + Send>>>>,
     on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
     on_drop: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
 }
@@ -111,11 +111,11 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_remove_services_clone = on_remove_services.clone();
 
-        let on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>> =
+        let on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Result + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_request_clone = on_request.clone();
 
-        let on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) + Send>>>> =
+        let on_response: Arc<Mutex<Option<Box<Fn(u32, request::Result) + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
 
@@ -249,11 +249,11 @@ impl Connection {
     }
 
     pub fn set_on_request(&mut self,
-                          f: Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>) {
+                          f: Box<Fn(&str, Box<request::Reader>) -> request::Result + Send>) {
         *self.on_request.lock().unwrap() = Some(f);
     }
 
-    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Response) + Send>) {
+    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Result) + Send>) {
         *self.on_response.lock().unwrap() = Some(f);
     }
 

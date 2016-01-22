@@ -99,9 +99,9 @@ impl ServiceMap {
         }
     }
 
-    pub fn select<L, R>(&self, name: &str, local_handler: L, remote_handler: R) -> request::Response
-        where L: Fn(&Arc<Mutex<Box<request::Handler>>>) -> request::Response,
-              R: Fn(ID) -> request::Response
+    pub fn select<L, R>(&self, name: &str, local_handler: L, remote_handler: R) -> request::Result
+        where L: Fn(&Arc<Mutex<Box<request::Handler>>>) -> request::Result,
+              R: Fn(ID) -> request::Result
     {
         let mut entries = self.entries.write().unwrap();
 
@@ -142,8 +142,8 @@ impl ServiceMap {
         }
     }
 
-    pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Response
-        where L: FnOnce(&Box<request::Handler>) -> request::Response
+    pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Result
+        where L: FnOnce(&Box<request::Handler>) -> request::Result
     {
         let entries = self.entries.read().unwrap();
 

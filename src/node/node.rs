@@ -117,7 +117,7 @@ impl Node {
         Ok(response_bytes)
     }
 
-    pub fn request(&self, name: &str, reader: Box<io::Read + Send + Sync>) -> request::Response {
+    pub fn request(&self, name: &str, reader: Box<request::Reader>) -> request::Result {
         Ok(try!(self.transport.request(name, Box::new(reader))))
     }
 }

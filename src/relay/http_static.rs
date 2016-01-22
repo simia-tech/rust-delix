@@ -49,7 +49,7 @@ impl HttpStatic {
         let name_clone = name.to_string();
         self.node
             .register(name,
-                      Box::new(move |mut request| -> request::Response {
+                      Box::new(move |mut request| {
                           let mut stream = try!(net::TcpStream::connect(address));
                           io::copy(&mut request, &mut stream).unwrap();
 

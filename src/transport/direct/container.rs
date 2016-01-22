@@ -121,10 +121,10 @@ pub fn unpack_request(container: message::Container) -> Result<(u32, String)> {
         request_packet.get_name().to_string()))
 }
 
-pub fn pack_response(request_id: u32, response: request::Response) -> message::Container {
+pub fn pack_response(request_id: u32, result: request::Result) -> message::Container {
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
-    match response {
+    match result {
         Ok(mut reader) => {
             let mut data = Vec::new();
             reader.read_to_end(&mut data).unwrap();
@@ -148,7 +148,7 @@ pub fn pack_response(request_id: u32, response: request::Response) -> message::C
     pack(message::Kind::ResponseMessage, response_packet)
 }
 
-pub fn unpack_response(container: message::Container) -> Result<(u32, request::Response)> {
+pub fn unpack_response(container: message::Container) -> Result<(u32, request::Result)> {
     let response_packet = try!(unpack::<message::Response>(&container));
     let result = match response_packet.get_kind() {
         message::Response_Kind::OK => {
