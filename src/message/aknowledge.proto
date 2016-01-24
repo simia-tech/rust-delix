@@ -1,0 +1,5 @@
+package message;
+
+// Aknowledge defines an aknowledgment to a service.
+message Aknowledge {
+}

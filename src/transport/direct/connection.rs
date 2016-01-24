@@ -13,6 +13,7 @@
 // limitations under the License.
 //
 
+use std::collections::VecDeque;
 use std::fmt;
 use std::io::{self, Read, Write};
 use std::iter;
@@ -37,6 +38,8 @@ pub struct Connection {
     node_id: ID,
     peer_node_id: ID,
     peer_public_address: SocketAddr,
+
+    pending_aknowledges: Arc<Mutex<VecDeque<mpsc::Sender<()>>>>,
 
     on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
@@ -100,6 +103,10 @@ impl Connection {
         let tx_stream_clone = tx_stream.clone();
         let mut rx_stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
 
+        let pending_aknowledges =
+            Arc::new(Mutex::new(VecDeque::new() as VecDeque<mpsc::Sender<()>>));
+        let pending_aknowledges_clone = pending_aknowledges.clone();
+
         let on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_add_services_clone = on_add_services.clone();
@@ -154,6 +161,19 @@ impl Connection {
                         if let Some(ref f) = *on_remove_services_clone.lock().unwrap() {
                             f(peer_node_id,
                               container::unpack_remove_services(container).unwrap());
+                        }
+                        {
+                            let mut tx_stream = tx_stream_clone.lock().unwrap();
+                            write_container(&mut *tx_stream, &container::pack_aknowledge())
+                                .unwrap();
+                        }
+                    }
+                    message::Kind::AknowledgeMessage => {
+                        container::unpack_aknowledge(container).unwrap();
+                        if let Some(tx) = pending_aknowledges_clone.lock().unwrap().pop_front() {
+                            tx.send(()).unwrap();
+                        } else {
+                            error!("{}: got unexpected aknowledge", node_id);
                         }
                     }
                     message::Kind::RequestMessage => {
@@ -219,6 +239,7 @@ impl Connection {
             node_id: node_id,
             peer_node_id: peer_node_id,
             peer_public_address: peer_public_address,
+            pending_aknowledges: pending_aknowledges,
             on_add_services: on_add_services,
             on_remove_services: on_remove_services,
             on_request: on_request,
@@ -283,8 +304,10 @@ impl Connection {
 
     pub fn send_remove_services(&mut self, service_names: &[String]) -> Result<()> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
+        let rx = self.queue_aknowledge();
         try!(write_container(&mut *tx_stream,
                              &container::pack_remove_services(service_names)));
+        rx.recv().unwrap();
         Ok(())
     }
 
@@ -308,6 +331,13 @@ impl Connection {
     fn receive_peers(&mut self) -> Result<Vec<(ID, SocketAddr)>> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
         Ok(try!(container::unpack_peers(try!(read_container(&mut *tx_stream)))))
+    }
+
+    fn queue_aknowledge(&self) -> mpsc::Receiver<()> {
+        let mut pending_aknowledges = self.pending_aknowledges.lock().unwrap();
+        let (tx, rx) = mpsc::channel();
+        pending_aknowledges.push_back(tx);
+        rx
     }
 }
 

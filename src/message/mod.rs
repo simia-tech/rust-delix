@@ -1,4 +1,5 @@
 
+mod aknowledge;
 mod container;
 mod encrypted;
 mod http_request;
@@ -11,6 +12,7 @@ mod response;
 mod service;
 mod services;
 
+pub use message::aknowledge::Aknowledge;
 pub use message::container::Container;
 pub use message::encrypted::Encrypted;
 pub use message::encrypted::Encrypted_CipherType;

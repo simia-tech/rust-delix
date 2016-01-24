@@ -253,18 +253,12 @@ impl Drop for Direct {
 fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc<Tracker>) {
     let services_clone = services.clone();
     connection.set_on_add_services(Box::new(move |peer_node_id, services| {
-        let services_clone = services_clone.clone();
-        thread::spawn(move || {
-            services_clone.insert_remotes(&services, peer_node_id);
-        });
+        services_clone.insert_remotes(&services, peer_node_id);
     }));
 
     let services_clone = services.clone();
     connection.set_on_remove_services(Box::new(move |peer_node_id, services| {
-        let services_clone = services_clone.clone();
-        thread::spawn(move || {
-            services_clone.remove_remotes(&services, &peer_node_id);
-        });
+        services_clone.remove_remotes(&services, &peer_node_id);
     }));
 
     let services_clone = services.clone();

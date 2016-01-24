@@ -108,6 +108,15 @@ pub fn unpack_remove_services(container: message::Container) -> Result<Vec<Strin
            .collect())
 }
 
+pub fn pack_aknowledge() -> message::Container {
+    pack(message::Kind::AknowledgeMessage, message::Aknowledge::new())
+}
+
+pub fn unpack_aknowledge(container: message::Container) -> Result<()> {
+    try!(unpack::<message::Aknowledge>(&container));
+    Ok(())
+}
+
 pub fn pack_request(id: u32, name: &str) -> message::Container {
     let mut request_packet = message::Request::new();
     request_packet.set_id(id);

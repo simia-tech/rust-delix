@@ -5,6 +5,7 @@ enum Kind {
   PeersMessage = 2;
   AddServicesMessage = 3;
   RemoveServicesMessage = 4;
-  RequestMessage = 5;
-  ResponseMessage = 6;
+  AknowledgeMessage = 5;
+  RequestMessage = 6;
+  ResponseMessage = 7;
 }
