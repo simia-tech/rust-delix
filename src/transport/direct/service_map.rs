@@ -128,9 +128,11 @@ impl ServiceMap {
 
             if let (Err(request::Error::ServiceDoesNotExists),
                     Some(peer_node_id)) = response_pair {
+
                 let mut remove_entry = false;
                 if let Some(entry) = entries.get_mut(name) {
-                    entry.links.retain(|link| !Link::is_remote(&link, &peer_node_id));
+                    entry.links.retain(|link| !Link::is_remote(&&link, &peer_node_id));
+                    entry.queue.retain(|link| !Link::is_remote(&&link, &peer_node_id));
                     remove_entry = entry.links.is_empty();
                 }
                 if remove_entry {

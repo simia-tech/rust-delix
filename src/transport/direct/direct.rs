@@ -253,12 +253,18 @@ impl Drop for Direct {
 fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc<Tracker>) {
     let services_clone = services.clone();
     connection.set_on_add_services(Box::new(move |peer_node_id, services| {
-        services_clone.insert_remotes(&services, peer_node_id);
+        let services_clone = services_clone.clone();
+        thread::spawn(move || {
+            services_clone.insert_remotes(&services, peer_node_id);
+        });
     }));
 
     let services_clone = services.clone();
     connection.set_on_remove_services(Box::new(move |peer_node_id, services| {
-        services_clone.remove_remotes(&services, &peer_node_id);
+        let services_clone = services_clone.clone();
+        thread::spawn(move || {
+            services_clone.remove_remotes(&services, &peer_node_id);
+        });
     }));
 
     let services_clone = services.clone();
@@ -272,10 +278,6 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
             if let Some(response_writer) = tracker_clone.get_response_writer(request_id) {
                 io::copy(reader, &mut *response_writer.lock().unwrap()).unwrap();
             }
-        }
-
-        if let Err(ref e) = response {
-            debug!("got err response {:?}", e);
         }
 
         if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, response) {

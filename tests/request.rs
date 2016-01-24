@@ -146,6 +146,7 @@ fn balanced_echos_from_two_remotes() {
     helper::assert_contains_all(&["two", "three"], &helper::recv_all(&rx));
 
     node_three.deregister("echo").unwrap();
+    thread::sleep(::std::time::Duration::from_millis(200));
 
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
