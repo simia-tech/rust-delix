@@ -31,7 +31,7 @@ use transport::direct::container;
 use util::{reader, writer};
 
 pub struct Connection {
-    stream: cipher::Stream,
+    tx_stream: Arc<Mutex<cipher::Stream>>,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
@@ -67,13 +67,9 @@ impl Connection {
                        peers: &[(ID, SocketAddr)])
                        -> Result<Connection> {
 
-        let mut stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
+        let (mut connection, sender) = try!(Self::new(tcp_stream, cipher, node_id, public_address));
 
-        let (connection, sender) = try!(Self::new(stream.try_clone().unwrap(),
-                                                  node_id,
-                                                  public_address));
-
-        try!(write_container(&mut stream, &container::pack_peers(peers)));
+        try!(connection.send_peers(peers));
         sender.send(true).unwrap();
 
         Ok(connection)
@@ -85,24 +81,24 @@ impl Connection {
                         public_address: SocketAddr)
                         -> Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
-        let mut stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
+        let (mut connection, sender) = try!(Self::new(tcp_stream, cipher, node_id, public_address));
 
-        let (connection, sender) = try!(Self::new(stream.try_clone().unwrap(),
-                                                  node_id,
-                                                  public_address));
-
-        let peers = try!(container::unpack_peers(try!(read_container(&mut stream))));
+        let peers = try!(connection.receive_peers());
         sender.send(true).unwrap();
 
         Ok((connection, peers))
     }
 
-    fn new(mut stream: cipher::Stream,
+    fn new(tcp_stream: net::TcpStream,
+           cipher: Arc<Box<Cipher>>,
            node_id: ID,
            public_address: SocketAddr)
            -> Result<(Connection, mpsc::Sender<bool>)> {
 
-        let mut stream_clone = stream.try_clone().unwrap();
+        let tx_stream = Arc::new(Mutex::new(cipher::Stream::new(tcp_stream.try_clone().unwrap(),
+                                                                cipher.box_clone())));
+        let tx_stream_clone = tx_stream.clone();
+        let mut rx_stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
 
         let on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
             Arc::new(Mutex::new(None));
@@ -123,17 +119,18 @@ impl Connection {
         let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
 
-        try!(write_container(&mut stream,
-                             &container::pack_introduction(node_id, public_address)));
-
-        let (peer_node_id, peer_public_address) =
-            try!(container::unpack_introduction(try!(read_container(&mut stream))));
+        let (peer_node_id, peer_public_address) = {
+            let mut tx_stream = tx_stream.lock().unwrap();
+            try!(write_container(&mut *tx_stream,
+                                 &container::pack_introduction(node_id, public_address)));
+            try!(container::unpack_introduction(try!(read_container(&mut *tx_stream))))
+        };
 
         let (sender, receiver) = mpsc::channel();
         let thread = Some(thread::spawn(move || {
             receiver.recv().unwrap();
             loop {
-                let container = match read_container(&mut stream_clone) {
+                let container = match read_container(&mut rx_stream) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
                         if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
@@ -165,15 +162,36 @@ impl Connection {
 
                             let mut response =
                                 f(&name,
-                                  Box::new(reader::Chunk::new(stream_clone.try_clone()
-                                                                          .unwrap())));
+                                  Box::new(reader::Chunk::new(rx_stream.try_clone()
+                                                                       .unwrap())));
 
-                            write_container(&mut stream_clone,
-                                            &container::pack_response(request_id, &response))
-                                .unwrap();
-                            if let Ok(ref mut reader) = response {
-                                io::copy(reader, &mut writer::Chunk::new(&mut stream_clone))
+                            // some errors indicate that the request body has not been read. in
+                            // this case, the receive buffer is emptied here.
+                            match response {
+                                Err(request::Error::ServiceDoesNotExists) |
+                                Err(request::Error::ServiceUnavailable) |
+                                Err(request::Error::Timeout) => {
+                                    let n =
+                                        io::copy(&mut reader::Chunk::new(rx_stream.try_clone()
+                                                                                  .unwrap()),
+                                                 &mut io::sink())
+                                            .unwrap();
+                                    debug!("{}: request error ({} bytes sinked)", node_id, n);
+                                }
+                                _ => {}
+                            }
+
+                            {
+                                let mut tx_stream = tx_stream_clone.lock().unwrap();
+
+                                write_container(&mut *tx_stream,
+                                                &container::pack_response(request_id, &response))
                                     .unwrap();
+                                if let Ok(ref mut reader) = response {
+                                    io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream))
+                                        .unwrap();
+                                }
+                                tx_stream.flush().unwrap();
                             }
                         }
                     }
@@ -182,9 +200,8 @@ impl Connection {
                             let (request_id, mut response) = container::unpack_response(container)
                                                                  .unwrap();
                             if let Ok(_) = response {
-                                response =
-                                    Ok(Box::new(reader::Chunk::new(stream_clone.try_clone()
-                                                                               .unwrap())));
+                                response = Ok(Box::new(reader::Chunk::new(rx_stream.try_clone()
+                                                                                   .unwrap())));
                             }
                             f(request_id, response);
                         }
@@ -197,7 +214,7 @@ impl Connection {
         }));
 
         Ok((Connection {
-            stream: stream,
+            tx_stream: tx_stream,
             thread: thread,
             node_id: node_id,
             peer_node_id: peer_node_id,
@@ -221,41 +238,19 @@ impl Connection {
     }
 
     pub fn peer_address(&self) -> Option<SocketAddr> {
-        self.stream.get_ref().peer_addr().ok()
+        self.tx_stream.lock().unwrap().get_ref().peer_addr().ok()
     }
 
     pub fn local_address(&self) -> Option<SocketAddr> {
-        self.stream.get_ref().local_addr().ok()
-    }
-
-    pub fn send_add_services(&mut self, service_names: &[String]) -> Result<()> {
-        try!(write_container(&mut self.stream,
-                             &container::pack_add_services(service_names)));
-        Ok(())
+        self.tx_stream.lock().unwrap().get_ref().local_addr().ok()
     }
 
     pub fn set_on_add_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
         *self.on_add_services.lock().unwrap() = Some(f);
     }
 
-    pub fn send_remove_services(&mut self, service_names: &[String]) -> Result<()> {
-        try!(write_container(&mut self.stream,
-                             &container::pack_remove_services(service_names)));
-        Ok(())
-    }
-
     pub fn set_on_remove_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
         *self.on_remove_services.lock().unwrap() = Some(f);
-    }
-
-    pub fn send_request(&mut self,
-                        id: u32,
-                        name: &str,
-                        reader: &mut request::Reader)
-                        -> Result<()> {
-        try!(write_container(&mut self.stream, &container::pack_request(id, name)));
-        try!(io::copy(reader, &mut writer::Chunk::new(&mut self.stream)));
-        Ok(())
     }
 
     pub fn set_on_request(&mut self,
@@ -277,6 +272,42 @@ impl Connection {
 
     pub fn set_on_drop(&mut self, f: Box<Fn(ID) + Send>) {
         *self.on_drop.lock().unwrap() = Some(f);
+    }
+
+    pub fn send_add_services(&mut self, service_names: &[String]) -> Result<()> {
+        let mut tx_stream = self.tx_stream.lock().unwrap();
+        try!(write_container(&mut *tx_stream,
+                             &container::pack_add_services(service_names)));
+        Ok(())
+    }
+
+    pub fn send_remove_services(&mut self, service_names: &[String]) -> Result<()> {
+        let mut tx_stream = self.tx_stream.lock().unwrap();
+        try!(write_container(&mut *tx_stream,
+                             &container::pack_remove_services(service_names)));
+        Ok(())
+    }
+
+    pub fn send_request(&mut self,
+                        id: u32,
+                        name: &str,
+                        reader: &mut request::Reader)
+                        -> Result<()> {
+        let mut tx_stream = self.tx_stream.lock().unwrap();
+        try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
+        try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+        Ok(())
+    }
+
+    fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
+        let mut tx_stream = self.tx_stream.lock().unwrap();
+        try!(write_container(&mut *tx_stream, &container::pack_peers(peers)));
+        Ok(())
+    }
+
+    fn receive_peers(&mut self) -> Result<Vec<(ID, SocketAddr)>> {
+        let mut tx_stream = self.tx_stream.lock().unwrap();
+        Ok(try!(container::unpack_peers(try!(read_container(&mut *tx_stream)))))
     }
 }
 
@@ -301,7 +332,7 @@ impl fmt::Display for Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.stream.get_ref().shutdown(net::Shutdown::Both).unwrap();
+        self.tx_stream.lock().unwrap().get_ref().shutdown(net::Shutdown::Both).unwrap();
         self.thread.take().unwrap().join().unwrap();
 
         if let Some(ref f) = *self.on_drop.lock().unwrap() {

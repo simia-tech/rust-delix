@@ -163,9 +163,9 @@ impl Transport for Direct {
     }
 
     fn deregister(&self, name: &str) -> Result<()> {
-        try!(self.services.remove_local(name));
-
         self.connections.send_remove_services(&vec![name.to_string()]).unwrap();
+
+        try!(self.services.remove_local(name));
 
         Ok(())
     }
@@ -272,6 +272,10 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
             if let Some(response_writer) = tracker_clone.get_response_writer(request_id) {
                 io::copy(reader, &mut *response_writer.lock().unwrap()).unwrap();
             }
+        }
+
+        if let Err(ref e) = response {
+            debug!("got err response {:?}", e);
         }
 
         if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, response) {
