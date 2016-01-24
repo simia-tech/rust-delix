@@ -121,15 +121,12 @@ pub fn unpack_request(container: message::Container) -> Result<(u32, String)> {
         request_packet.get_name().to_string()))
 }
 
-pub fn pack_response(request_id: u32, response: request::Response) -> message::Container {
+pub fn pack_response(request_id: u32, response: &request::Response) -> message::Container {
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
-    match response {
-        Ok(mut reader) => {
-            let mut data = Vec::new();
-            reader.read_to_end(&mut data).unwrap();
+    match *response {
+        Ok(_) => {
             response_packet.set_kind(message::Response_Kind::OK);
-            response_packet.set_data(data);
         }
         Err(request::Error::ServiceDoesNotExists) => {
             response_packet.set_kind(message::Response_Kind::ServiceDoesNotExists);
@@ -140,9 +137,9 @@ pub fn pack_response(request_id: u32, response: request::Response) -> message::C
         Err(request::Error::Timeout) => {
             response_packet.set_kind(message::Response_Kind::Timeout);
         }
-        Err(request::Error::Internal(message)) => {
+        Err(request::Error::Internal(ref message)) => {
             response_packet.set_kind(message::Response_Kind::Internal);
-            response_packet.set_message(message);
+            response_packet.set_message(message.to_string());
         }
     }
     pack(message::Kind::ResponseMessage, response_packet)

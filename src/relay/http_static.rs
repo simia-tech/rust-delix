@@ -15,7 +15,7 @@
 
 use std::io::{self, Read, Write};
 use std::net::{self, SocketAddr};
-use std::sync::{Arc, RwLock, atomic};
+use std::sync::{Arc, Mutex, RwLock, atomic};
 use std::thread;
 
 use node::{Node, request};
@@ -49,7 +49,7 @@ impl HttpStatic {
         let name_clone = name.to_string();
         self.node
             .register(name,
-                      Box::new(move |mut request| -> request::Response {
+                      Box::new(move |mut request| {
                           let mut stream = try!(net::TcpStream::connect(address));
                           io::copy(&mut request, &mut stream).unwrap();
 
@@ -89,9 +89,13 @@ impl Relay for HttpStatic {
                     http_reader.read_to_end(&mut request).unwrap();
                 }
 
-                let mut response = match node_clone.request(&service_name,
-                                                            Box::new(io::Cursor::new(request))) {
-                    Ok(response) => response,
+                let response = node_clone.request(&service_name,
+                                                  Box::new(io::Cursor::new(request)),
+                                                  Arc::new(Mutex::new(stream.try_clone()
+                                                                            .unwrap())));
+
+                let response = match response {
+                    Ok(_) => Vec::new(),
                     Err(request::Error::ServiceDoesNotExists) => {
                         build_text_response(StatusCode::BadGateway,
                                             &format!("service [{}] not found", service_name))
@@ -105,8 +109,7 @@ impl Relay for HttpStatic {
                                             &format!("error [{:?}]", error))
                     }
                 };
-
-                io::copy(&mut response, &mut stream).unwrap();
+                stream.write_all(&response).unwrap();
                 stream.flush().unwrap();
             }
         }),
@@ -141,8 +144,8 @@ impl From<io::Error> for request::Error {
     }
 }
 
-fn build_text_response(status_code: StatusCode, message: &str) -> Box<io::Read + Send> {
-    Box::new(io::Cursor::new(match status_code {
+fn build_text_response(status_code: StatusCode, message: &str) -> Vec<u8> {
+    match status_code {
         StatusCode::InternalServerError => {
             format!("HTTP/1.1 500 Internal Server Error\r\n\r\n{}", message).into_bytes()
         }
@@ -152,5 +155,5 @@ fn build_text_response(status_code: StatusCode, message: &str) -> Box<io::Read +
         StatusCode::ServiceUnavailable => {
             format!("HTTP/1.1 503 Service Unavailable\r\n\r\n{}", message).into_bytes()
         }
-    }))
+    }
 }

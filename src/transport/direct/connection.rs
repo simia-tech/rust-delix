@@ -162,20 +162,29 @@ impl Connection {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let (request_id, name) = container::unpack_request(container).unwrap();
 
-                            let response =
+                            let mut response =
                                 f(&name,
                                   Box::new(reader::Chunk::new(stream_clone.try_clone()
                                                                           .unwrap())));
 
                             write_container(&mut stream_clone,
-                                            &container::pack_response(request_id, response))
+                                            &container::pack_response(request_id, &response))
                                 .unwrap();
+                            if let Ok(ref mut reader) = response {
+                                io::copy(reader, &mut writer::Chunk::new(&mut stream_clone))
+                                    .unwrap();
+                            }
                         }
                     }
                     message::Kind::ResponseMessage => {
                         if let Some(ref f) = *on_response_clone.lock().unwrap() {
-                            let (request_id, response) = container::unpack_response(container)
-                                                             .unwrap();
+                            let (request_id, mut response) = container::unpack_response(container)
+                                                                 .unwrap();
+                            if let Ok(_) = response {
+                                response =
+                                    Ok(Box::new(reader::Chunk::new(stream_clone.try_clone()
+                                                                               .unwrap())));
+                            }
                             f(request_id, response);
                         }
                     }

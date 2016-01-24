@@ -14,6 +14,7 @@
 //
 
 use std::fmt;
+use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -173,12 +174,17 @@ impl Transport for Direct {
         self.services.len()
     }
 
-    fn request(&self, name: &str, reader: Box<request::Reader>) -> request::Response {
+    fn request(&self,
+               name: &str,
+               reader: Box<request::Reader>,
+               response_writer: Arc<Mutex<request::ResponseWriter>>)
+               -> request::Response {
         let reader = Arc::new(Mutex::new(Some(reader)));
         self.services.select(name,
                              |handler| {
-                                 let (request_id, response_rx) = self.tracker
-                                                                     .begin(name, &Link::Local);
+                                 let (request_id, response_rx) =
+                                     self.tracker
+                                         .begin(name, &Link::Local, response_writer.clone());
                                  let reader_clone = reader.clone();
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
@@ -187,8 +193,19 @@ impl Transport for Direct {
                                                               .unwrap()
                                                               .take()
                                                               .unwrap();
-                                     let response = (*handler_clone.lock()
-                                                                   .unwrap())(reader);
+
+                                     let mut response = (*handler_clone.lock()
+                                                                       .unwrap())(reader);
+
+                                     if let Ok(ref mut reader) = response {
+                                         if let Some(response_writer) =
+                                                tracker_clone.get_response_writer(request_id) {
+                                             io::copy(reader,
+                                                      &mut *response_writer.lock().unwrap())
+                                                 .unwrap();
+                                         }
+                                     }
+
                                      if let Err(tracker::Error::AlreadyEnded) =
                                             tracker_clone.end(request_id, response) {
                                          debug!("got response for request ({}) that already \
@@ -201,7 +218,9 @@ impl Transport for Direct {
                              |peer_node_id| {
                                  let (request_id, response_rx) =
                                      self.tracker
-                                         .begin(name, &Link::Remote(peer_node_id));
+                                         .begin(name,
+                                                &Link::Remote(peer_node_id),
+                                                response_writer.clone());
                                  self.connections
                                      .send_request(&peer_node_id,
                                                    request_id,
@@ -248,7 +267,13 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
     }));
 
     let tracker_clone = tracker.clone();
-    connection.set_on_response(Box::new(move |request_id, response| {
+    connection.set_on_response(Box::new(move |request_id, mut response| {
+        if let Ok(ref mut reader) = response {
+            if let Some(response_writer) = tracker_clone.get_response_writer(request_id) {
+                io::copy(reader, &mut *response_writer.lock().unwrap()).unwrap();
+            }
+        }
+
         if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, response) {
             debug!("got response for request ({}) that already timed out",
                    request_id);

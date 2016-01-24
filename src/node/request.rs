@@ -14,8 +14,11 @@
 //
 
 use std::io;
+use std::sync::{Arc, Mutex};
 
 pub type Reader = io::Read + Send;
+
+pub type ResponseWriter = io::Write + Send;
 
 pub type Handler = Fn(Box<Reader>) -> Response + Send;
 

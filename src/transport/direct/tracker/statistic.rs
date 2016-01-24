@@ -82,8 +82,9 @@ impl Statistic {
 #[cfg(test)]
 mod tests {
 
+    use std::io;
     use std::thread;
-    use std::sync::{Arc, mpsc};
+    use std::sync::{Arc, Mutex, mpsc};
     use time::{self, Duration};
     use super::Statistic;
     use super::super::{Subject, Store};
@@ -123,7 +124,12 @@ mod tests {
         statistic.push(subject.clone(), Duration::milliseconds(100));
 
         let (response_tx, _) = mpsc::channel();
-        store.insert(10, response_tx, subject.clone(), time::now_utc()).unwrap();
+        store.insert(10,
+                     Arc::new(Mutex::new(io::sink())),
+                     response_tx,
+                     subject.clone(),
+                     time::now_utc())
+             .unwrap();
         thread::sleep_ms(50);
 
         assert!(statistic.average("test", &Link::Local) > Duration::milliseconds(50));
