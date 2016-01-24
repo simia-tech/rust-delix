@@ -113,9 +113,9 @@ impl Node {
                          -> result::Result<Vec<u8>, request::Error> {
         let response_writer = Arc::new(Mutex::new(Vec::new() as Vec<u8>));
 
-        let mut response = try!(self.request(name,
-                                             Box::new(io::Cursor::new(request.to_vec())),
-                                             response_writer.clone()));
+        try!(self.request(name,
+                          Box::new(io::Cursor::new(request.to_vec())),
+                          response_writer.clone()));
 
         let response_bytes = response_writer.lock().unwrap().to_vec();
         Ok(response_bytes)

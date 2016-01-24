@@ -60,7 +60,7 @@ impl Store {
     }
 
     pub fn get_response_writer(&self, id: &u32) -> Option<Arc<Mutex<request::ResponseWriter>>> {
-        let mut entries = self.entries.read().unwrap();
+        let entries = self.entries.read().unwrap();
         entries.get(id).map(|value| value.0.clone())
     }
 

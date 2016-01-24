@@ -14,7 +14,6 @@
 //
 
 use std::io;
-use std::sync::{Arc, Mutex};
 
 pub type Reader = io::Read + Send;
 

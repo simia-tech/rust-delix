@@ -166,7 +166,7 @@ fn large_echo_from_local() {
 
     let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
     let request = Box::new(io::Cursor::new(request_bytes.clone()));
-    let mut response_bytes = Arc::new(Mutex::new(Vec::new()));
-    let mut response = node.request("echo", request, response_bytes.clone()).unwrap();
+    let response_bytes = Arc::new(Mutex::new(Vec::new()));
+    node.request("echo", request, response_bytes.clone()).unwrap();
     assert_eq!(request_bytes, *response_bytes.lock().unwrap());
 }
