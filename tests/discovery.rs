@@ -17,7 +17,7 @@ extern crate delix;
 
 #[allow(dead_code)] mod helper;
 
-use std::thread::sleep_ms;
+use std::thread;
 
 use delix::node::State;
 
@@ -28,7 +28,7 @@ fn two_nodes() {
     let node_one = helper::build_node("127.0.0.1:3001", &[], None);
     let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 }
@@ -41,7 +41,7 @@ fn three_nodes() {
     let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
     let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 2);
     helper::assert_node(&node_two, State::Joined, 2);
     helper::assert_node(&node_three, State::Joined, 2);

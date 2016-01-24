@@ -79,6 +79,6 @@ fn main() {
 
     loop {
         info!("state {}", node);
-        ::std::thread::sleep_ms(4000);
+        ::std::thread::sleep(::std::time::Duration::from_millis(4000));
     }
 }

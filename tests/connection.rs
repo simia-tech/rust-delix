@@ -17,7 +17,7 @@ extern crate delix;
 
 #[allow(dead_code)] mod helper;
 
-use std::thread::sleep_ms;
+use std::thread;
 
 use delix::node::State;
 
@@ -29,12 +29,12 @@ fn loose() {
     {
         let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
-        sleep_ms(1000);
+        thread::sleep(::std::time::Duration::from_millis(1000));
         helper::assert_node(&node_one, State::Joined, 1);
         helper::assert_node(&node_two, State::Joined, 1);
     }
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Discovering, 0);
 }
 
@@ -49,14 +49,14 @@ fn loose_and_service_clean_up() {
             Ok(request)
         })).unwrap();
 
-        sleep_ms(1000);
+        thread::sleep(::std::time::Duration::from_millis(1000));
         helper::assert_node(&node_one, State::Joined, 1);
         helper::assert_node(&node_two, State::Joined, 1);
         assert_eq!(1, node_one.service_count());
         assert_eq!(1, node_two.service_count());
     }
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Discovering, 0);
     assert_eq!(0, node_one.service_count());
 }

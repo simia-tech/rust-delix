@@ -66,7 +66,7 @@ impl Tracker {
                         }
                         let wait_for = next_at.unwrap() - (now - timeout) +
                                        Duration::milliseconds(TIMEOUT_TOLERANCE_MS);
-                        thread::sleep_ms(wait_for.num_milliseconds() as u32);
+                        thread::sleep(::std::time::Duration::from_millis(wait_for.num_milliseconds() as u64));
                     }
                 }
             }),
@@ -184,7 +184,7 @@ mod tests {
                                              &Link::Local,
                                              Arc::new(Mutex::new(io::sink())));
         assert_eq!(1, tracker.len());
-        thread::sleep_ms(100);
+        thread::sleep(::std::time::Duration::from_millis(100));
 
         assert_eq!(Some(request::Error::Timeout),
                    response_rx.recv().unwrap().err());
@@ -194,7 +194,7 @@ mod tests {
                                                       &Link::Local,
                                                       Arc::new(Mutex::new(io::sink())));
         assert_eq!(1, tracker.len());
-        thread::sleep_ms(10);
+        thread::sleep(::std::time::Duration::from_millis(10));
         tracker.end(request_id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
 
         let mut response = response_rx.recv().unwrap().unwrap();
@@ -213,7 +213,7 @@ mod tests {
                                               &Link::Local,
                                               Arc::new(Mutex::new(io::sink())));
         assert_eq!(1, tracker.len());
-        thread::sleep_ms(100);
+        thread::sleep(::std::time::Duration::from_millis(100));
 
         assert_eq!(Some(request::Error::Timeout),
                    response_rx.recv().unwrap().err());
@@ -234,7 +234,7 @@ mod tests {
                 let (id, response_rx) = tracker.begin("test",
                                                       &Link::Local,
                                                       Arc::new(Mutex::new(io::sink())));
-                thread::sleep_ms(100);
+                thread::sleep(::std::time::Duration::from_millis(100));
                 tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
                 response_rx.recv().unwrap()
             }));
@@ -262,7 +262,7 @@ mod tests {
                 let (id, response_rx) = tracker.begin("test",
                                                       &Link::Local,
                                                       Arc::new(Mutex::new(io::sink())));
-                thread::sleep_ms(100);
+                thread::sleep(::std::time::Duration::from_millis(100));
                 assert_eq!(Err(Error::AlreadyEnded),
                            tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))));
                 response_rx.recv().unwrap()

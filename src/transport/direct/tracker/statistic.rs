@@ -130,7 +130,7 @@ mod tests {
                      subject.clone(),
                      time::now_utc())
              .unwrap();
-        thread::sleep_ms(50);
+        thread::sleep(::std::time::Duration::from_millis(50));
 
         assert!(statistic.average("test", &Link::Local) > Duration::milliseconds(50));
         assert!(statistic.average("test", &Link::Local) < Duration::milliseconds(100));

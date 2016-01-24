@@ -32,7 +32,7 @@ fn single_echo_from_local_without_timeout() {
     node.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    thread::sleep_ms(100);
+    thread::sleep(::std::time::Duration::from_millis(100));
     helper::assert_node(&node, State::Discovering, 0);
 
     assert_eq!("test message", String::from_utf8_lossy(&node.request_bytes("echo", b"test message").unwrap()));
@@ -44,11 +44,11 @@ fn single_echo_from_local_with_timeout() {
 
     let node = helper::build_node("127.0.0.1:3011", &[], Some(10));
     node.register("echo", Box::new(|request| {
-        thread::sleep_ms(20);
+        thread::sleep(::std::time::Duration::from_millis(20));
         Ok(request)
     })).unwrap();
 
-    thread::sleep_ms(100);
+    thread::sleep(::std::time::Duration::from_millis(100));
     helper::assert_node(&node, State::Discovering, 0);
 
     assert_eq!(Err(request::Error::Timeout), node.request_bytes("echo", b""));
@@ -64,7 +64,7 @@ fn single_echo_from_remote_without_timeout() {
 
     let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
-    thread::sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
@@ -77,13 +77,13 @@ fn single_echo_from_remote_with_timeout() {
 
     let node_one = helper::build_node("127.0.0.1:3031", &[], None);
     node_one.register("echo", Box::new(|request| {
-        thread::sleep_ms(20);
+        thread::sleep(::std::time::Duration::from_millis(20));
         Ok(request)
     })).unwrap();
 
     let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
 
-    thread::sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
@@ -100,7 +100,7 @@ fn multiple_echos_from_remote() {
 
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
-    thread::sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
     assert_eq!(1, node_one.service_count());
@@ -132,7 +132,7 @@ fn balanced_echos_from_two_remotes() {
         Ok(request)
     })).unwrap();
 
-    thread::sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 2);
     helper::assert_node(&node_two, State::Joined, 2);
     helper::assert_node(&node_three, State::Joined, 2);
@@ -161,7 +161,7 @@ fn large_echo_from_local() {
     node.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    thread::sleep_ms(100);
+    thread::sleep(::std::time::Duration::from_millis(100));
     helper::assert_node(&node, State::Discovering, 0);
 
     let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();

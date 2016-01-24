@@ -17,7 +17,7 @@ extern crate delix;
 
 #[allow(dead_code)] mod helper;
 
-use std::thread::sleep_ms;
+use std::thread;
 
 use delix::node::State;
 use delix::node::request;
@@ -32,7 +32,7 @@ fn distribution_over_incoming_connection() {
 
     let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
@@ -50,7 +50,7 @@ fn distribution_over_outgoing_connection() {
     node_two.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
@@ -65,14 +65,14 @@ fn distribution_in_joined_network() {
     let node_one = helper::build_node("127.0.0.1:3021", &[], None);
     let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    sleep_ms(200);
+            thread::sleep(::std::time::Duration::from_millis(200));
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
 }
@@ -86,7 +86,7 @@ fn deregistration() {
         .unwrap();
     node.deregister("echo").unwrap();
 
-    sleep_ms(100);
+    thread::sleep(::std::time::Duration::from_millis(100));
     helper::assert_node(&node, State::Discovering, 0);
 
     assert_eq!(0, node.service_count());
@@ -102,7 +102,7 @@ fn deregistration_in_joined_network() {
 
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
-    sleep_ms(1000);
+    thread::sleep(::std::time::Duration::from_millis(1000));
     helper::assert_node(&node_one, State::Joined, 1);
     helper::assert_node(&node_two, State::Joined, 1);
 
@@ -110,7 +110,7 @@ fn deregistration_in_joined_network() {
     assert_eq!(1, node_two.service_count());
 
     node_one.deregister("echo").unwrap();
-    sleep_ms(100);
+    thread::sleep(::std::time::Duration::from_millis(100));
 
     assert_eq!(0, node_one.service_count());
     assert_eq!(0, node_two.service_count());
