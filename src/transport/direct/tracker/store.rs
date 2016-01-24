@@ -15,19 +15,14 @@
 
 use std::collections::HashMap;
 use std::result;
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::RwLock;
 
-use node::request;
 use transport::direct::tracker::Subject;
 
 use time;
 
-pub struct Store {
-    entries: RwLock<HashMap<u32,
-                            (Arc<Mutex<request::ResponseWriter>>,
-                             mpsc::Sender<request::Response>,
-                             Subject,
-                             time::Tm)>>,
+pub struct Store<T> {
+    entries: RwLock<HashMap<u32, (Subject, time::Tm, T)>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -38,53 +33,52 @@ pub enum Error {
     IdDoesNotExists,
 }
 
-impl Store {
-    pub fn new() -> Store {
+impl<T> Store<T> where T: Clone
+{
+    pub fn new() -> Store<T> {
         Store { entries: RwLock::new(HashMap::new()) }
     }
 
     pub fn insert(&self,
                   id: u32,
-                  response_writer: Arc<Mutex<request::ResponseWriter>>,
-                  response_tx: mpsc::Sender<request::Response>,
                   subject: Subject,
-                  started_at: time::Tm)
+                  started_at: time::Tm,
+                  entry: T)
                   -> Result<bool> {
 
         let mut entries = self.entries.write().unwrap();
         if entries.contains_key(&id) {
             return Err(Error::IdAlreadyExists);
         }
-        entries.insert(id, (response_writer, response_tx, subject, started_at));
+        entries.insert(id, (subject, started_at, entry));
         Ok(entries.len() == 1)
     }
 
-    pub fn get_response_writer(&self, id: &u32) -> Option<Arc<Mutex<request::ResponseWriter>>> {
+    pub fn get_clone(&self, id: &u32) -> Option<T> {
         let entries = self.entries.read().unwrap();
-        entries.get(id).map(|value| value.0.clone())
+        entries.get(id).map(|value| value.2.clone())
     }
 
-    pub fn remove(&self, id: &u32) -> Result<(mpsc::Sender<request::Response>, Subject, time::Tm)> {
+    pub fn remove(&self, id: &u32) -> Result<(Subject, time::Tm, T)> {
         let mut entries = self.entries.write().unwrap();
         if !entries.contains_key(&id) {
             return Err(Error::IdDoesNotExists);
         }
         if let Some(tuple) = entries.remove(id) {
-            return Ok((tuple.1, tuple.2, tuple.3));
+            return Ok(tuple);
         }
         Err(Error::IdDoesNotExists)
     }
 
     pub fn remove_all_started_before(&self,
                                      threshold: time::Tm)
-                                     -> (Vec<(u32, mpsc::Sender<request::Response>)>,
-                                         Option<time::Tm>) {
+                                     -> (Vec<(u32, T)>, Option<time::Tm>) {
 
         let mut entries = self.entries.write().unwrap();
 
         let mut to_remove = Vec::new();
         let mut next_at = None;
-        for (&id, &(_, _, _, started_at)) in entries.iter() {
+        for (&id, &(_, started_at, _)) in entries.iter() {
             if started_at < threshold {
                 to_remove.push(id);
             } else {
@@ -98,8 +92,8 @@ impl Store {
 
         let mut result = Vec::new();
         for id in to_remove {
-            let (_, result_tx, _, _) = entries.remove(&id).unwrap();
-            result.push((id, result_tx));
+            let (_, _, entry) = entries.remove(&id).unwrap();
+            result.push((id, entry));
         }
 
         (result, next_at)
@@ -108,7 +102,7 @@ impl Store {
     pub fn started_ats_with_subject<F: FnMut(&[&time::Tm])>(&self, subject: &Subject, mut f: F) {
         let entries = self.entries.read().unwrap();
         f(&entries.iter()
-                  .filter_map(|(_, &(_, _, ref entry_subject, ref started_at))| {
+                  .filter_map(|(_, &(ref entry_subject, ref started_at, _))| {
                       if entry_subject == subject {
                           Some(started_at)
                       } else {
@@ -123,17 +117,14 @@ impl Store {
     }
 }
 
-unsafe impl Send for Store {}
+unsafe impl<T> Send for Store<T> {}
 
-unsafe impl Sync for Store {}
+unsafe impl<T> Sync for Store<T> {}
 
 #[cfg(test)]
 mod tests {
 
-    use std::io;
-    use std::sync::{Arc, Mutex, mpsc};
     use time;
-    use node::request;
     use super::{Error, Store};
     use super::super::Subject;
 
@@ -141,39 +132,27 @@ mod tests {
     fn insert() {
         let store = Store::new();
 
-        let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(0,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
-                     Subject::local("test"),
-                     started_at)
+        let started_at = build_time(100);
+        store.insert(0, Subject::local("test"), started_at, "test entry")
              .unwrap();
 
         assert_eq!(1, store.len());
 
-        let (response_tx, _) = mpsc::channel();
         assert_eq!(Err(Error::IdAlreadyExists),
-                   store.insert(0,
-                                Arc::new(Mutex::new(io::sink())),
-                                response_tx,
-                                Subject::local("test"),
-                                time::now_utc()));
+                   store.insert(0, Subject::local("test"), time::now_utc(), "test entry"));
     }
 
     #[test]
     fn remove() {
         let store = Store::new();
-        let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(0,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
-                     Subject::local("test"),
-                     started_at)
+        store.insert(0, Subject::local("test"), build_time(100), "test entry")
              .unwrap();
 
-        let (_, _, removed_started_at) = store.remove(&0).unwrap();
+        let (removed_subject, removed_started_at, removed_entry) = store.remove(&0).unwrap();
 
-        assert_eq!(started_at, removed_started_at);
+        assert_eq!(Subject::local("test"), removed_subject);
+        assert_eq!(build_time(100), removed_started_at);
+        assert_eq!("test entry", removed_entry);
         assert_eq!(0, store.len());
         assert_eq!(Some(Error::IdDoesNotExists), store.remove(&0).err());
     }
@@ -181,19 +160,9 @@ mod tests {
     #[test]
     fn remove_all_started_before() {
         let store = Store::new();
-        let (response_tx, started_at) = build_tx_and_time(200);
-        store.insert(10,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
-                     Subject::local("test"),
-                     started_at)
+        store.insert(10, Subject::local("test"), build_time(200), "test entry")
              .unwrap();
-        let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(20,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
-                     Subject::local("test"),
-                     started_at)
+        store.insert(20, Subject::local("test"), build_time(100), "test entry")
              .unwrap();
 
         let (removed, next_at) = store.remove_all_started_before(build_time(150));
@@ -216,30 +185,15 @@ mod tests {
     #[test]
     fn started_ats_with_subject() {
         let store = Store::new();
-        let (response_tx, started_at) = build_tx_and_time(200);
-        store.insert(10,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
-                     Subject::local("one"),
-                     started_at)
+        store.insert(10, Subject::local("one"), build_time(200), "test entry")
              .unwrap();
-        let (response_tx, started_at) = build_tx_and_time(100);
-        store.insert(20,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
-                     Subject::local("two"),
-                     started_at)
+        store.insert(20, Subject::local("two"), build_time(100), "test entry")
              .unwrap();
 
         store.started_ats_with_subject(&Subject::local("two"), |started_ats| {
             assert_eq!(1, started_ats.len());
-            assert_eq!(&started_at, started_ats[0]);
+            assert_eq!(&build_time(100), started_ats[0]);
         });
-    }
-
-    fn build_tx_and_time(seconds: i64) -> (mpsc::Sender<request::Response>, time::Tm) {
-        let (response_tx, _) = mpsc::channel();
-        (response_tx, build_time(seconds))
     }
 
     fn build_time(seconds: i64) -> time::Tm {

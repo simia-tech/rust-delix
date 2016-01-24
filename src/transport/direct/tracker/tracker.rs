@@ -28,7 +28,8 @@ use transport::direct::tracker::{Statistic, Store, Subject, store};
 const TIMEOUT_TOLERANCE_MS: i64 = 2;
 
 pub struct Tracker {
-    store: Arc<Store>,
+    store: Arc<Store<(Arc<Mutex<request::ResponseWriter>>,
+                      mpsc::Sender<request::Response>)>>,
     statistic: Arc<Statistic>,
     current_id: atomic::AtomicUsize,
     join_handle_and_running_tx: Option<(thread::JoinHandle<()>, mpsc::Sender<bool>)>,
@@ -57,7 +58,7 @@ impl Tracker {
 
                         let (removed, next_at) = store_clone.remove_all_started_before(now -
                                                                                        timeout);
-                        for (_, response_tx) in removed {
+                        for (_, (_, response_tx)) in removed {
                             response_tx.send(Err(request::Error::Timeout)).unwrap();
                         }
 
@@ -91,7 +92,9 @@ impl Tracker {
         let subject = Subject::from_name_and_link(name, link);
         let started_at = time::now_utc();
 
-        if self.store.insert(id, response_writer, response_tx, subject, started_at).ok().unwrap() {
+        if self.store
+               .insert(id, subject, started_at, (response_writer, response_tx))
+               .unwrap() {
             if let Some((_, ref running_tx)) = self.join_handle_and_running_tx {
                 running_tx.send(true).unwrap();
             }
@@ -101,11 +104,11 @@ impl Tracker {
     }
 
     pub fn get_response_writer(&self, id: u32) -> Option<Arc<Mutex<request::ResponseWriter>>> {
-        self.store.get_response_writer(&id)
+        self.store.get_clone(&id).map(|value| value.0)
     }
 
     pub fn end(&self, id: u32, response: request::Response) -> Result<()> {
-        let (response_tx, subject, started_at) = try!(self.store.remove(&id));
+        let (subject, started_at, (_, response_tx)) = try!(self.store.remove(&id));
 
         response_tx.send(response).unwrap();
 

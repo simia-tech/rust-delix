@@ -14,16 +14,18 @@
 //
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use time::{self, Duration};
 
 use transport::direct::Link;
 use transport::direct::tracker::{Subject, Store};
+use node::request;
 
 const MAXIMAL_SIZE: usize = 20;
 
 pub struct Statistic {
-    store: RwLock<Option<Arc<Store>>>,
+    store: RwLock<Option<Arc<Store<(Arc<Mutex<request::ResponseWriter>>,
+                                    mpsc::Sender<request::Response>)>>>>,
     entries: RwLock<HashMap<Subject, VecDeque<Duration>>>,
 }
 
@@ -35,7 +37,9 @@ impl Statistic {
         }
     }
 
-    pub fn assign_store(&self, store: Arc<Store>) {
+    pub fn assign_store(&self,
+                        store: Arc<Store<(Arc<Mutex<request::ResponseWriter>>,
+                                          mpsc::Sender<request::Response>)>>) {
         *self.store.write().unwrap() = Some(store);
     }
 
@@ -125,10 +129,9 @@ mod tests {
 
         let (response_tx, _) = mpsc::channel();
         store.insert(10,
-                     Arc::new(Mutex::new(io::sink())),
-                     response_tx,
                      subject.clone(),
-                     time::now_utc())
+                     time::now_utc(),
+                     (Arc::new(Mutex::new(io::sink())), response_tx))
              .unwrap();
         thread::sleep(::std::time::Duration::from_millis(50));
 
