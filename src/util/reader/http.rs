@@ -14,6 +14,7 @@
 //
 
 use std::io::{self, BufRead, Read};
+use std::iter;
 
 use chunked_transfer;
 
@@ -85,11 +86,9 @@ impl<R: io::Read, H: FnMut(&str, &str)> Http<R, H> {
     }
 
     fn read_sized_body(&mut self, content_length: usize) -> io::Result<usize> {
-        let mut body = Vec::with_capacity(content_length);
-        unsafe {
-            body.set_len(content_length);
-        }
-        Ok(try!(self.reader.read(&mut body)))
+        let mut body = iter::repeat(0u8).take(content_length).collect::<Vec<u8>>();
+        try!(self.reader.read_exact(&mut body));
+        Ok(content_length)
     }
 
     fn read_chunked_body(&mut self) -> io::Result<usize> {

@@ -15,6 +15,7 @@
 
 use std::fmt;
 use std::io::{self, Read, Write};
+use std::iter;
 use std::net::{self, SocketAddr};
 use std::result;
 use std::sync::{Arc, Mutex, mpsc};
@@ -369,11 +370,8 @@ fn write_container(w: &mut Write, container: &message::Container) -> Result<usiz
 fn read_container(stream: &mut io::Read) -> Result<message::Container> {
     let size = try!(stream.read_u64::<byteorder::BigEndian>()) as usize;
 
-    let mut bytes = Vec::with_capacity(size);
-    unsafe {
-        bytes.set_len(size);
-    }
-    assert_eq!(size, try!(stream.read(&mut bytes)));
+    let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
+    try!(stream.read_exact(&mut bytes));
 
     Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
 }

@@ -14,6 +14,7 @@
 //
 
 use std::io;
+use std::iter;
 
 use byteorder::{self, ReadBytesExt};
 
@@ -45,11 +46,8 @@ impl<T> io::Read for Chunk<T> where T: io::Read
                 return Ok(0);
             }
 
-            let mut bytes = Vec::with_capacity(size);
-            unsafe {
-                bytes.set_len(size);
-            }
-            assert_eq!(size, try!(self.parent.read(&mut bytes)));
+            let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
+            try!(self.parent.read_exact(&mut bytes));
 
             self.buffer = io::Cursor::new(bytes);
         }
