@@ -31,7 +31,7 @@ use transport::direct::container;
 use util::{reader, writer};
 
 pub struct Connection {
-    tx_stream: Arc<Mutex<cipher::Stream>>,
+    tx_stream: Arc<Mutex<cipher::Stream<net::TcpStream>>>,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
@@ -179,10 +179,8 @@ impl Connection {
                         if let Some(ref f) = *on_request_clone.lock().unwrap() {
                             let (request_id, name) = container::unpack_request(container).unwrap();
 
-                            let mut response =
-                                f(&name,
-                                  Box::new(reader::Chunk::new(rx_stream.try_clone()
-                                                                       .unwrap())));
+                            let mut response = f(&name,
+                                                 Box::new(reader::Chunk::new(rx_stream.clone())));
 
                             // some errors indicate that the request body has not been read. in
                             // this case, the receive buffer is emptied here.
@@ -190,11 +188,9 @@ impl Connection {
                                 Err(request::Error::ServiceDoesNotExists) |
                                 Err(request::Error::ServiceUnavailable) |
                                 Err(request::Error::Timeout) => {
-                                    let n =
-                                        io::copy(&mut reader::Chunk::new(rx_stream.try_clone()
-                                                                                  .unwrap()),
-                                                 &mut io::sink())
-                                            .unwrap();
+                                    let n = io::copy(&mut reader::Chunk::new(rx_stream.clone()),
+                                                     &mut io::sink())
+                                                .unwrap();
                                     debug!("{}: request error ({} bytes sinked)", node_id, n);
                                 }
                                 _ => {}
@@ -219,8 +215,7 @@ impl Connection {
                             let (request_id, mut response) = container::unpack_response(container)
                                                                  .unwrap();
                             if let Ok(_) = response {
-                                response = Ok(Box::new(reader::Chunk::new(rx_stream.try_clone()
-                                                                                   .unwrap())));
+                                response = Ok(Box::new(reader::Chunk::new(rx_stream.clone())));
                             }
                             f(request_id, response);
                         }

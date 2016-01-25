@@ -14,69 +14,70 @@
 //
 
 use std::io;
+use std::iter;
 use std::net;
 
 use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
 use transport::cipher::{self, Cipher};
 
-pub struct Stream {
-    tcp_stream: net::TcpStream,
+pub struct Stream<T> {
+    parent: T,
     cipher: Box<Cipher>,
     buffer: io::Cursor<Vec<u8>>,
 }
 
-impl Stream {
-    pub fn new(tcp_stream: net::TcpStream, cipher: Box<Cipher>) -> Stream {
+impl<T> Stream<T> {
+    pub fn new(parent: T, cipher: Box<Cipher>) -> Stream<T> {
         Stream {
-            tcp_stream: tcp_stream,
+            parent: parent,
             cipher: cipher,
             buffer: io::Cursor::new(Vec::new()),
         }
     }
 
-    pub fn try_clone(&self) -> io::Result<Self> {
-        Ok(Self::new(try!(self.tcp_stream.try_clone()), self.cipher.box_clone()))
-    }
-
-    pub fn get_ref(&self) -> &net::TcpStream {
-        &self.tcp_stream
+    pub fn get_ref(&self) -> &T {
+        &self.parent
     }
 }
 
-impl io::Write for Stream {
+impl<T> io::Write for Stream<T> where T: io::Write
+{
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         let encrypted_bytes = try!(self.cipher.encrypt(buffer));
         let encrypted_size = encrypted_bytes.len() as u64;
 
-        try!(self.tcp_stream.write_u64::<byteorder::BigEndian>(encrypted_size));
-        try!(self.tcp_stream.write(&encrypted_bytes));
+        try!(self.parent.write_u64::<byteorder::BigEndian>(encrypted_size));
+        try!(self.parent.write(&encrypted_bytes));
 
         Ok(buffer.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        self.tcp_stream.flush()
+        self.parent.flush()
     }
 }
 
-impl io::Read for Stream {
+impl<T> io::Read for Stream<T> where T: io::Read
+{
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.buffer.position() as usize >= self.buffer.get_ref().len() {
-            let encrypted_size = try!(self.tcp_stream.read_u64::<byteorder::BigEndian>());
+            let encrypted_size = try!(self.parent.read_u64::<byteorder::BigEndian>()) as usize;
 
-            let mut encrypted_bytes = Vec::new();
-            try!(self.tcp_stream
-                     .try_clone()
-                     .unwrap()
-                     .take(encrypted_size)
-                     .read_to_end(&mut encrypted_bytes));
+            let mut encrypted_bytes = iter::repeat(0u8).take(encrypted_size).collect::<Vec<u8>>();
+            try!(self.parent.read_exact(&mut encrypted_bytes));
 
             let decrypted_bytes = try!(self.cipher.decrypt(&encrypted_bytes));
             self.buffer = io::Cursor::new(decrypted_bytes);
         }
 
         self.buffer.read(buffer)
+    }
+}
+
+impl Clone for Stream<net::TcpStream> {
+    fn clone(&self) -> Self {
+        Self::new(self.parent.try_clone().unwrap(), self.cipher.box_clone())
     }
 }
 
@@ -90,90 +91,46 @@ impl From<cipher::Error> for io::Error {
 mod tests {
 
     use std::io::{self, Read, Write};
-    use std::net;
-    use std::sync::mpsc;
-    use std::thread;
     use rustc_serialize::hex::{FromHex, ToHex};
     use super::Stream;
-    use super::super::Symmetric;
+    use super::super::{Cipher, Symmetric};
 
     #[test]
     fn write() {
-        let rx = run_receiver("127.0.0.1:3001");
-
-        {
-            let mut stream = build_stream("127.0.0.1:3001");
-            assert!(stream.write_all(b"test message").is_ok());
-        }
-
+        let mut stream = Stream::new(Vec::new(), build_cipher());
+        assert!(stream.write_all(b"test message").is_ok());
 
         assert_eq!("00000000000000300801120c0000000000000000000000001a0c3db3f427b9f6c3ff90e81d0d2\
                     2102958d0a32be787b9c59da25053419e41",
-                   rx.recv().unwrap().to_hex());
+                   stream.get_ref().to_hex());
     }
 
     #[test]
     fn read() {
-        let tx = run_sender("127.0.0.1:3011");
+        let mut stream = Stream::new(io::Cursor::new("00000000000000300801120c000000000000000000\
+                                                      0000001a0c3db3f427b9f6c3ff90e81d0d22102958\
+                                                      d0a32be787b9c59da25053419e41"
+                                                         .from_hex()
+                                                         .ok()
+                                                         .unwrap()
+                                                         .to_vec()),
+                                     build_cipher());
 
-        let mut stream = build_stream("127.0.0.1:3011");
-        tx.send("00000000000000300801120c0000000000000000000000001a0c3db3f427b9f6c3ff90e81d0d2210\
-                 2958d0a32be787b9c59da25053419e41"
-                    .from_hex()
-                    .ok()
-                    .unwrap()
-                    .to_vec())
-          .unwrap();
-
-        let mut buffer = Vec::new();
-        match stream.read_to_end(&mut buffer) {
-            Err(ref error) if error.kind() == io::ErrorKind::Other &&
-                              format!("{}", error) == "unexpected EOF" => {}
-            Err(error) => panic!(error),
-            Ok(_) => {}
-        }
+        let mut buffer = [0u8; 12];
+        assert!(stream.read_exact(&mut buffer).is_ok());
         assert_eq!("test message", String::from_utf8_lossy(&buffer));
     }
 
-    fn run_receiver(address: &str) -> mpsc::Receiver<Vec<u8>> {
-        let address = address.parse::<net::SocketAddr>().unwrap();
-        let tcp_listener = net::TcpListener::bind(address).unwrap();
-        let (tx, rx) = mpsc::channel();
-        thread::spawn(move || {
-            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
-            let mut buffer = Vec::new();
-            tcp_stream.read_to_end(&mut buffer).unwrap();
-            tx.send(buffer).unwrap();
-        });
-        rx
-    }
-
-    fn run_sender(address: &str) -> mpsc::Sender<Vec<u8>> {
-        let address = address.parse::<net::SocketAddr>().unwrap();
-        let tcp_listener = net::TcpListener::bind(address).unwrap();
-        let (tx, rx) = mpsc::channel::<Vec<u8>>();
-        thread::spawn(move || {
-            let (mut tcp_stream, _) = tcp_listener.accept().unwrap();
-            let buffer = rx.recv().unwrap();
-            tcp_stream.write_all(&buffer).unwrap();
-        });
-        tx
-    }
-
-    fn build_stream(address: &str) -> Stream {
-        let cipher = Box::new(Symmetric::new(&"000102030405060708090a0b0c0d0e0f"
-                                                  .from_hex()
-                                                  .ok()
-                                                  .unwrap(),
-                                             Some(&"000000000000000000000000"
-                                                       .from_hex()
-                                                       .ok()
-                                                       .unwrap()))
-                                  .unwrap());
-        let tcp_stream = net::TcpStream::connect(address.parse::<net::SocketAddr>()
-                                                        .unwrap())
-                             .unwrap();
-        Stream::new(tcp_stream, cipher)
+    fn build_cipher() -> Box<Cipher> {
+        Box::new(Symmetric::new(&"000102030405060708090a0b0c0d0e0f"
+                                     .from_hex()
+                                     .ok()
+                                     .unwrap(),
+                                Some(&"000000000000000000000000"
+                                          .from_hex()
+                                          .ok()
+                                          .unwrap()))
+                     .unwrap())
     }
 
 }
