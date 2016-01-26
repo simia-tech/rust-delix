@@ -55,8 +55,7 @@ impl HttpStatic {
 
                           debug!("handled request to {}", name_clone);
 
-                          Ok(Box::new(reader::Http::new(stream, |_, _| {
-                          })))
+                          Ok(Box::new(reader::Http::new(stream)))
                       }))
             .unwrap();
     }
@@ -78,19 +77,17 @@ impl Relay for HttpStatic {
 
                 let mut stream = stream.unwrap();
 
+                let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
                 let mut service_name = String::new();
-                let mut request = Vec::new();
-                {
-                    let mut http_reader = reader::Http::new(&mut stream, |name, value| {
-                        if name == header_field {
-                            service_name = value.to_string();
-                        }
-                    });
-                    http_reader.read_to_end(&mut request).unwrap();
-                }
+                http_reader.read_header(|name, value| {
+                               if name == header_field {
+                                   service_name = value.to_string();
+                               }
+                           })
+                           .unwrap();
 
                 let response = node_clone.request(&service_name,
-                                                  Box::new(io::Cursor::new(request)),
+                                                  Box::new(http_reader),
                                                   Arc::new(Mutex::new(stream.try_clone()
                                                                             .unwrap())));
 

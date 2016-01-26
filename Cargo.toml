@@ -7,7 +7,6 @@ authors = ["Philipp Brüll <bruell@simia.tech>"]
 ansi_term = "0.7"
 byteorder = "0.4"
 getopts = "0.2"
-chunked_transfer = "0.3"
 hyper = "0.7"
 log = "0.3"
 protobuf = "1.0"
