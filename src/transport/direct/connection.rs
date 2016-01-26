@@ -221,7 +221,9 @@ impl Connection {
                         }
                     }
                     _ => {
-                        error!("{}: got unexpected container {:?}", node_id, container);
+                        error!("{}: got unexpected container {:?}",
+                               node_id,
+                               container.get_kind());
                     }
                 }
             }
