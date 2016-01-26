@@ -15,7 +15,7 @@
 
 use std::io::{self, Read, Write};
 use std::net::{self, SocketAddr};
-use std::sync::{Arc, Mutex, RwLock, atomic};
+use std::sync::{Arc, RwLock, atomic};
 use std::thread;
 
 use node::{Node, request};
@@ -88,8 +88,8 @@ impl Relay for HttpStatic {
 
                 let response = node_clone.request(&service_name,
                                                   Box::new(http_reader),
-                                                  Arc::new(Mutex::new(stream.try_clone()
-                                                                            .unwrap())));
+                                                  Box::new(stream.try_clone()
+                                                                 .unwrap()));
 
                 let response = match response {
                     Ok(_) => Vec::new(),

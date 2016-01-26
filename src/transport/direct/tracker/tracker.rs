@@ -15,7 +15,7 @@
 
 use std::fmt;
 use std::result;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, mpsc};
 use std::sync::atomic;
 use std::thread;
 
@@ -28,7 +28,7 @@ use transport::direct::tracker::{Statistic, Store, Subject, store};
 const TIMEOUT_TOLERANCE_MS: i64 = 2;
 
 pub struct Tracker {
-    store: Arc<Store<(Arc<Mutex<request::ResponseWriter>>,
+    store: Arc<Store<(Option<Box<request::ResponseWriter>>,
                       mpsc::Sender<request::Response>)>>,
     statistic: Arc<Statistic>,
     current_id: atomic::AtomicUsize,
@@ -85,7 +85,7 @@ impl Tracker {
     pub fn begin(&self,
                  name: &str,
                  link: &Link,
-                 response_writer: Arc<Mutex<request::ResponseWriter>>)
+                 response_writer: Box<request::ResponseWriter>)
                  -> (u32, mpsc::Receiver<request::Response>) {
         let (response_tx, response_rx) = mpsc::channel();
         let id = self.current_id.fetch_add(1, atomic::Ordering::SeqCst) as u32;
@@ -93,7 +93,10 @@ impl Tracker {
         let started_at = time::now_utc();
 
         if self.store
-               .insert(id, subject, started_at, (response_writer, response_tx))
+               .insert(id,
+                       subject,
+                       started_at,
+                       (Some(response_writer), response_tx))
                .unwrap() {
             if let Some((_, ref running_tx)) = self.join_handle_and_running_tx {
                 running_tx.send(true).unwrap();
@@ -103,8 +106,12 @@ impl Tracker {
         (id, response_rx)
     }
 
-    pub fn get_response_writer(&self, id: u32) -> Option<Arc<Mutex<request::ResponseWriter>>> {
-        self.store.get_clone(&id).map(|value| value.0)
+    pub fn take_response_writer(&self, id: u32) -> Option<Box<request::ResponseWriter>> {
+        let mut result = None;
+        self.store.get_mut(&id, |entry| {
+            result = entry.0.take();
+        });
+        result
     }
 
     pub fn end(&self, id: u32, response: request::Response) -> Result<()> {
@@ -155,7 +162,7 @@ mod tests {
 
     use std::io;
     use std::thread;
-    use std::sync::{Arc, Mutex};
+    use std::sync::Arc;
     use time::Duration;
     use node::request;
     use super::{Error, Tracker};
@@ -166,9 +173,7 @@ mod tests {
     fn request_tracking() {
         let tracker = Tracker::new(Arc::new(Statistic::new()), None);
 
-        let (id, response_rx) = tracker.begin("test",
-                                              &Link::Local,
-                                              Arc::new(Mutex::new(io::sink())));
+        let (id, response_rx) = tracker.begin("test", &Link::Local, Box::new(io::sink()));
         tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
 
         let mut response = response_rx.recv().unwrap().unwrap();
@@ -183,9 +188,7 @@ mod tests {
     fn request_timeout() {
         let tracker = Tracker::new(Arc::new(Statistic::new()), Some(Duration::milliseconds(50)));
 
-        let (_, response_rx) = tracker.begin("test",
-                                             &Link::Local,
-                                             Arc::new(Mutex::new(io::sink())));
+        let (_, response_rx) = tracker.begin("test", &Link::Local, Box::new(io::sink()));
         assert_eq!(1, tracker.len());
         thread::sleep(::std::time::Duration::from_millis(100));
 
@@ -193,9 +196,7 @@ mod tests {
                    response_rx.recv().unwrap().err());
         assert_eq!(0, tracker.len());
 
-        let (request_id, response_rx) = tracker.begin("test",
-                                                      &Link::Local,
-                                                      Arc::new(Mutex::new(io::sink())));
+        let (request_id, response_rx) = tracker.begin("test", &Link::Local, Box::new(io::sink()));
         assert_eq!(1, tracker.len());
         thread::sleep(::std::time::Duration::from_millis(10));
         tracker.end(request_id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
@@ -212,9 +213,7 @@ mod tests {
     fn request_end_after_timeout() {
         let tracker = Tracker::new(Arc::new(Statistic::new()), Some(Duration::milliseconds(50)));
 
-        let (id, response_rx) = tracker.begin("test",
-                                              &Link::Local,
-                                              Arc::new(Mutex::new(io::sink())));
+        let (id, response_rx) = tracker.begin("test", &Link::Local, Box::new(io::sink()));
         assert_eq!(1, tracker.len());
         thread::sleep(::std::time::Duration::from_millis(100));
 
@@ -234,9 +233,7 @@ mod tests {
         for _ in 0..10 {
             let tracker = tracker.clone();
             threads.push(thread::spawn(move || -> request::Response {
-                let (id, response_rx) = tracker.begin("test",
-                                                      &Link::Local,
-                                                      Arc::new(Mutex::new(io::sink())));
+                let (id, response_rx) = tracker.begin("test", &Link::Local, Box::new(io::sink()));
                 thread::sleep(::std::time::Duration::from_millis(100));
                 tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))).unwrap();
                 response_rx.recv().unwrap()
@@ -262,9 +259,7 @@ mod tests {
         for _ in 0..10 {
             let tracker = tracker.clone();
             threads.push(thread::spawn(move || -> request::Response {
-                let (id, response_rx) = tracker.begin("test",
-                                                      &Link::Local,
-                                                      Arc::new(Mutex::new(io::sink())));
+                let (id, response_rx) = tracker.begin("test", &Link::Local, Box::new(io::sink()));
                 thread::sleep(::std::time::Duration::from_millis(100));
                 assert_eq!(Err(Error::AlreadyEnded),
                            tracker.end(id, Ok(Box::new(io::Cursor::new(b"test".to_vec())))));

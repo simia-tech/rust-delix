@@ -15,5 +15,7 @@ limitations under the License.
 */
 
 mod chunk;
+mod collector;
 
 pub use util::writer::chunk::Chunk;
+pub use util::writer::collector::Collector;

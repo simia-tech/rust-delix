@@ -16,7 +16,7 @@
 use std::fmt;
 use std::io;
 use std::result;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -24,6 +24,7 @@ use discovery::Discovery;
 use node::{ID, State, request};
 use transport;
 use transport::Transport;
+use util::writer;
 
 pub struct Node {
     id: ID,
@@ -111,20 +112,19 @@ impl Node {
                          name: &str,
                          request: &[u8])
                          -> result::Result<Vec<u8>, request::Error> {
-        let response_writer = Arc::new(Mutex::new(Vec::new() as Vec<u8>));
+        let response_writer = writer::Collector::new();
 
         try!(self.request(name,
                           Box::new(io::Cursor::new(request.to_vec())),
-                          response_writer.clone()));
+                          Box::new(response_writer.clone())));
 
-        let response_bytes = response_writer.lock().unwrap().to_vec();
-        Ok(response_bytes)
+        Ok(response_writer.vec().unwrap())
     }
 
     pub fn request(&self,
                    name: &str,
                    reader: Box<request::Reader>,
-                   response_writer: Arc<Mutex<request::ResponseWriter>>)
+                   response_writer: Box<request::ResponseWriter>)
                    -> request::Response {
         Ok(try!(self.transport.request(name, reader, response_writer)))
     }

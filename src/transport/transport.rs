@@ -15,7 +15,6 @@
 
 use std::net::SocketAddr;
 use std::io;
-use std::sync::{Arc, Mutex};
 use std::result;
 
 use node::{ID, request};
@@ -33,7 +32,7 @@ pub trait Transport : Send + Sync {
     fn request(&self,
                &str,
                Box<request::Reader>,
-               Arc<Mutex<request::ResponseWriter>>)
+               Box<request::ResponseWriter>)
                -> request::Response;
 }
 

@@ -33,8 +33,7 @@ pub enum Error {
     IdDoesNotExists,
 }
 
-impl<T> Store<T> where T: Clone
-{
+impl<T> Store<T> {
     pub fn new() -> Store<T> {
         Store { entries: RwLock::new(HashMap::new()) }
     }
@@ -54,9 +53,11 @@ impl<T> Store<T> where T: Clone
         Ok(entries.len() == 1)
     }
 
-    pub fn get_clone(&self, id: &u32) -> Option<T> {
-        let entries = self.entries.read().unwrap();
-        entries.get(id).map(|value| value.2.clone())
+    pub fn get_mut<F: FnMut(&mut T)>(&self, id: &u32, mut f: F) {
+        let mut entries = self.entries.write().unwrap();
+        if let Some(ref mut entry) = entries.get_mut(id).map(|value| &mut value.2) {
+            f(entry);
+        }
     }
 
     pub fn remove(&self, id: &u32) -> Result<(Subject, time::Tm, T)> {

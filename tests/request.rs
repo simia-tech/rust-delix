@@ -19,10 +19,11 @@ extern crate delix;
 
 use std::io;
 use std::iter;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::mpsc;
 use std::thread;
 
 use delix::node::{State, request};
+use delix::util::writer;
 
 #[test]
 fn single_echo_from_local_without_timeout() {
@@ -166,7 +167,7 @@ fn large_echo_from_local() {
 
     let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
     let request = Box::new(io::Cursor::new(request_bytes.clone()));
-    let response_bytes = Arc::new(Mutex::new(Vec::new()));
-    node.request("echo", request, response_bytes.clone()).unwrap();
-    assert_eq!(request_bytes, *response_bytes.lock().unwrap());
+    let response = Box::new(writer::Collector::new());
+    node.request("echo", request, response.clone()).unwrap();
+    assert_eq!(request_bytes, response.vec().unwrap());
 }

@@ -14,7 +14,7 @@
 //
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::{Arc, RwLock, mpsc};
 use time::{self, Duration};
 
 use transport::direct::Link;
@@ -24,7 +24,7 @@ use node::request;
 const MAXIMAL_SIZE: usize = 20;
 
 pub struct Statistic {
-    store: RwLock<Option<Arc<Store<(Arc<Mutex<request::ResponseWriter>>,
+    store: RwLock<Option<Arc<Store<(Option<Box<request::ResponseWriter>>,
                                     mpsc::Sender<request::Response>)>>>>,
     entries: RwLock<HashMap<Subject, VecDeque<Duration>>>,
 }
@@ -38,7 +38,7 @@ impl Statistic {
     }
 
     pub fn assign_store(&self,
-                        store: Arc<Store<(Arc<Mutex<request::ResponseWriter>>,
+                        store: Arc<Store<(Option<Box<request::ResponseWriter>>,
                                           mpsc::Sender<request::Response>)>>) {
         *self.store.write().unwrap() = Some(store);
     }
@@ -88,7 +88,7 @@ mod tests {
 
     use std::io;
     use std::thread;
-    use std::sync::{Arc, Mutex, mpsc};
+    use std::sync::{Arc, mpsc};
     use time::{self, Duration};
     use super::Statistic;
     use super::super::{Subject, Store};
@@ -131,7 +131,7 @@ mod tests {
         store.insert(10,
                      subject.clone(),
                      time::now_utc(),
-                     (Arc::new(Mutex::new(io::sink())), response_tx))
+                     (Some(Box::new(io::sink())), response_tx))
              .unwrap();
         thread::sleep(::std::time::Duration::from_millis(50));
 

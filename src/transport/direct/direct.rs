@@ -177,14 +177,20 @@ impl Transport for Direct {
     fn request(&self,
                name: &str,
                reader: Box<request::Reader>,
-               response_writer: Arc<Mutex<request::ResponseWriter>>)
+               response_writer: Box<request::ResponseWriter>)
                -> request::Response {
         let reader = Arc::new(Mutex::new(Some(reader)));
+        let response_writer = Arc::new(Mutex::new(Some(response_writer)));
         self.services.select(name,
                              |handler| {
-                                 let (request_id, response_rx) =
-                                     self.tracker
-                                         .begin(name, &Link::Local, response_writer.clone());
+                                 let response_writer = response_writer.lock()
+                                                                      .unwrap()
+                                                                      .take()
+                                                                      .unwrap();
+                                 let (request_id, response_rx) = self.tracker
+                                                                     .begin(name,
+                                                                            &Link::Local,
+                                                                            response_writer);
                                  let reader_clone = reader.clone();
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
@@ -198,11 +204,9 @@ impl Transport for Direct {
                                                                        .unwrap())(reader);
 
                                      if let Ok(ref mut reader) = response {
-                                         if let Some(response_writer) =
-                                                tracker_clone.get_response_writer(request_id) {
-                                             io::copy(reader,
-                                                      &mut *response_writer.lock().unwrap())
-                                                 .unwrap();
+                                         if let Some(ref mut response_writer) =
+                                                tracker_clone.take_response_writer(request_id) {
+                                             io::copy(reader, response_writer).unwrap();
                                          }
                                      }
 
@@ -216,11 +220,14 @@ impl Transport for Direct {
                                  response_rx.recv().unwrap()
                              },
                              |peer_node_id| {
+                                 let response_writer = response_writer.lock()
+                                                                      .unwrap()
+                                                                      .take()
+                                                                      .unwrap();
+
                                  let (request_id, response_rx) =
                                      self.tracker
-                                         .begin(name,
-                                                &Link::Remote(peer_node_id),
-                                                response_writer.clone());
+                                         .begin(name, &Link::Remote(peer_node_id), response_writer);
                                  self.connections
                                      .send_request(&peer_node_id,
                                                    request_id,
@@ -269,8 +276,8 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
     let tracker_clone = tracker.clone();
     connection.set_on_response(Box::new(move |request_id, mut response| {
         if let Ok(ref mut reader) = response {
-            if let Some(response_writer) = tracker_clone.get_response_writer(request_id) {
-                io::copy(reader, &mut *response_writer.lock().unwrap()).unwrap();
+            if let Some(ref mut response_writer) = tracker_clone.take_response_writer(request_id) {
+                io::copy(reader, response_writer).unwrap();
             } else {
                 io::copy(reader, &mut io::sink()).unwrap();
             }
