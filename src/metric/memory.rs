@@ -38,29 +38,32 @@ impl Memory {
     }
 
     pub fn get_counter(&self, key: &str) -> usize {
-        let entries = self.entries.read().unwrap();
-        entries.get(key)
-               .map(|entry| {
-                   if let Entry::Counter(value) = *entry {
-                       value
-                   } else {
-                       0
-                   }
-               })
-               .unwrap_or(0)
+        self.get(key)
+            .map(|entry| {
+                if let Entry::Counter(value) = entry {
+                    value
+                } else {
+                    0
+                }
+            })
+            .unwrap_or(0)
     }
 
     pub fn get_gauge(&self, key: &str) -> isize {
+        self.get(key)
+            .map(|entry| {
+                if let Entry::Gauge(value) = entry {
+                    value
+                } else {
+                    0
+                }
+            })
+            .unwrap_or(0)
+    }
+
+    fn get(&self, key: &str) -> Option<Entry> {
         let entries = self.entries.read().unwrap();
-        entries.get(key)
-               .map(|entry| {
-                   if let Entry::Gauge(value) = *entry {
-                       value
-                   } else {
-                       0
-                   }
-               })
-               .unwrap_or(0)
+        entries.get(key).map(|entry| entry.clone())
     }
 
     fn update_counter<F>(&self, key: &str, default: usize, f: F)
@@ -132,6 +135,13 @@ impl Memory {
         let (tx, rx) = mpsc::channel();
         {
             let mut watches = self.watches.write().unwrap();
+
+            if let Some(entry) = self.get(pattern) {
+                if !f(pattern, &entry) {
+                    return;
+                }
+            }
+
             if watches.contains_key(pattern) {
                 panic!("entry exists");
             }
@@ -229,6 +239,13 @@ mod tests {
         });
 
         metric.watch_counter("test", |_, value| value < 10);
+    }
+
+    #[test]
+    fn watch_counter_without_trigger() {
+        let metric = Memory::new();
+        metric.increment_counter("test");
+        metric.watch_counter("test", |_, value| value < 1);
     }
 
     #[test]
