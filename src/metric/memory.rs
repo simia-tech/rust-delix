@@ -14,13 +14,15 @@
 //
 
 use std::collections::{HashMap, hash_map};
-use std::sync::{RwLock, mpsc};
+use std::sync::{Arc, Condvar, Mutex, RwLock};
 
 use super::{Metric, metric};
 
 pub struct Memory {
     entries: RwLock<HashMap<String, Entry>>,
-    watches: RwLock<HashMap<String, mpsc::Sender<(String, Entry)>>>,
+    watches: RwLock<HashMap<String,
+                            (Box<Fn(&str, &Entry) -> bool + Send + Sync>,
+                             Arc<(Mutex<bool>, Condvar)>)>>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -102,42 +104,47 @@ impl Memory {
         };
 
         let watches = self.watches.read().unwrap();
-        if let Some(tx) = watches.get(key) {
-            tx.send((key.to_string(), entry)).unwrap();
+        for (pattern, &(ref predicate, ref tuple)) in watches.iter() {
+            if pattern == key && !predicate(key, &entry) {
+                let &(ref mutex, ref condvar) = &**tuple;
+                let mut matched = mutex.lock().unwrap();
+                *matched = true;
+                condvar.notify_all();
+            }
         }
     }
 
-    pub fn watch_counter<F>(&self, pattern: &str, f: F)
-        where F: Fn(&str, usize) -> bool
+    pub fn watch_counter<P>(&self, pattern: &str, predicate: P)
+        where P: Fn(&str, usize) -> bool + Send + Sync + 'static
     {
-        self.watch(pattern, |key, entry| {
+        self.watch(pattern, move |key, entry| {
             if let Entry::Counter(value) = *entry {
-                return f(key, value);
+                return predicate(key, value);
             }
             false
         });
     }
 
-    pub fn watch_gauge<F>(&self, pattern: &str, f: F)
-        where F: Fn(&str, isize) -> bool
+    pub fn watch_gauge<P>(&self, pattern: &str, predicate: P)
+        where P: Fn(&str, isize) -> bool + Send + Sync + 'static
     {
-        self.watch(pattern, |key, entry| {
+        self.watch(pattern, move |key, entry| {
             if let Entry::Gauge(value) = *entry {
-                return f(key, value);
+                return predicate(key, value);
             }
             false
         });
     }
 
-    fn watch<F>(&self, pattern: &str, f: F)
-        where F: Fn(&str, &Entry) -> bool
+    fn watch<P>(&self, pattern: &str, predicate: P)
+        where P: Fn(&str, &Entry) -> bool + Send + Sync + 'static
     {
-        let (tx, rx) = mpsc::channel();
+        let tuple = Arc::new((Mutex::new(false), Condvar::new()));
         {
             let mut watches = self.watches.write().unwrap();
 
-            if let Some(entry) = self.get(pattern) {
-                if !f(pattern, &entry) {
+            if let Some(ref entry) = self.get(pattern) {
+                if !predicate(pattern, entry) {
                     return;
                 }
             }
@@ -145,14 +152,13 @@ impl Memory {
             if watches.contains_key(pattern) {
                 panic!("entry exists");
             }
-            watches.insert(pattern.to_string(), tx);
+            watches.insert(pattern.to_string(), (Box::new(predicate), tuple.clone()));
         }
 
-        let (mut key, mut entry) = rx.recv().unwrap();
-        while f(&key, &entry) {
-            let tuple = rx.recv().unwrap();
-            key = tuple.0;
-            entry = tuple.1;
+        let &(ref mutex, ref condvar) = &*tuple;
+        let mut matched = mutex.lock().unwrap();
+        while !*matched {
+            matched = condvar.wait(matched).unwrap();
         }
 
         {
