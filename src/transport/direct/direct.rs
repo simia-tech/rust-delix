@@ -16,7 +16,7 @@
 use std::fmt;
 use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::{Arc, RwLock, mpsc};
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
@@ -179,27 +179,18 @@ impl Transport for Direct {
                reader: Box<request::Reader>,
                response_writer: Box<request::ResponseWriter>)
                -> request::Response {
-        let reader = Arc::new(Mutex::new(Some(reader)));
-        let response_writer = Arc::new(Mutex::new(Some(response_writer)));
+
         self.services.select(name,
-                             |handler| {
-                                 let response_writer = response_writer.lock()
-                                                                      .unwrap()
-                                                                      .take()
-                                                                      .unwrap();
+                             reader,
+                             response_writer,
+                             |reader, response_writer, handler| {
                                  let (request_id, response_rx) = self.tracker
                                                                      .begin(name,
                                                                             &Link::Local,
                                                                             response_writer);
-                                 let reader_clone = reader.clone();
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
                                  thread::spawn(move || {
-                                     let reader = reader_clone.lock()
-                                                              .unwrap()
-                                                              .take()
-                                                              .unwrap();
-
                                      let mut response = (*handler_clone.lock()
                                                                        .unwrap())(reader);
 
@@ -219,23 +210,12 @@ impl Transport for Direct {
                                  });
                                  response_rx.recv().unwrap()
                              },
-                             |peer_node_id| {
-                                 let response_writer = response_writer.lock()
-                                                                      .unwrap()
-                                                                      .take()
-                                                                      .unwrap();
-
+                             |mut reader, response_writer, peer_node_id| {
                                  let (request_id, response_rx) =
                                      self.tracker
                                          .begin(name, &Link::Remote(peer_node_id), response_writer);
                                  self.connections
-                                     .send_request(&peer_node_id,
-                                                   request_id,
-                                                   name,
-                                                   reader.lock()
-                                                         .unwrap()
-                                                         .as_mut()
-                                                         .unwrap())
+                                     .send_request(&peer_node_id, request_id, name, &mut reader)
                                      .unwrap();
                                  response_rx.recv().unwrap()
                              })

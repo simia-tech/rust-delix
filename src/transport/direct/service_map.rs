@@ -99,47 +99,40 @@ impl ServiceMap {
         }
     }
 
-    pub fn select<L, R>(&self, name: &str, local_handler: L, remote_handler: R) -> request::Response
-        where L: Fn(&Arc<Mutex<Box<request::Handler>>>) -> request::Response,
-              R: Fn(ID) -> request::Response
+    pub fn select<L, R>(&self,
+                        name: &str,
+                        reader: Box<request::Reader>,
+                        response_writer: Box<request::ResponseWriter>,
+                        local_handler: L,
+                        remote_handler: R)
+                        -> request::Response
+        where L: FnOnce(Box<request::Reader>,
+                        Box<request::ResponseWriter>,
+                        &Arc<Mutex<Box<request::Handler>>>)
+                        -> request::Response,
+              R: FnOnce(Box<request::Reader>, Box<request::ResponseWriter>, ID) -> request::Response
     {
         let mut entries = self.entries.write().unwrap();
 
-        loop {
-            let response_pair = {
-                let mut entry = match entries.get_mut(name) {
-                    Some(entry) => entry,
-                    None => return Err(request::Error::ServiceDoesNotExists),
-                };
+        let mut entry = match entries.get_mut(name) {
+            Some(entry) => entry,
+            None => return Err(request::Error::ServiceDoesNotExists),
+        };
 
-                if entry.queue.is_empty() {
-                    entry.queue.append(&mut self.balancer.build_round(name, &entry.links));
-                    entry.queue.reverse();
-                }
-                let link = entry.queue.pop().expect("balancer did not build any round");
+        if entry.queue.is_empty() {
+            entry.queue.append(&mut self.balancer.build_round(name, &entry.links));
+            entry.queue.reverse();
+        }
+        let link = entry.queue.pop().expect("balancer did not build any round");
 
-                match link {
-                    Link::Local => (local_handler(entry.local_handler.as_ref().unwrap()), None),
-                    Link::Remote(ref peer_node_id) => {
-                        (remote_handler(*peer_node_id), Some(*peer_node_id))
-                    }
-                }
-            };
-
-            if let (Err(request::Error::ServiceDoesNotExists),
-                    Some(peer_node_id)) = response_pair {
-
-                let mut remove_entry = false;
-                if let Some(entry) = entries.get_mut(name) {
-                    entry.links.retain(|link| !Link::is_remote(&&link, &peer_node_id));
-                    entry.queue.retain(|link| !Link::is_remote(&&link, &peer_node_id));
-                    remove_entry = entry.links.is_empty();
-                }
-                if remove_entry {
-                    entries.remove(name);
-                }
-            } else {
-                return response_pair.0;
+        match link {
+            Link::Local => {
+                local_handler(reader,
+                              response_writer,
+                              entry.local_handler.as_ref().unwrap())
+            }
+            Link::Remote(ref peer_node_id) => {
+                remote_handler(reader, response_writer, *peer_node_id)
             }
         }
     }
