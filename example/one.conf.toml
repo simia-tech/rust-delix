@@ -5,7 +5,7 @@ level = "debug"
 
 [discovery]
 type = "constant"
-addresses = [ "127.0.0.1:4001" ]
+addresses = [ ]
 
 [cipher]
 type = "symmetric"
@@ -13,14 +13,15 @@ key = "000102030405060708090a0b0c0d0e0f"
 
 [transport]
 type = "direct"
-local_address = "127.0.0.1:4003"
+local_address = "127.0.0.1:4001"
 request_timeout_ms = 5000
 balancer = { type = "dynamic_round_robin" }
 
 [[relay]]
 type = "http_static"
+address = "127.0.0.1:4200"
 header_field = "X-Delix-Service"
 
 [[relay.service]]
-name = "google"
-address = "110.164.6.231:80"
+name = "slashdot"
+address = "216.34.181.45:80"
