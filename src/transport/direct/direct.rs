@@ -247,8 +247,6 @@ fn set_up<M>(connection: &mut Connection, services: &Arc<ServiceMap<M>>, tracker
         if let Ok(ref mut reader) = response {
             if let Some(ref mut response_writer) = tracker_clone.take_response_writer(request_id) {
                 io::copy(reader, response_writer).unwrap();
-            } else {
-                io::copy(reader, &mut io::sink()).unwrap();
             }
         }
 

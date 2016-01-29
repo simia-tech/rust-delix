@@ -15,9 +15,11 @@ limitations under the License.
 */
 
 mod chunk;
+mod drain_on_drop;
 mod http;
 mod tee;
 
 pub use util::reader::chunk::Chunk;
+pub use util::reader::drain_on_drop::DrainOnDrop;
 pub use util::reader::http::Http;
 pub use util::reader::tee::Tee;

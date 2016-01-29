@@ -180,21 +180,7 @@ impl Connection {
                             let (request_id, name) = container::unpack_request(container).unwrap();
 
                             let mut response = f(&name,
-                                                 Box::new(reader::Chunk::new(rx_stream.clone())));
-
-                            // some errors indicate that the request body has not been read. in
-                            // this case, the receive buffer is emptied here.
-                            match response {
-                                Err(request::Error::ServiceDoesNotExists) |
-                                Err(request::Error::ServiceUnavailable) |
-                                Err(request::Error::Timeout) => {
-                                    let n = io::copy(&mut reader::Chunk::new(rx_stream.clone()),
-                                                     &mut io::sink())
-                                                .unwrap();
-                                    debug!("{}: request error ({} bytes sinked)", node_id, n);
-                                }
-                                _ => {}
-                            }
+                                                 Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
 
                             {
                                 let mut tx_stream = tx_stream_clone.lock().unwrap();
@@ -206,10 +192,6 @@ impl Connection {
                                     Err(Error::Io(error)) => {
                                         error!("could not send response (may timed out): {:?}",
                                                error);
-
-                                        if let Ok(ref mut reader) = response {
-                                            io::copy(reader, &mut io::sink()).unwrap();
-                                        }
 
                                         continue;
                                     }
@@ -229,7 +211,7 @@ impl Connection {
                             let (request_id, mut response) = container::unpack_response(container)
                                                                  .unwrap();
                             if let Ok(_) = response {
-                                response = Ok(Box::new(reader::Chunk::new(rx_stream.clone())));
+                                response = Ok(Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
                             }
                             f(request_id, response);
                         }
