@@ -20,9 +20,11 @@ use super::{Metric, metric};
 
 pub struct Memory {
     entries: RwLock<HashMap<String, Entry>>,
-    watches: RwLock<HashMap<String,
-                            (Box<Fn(&str, Option<&Entry>) -> bool + Send + Sync>,
+    watches: RwLock<HashMap<u16,
+                            (String,
+                             Box<Fn(&str, Option<&Entry>) -> bool + Send + Sync>,
                              Arc<(Mutex<bool>, Condvar)>)>>,
+    next_watch_id: RwLock<u16>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -36,6 +38,7 @@ impl Memory {
         Memory {
             entries: RwLock::new(HashMap::new()),
             watches: RwLock::new(HashMap::new()),
+            next_watch_id: RwLock::new(0u16),
         }
     }
 
@@ -104,8 +107,8 @@ impl Memory {
         };
 
         let watches = self.watches.read().unwrap();
-        for (pattern, &(ref predicate, ref tuple)) in watches.iter() {
-            if pattern == key && !predicate(key, Some(&entry)) {
+        for (_, &(ref prefix, ref predicate, ref tuple)) in watches.iter() {
+            if key.starts_with(prefix) && !predicate(key, Some(&entry)) {
                 let &(ref mutex, ref condvar) = &**tuple;
                 let mut matched = mutex.lock().unwrap();
                 *matched = true;
@@ -114,10 +117,10 @@ impl Memory {
         }
     }
 
-    pub fn watch_counter<P>(&self, pattern: &str, predicate: P)
+    pub fn watch_counter<P>(&self, prefix: &str, predicate: P)
         where P: Fn(&str, usize) -> bool + Send + Sync + 'static
     {
-        self.watch(pattern, move |key, entry| {
+        self.watch(prefix, move |key, entry| {
             match entry {
                 Some(&Entry::Counter(value)) => predicate(key, value),
                 Some(_) => false,
@@ -126,10 +129,10 @@ impl Memory {
         });
     }
 
-    pub fn watch_gauge<P>(&self, pattern: &str, predicate: P)
+    pub fn watch_gauge<P>(&self, prefix: &str, predicate: P)
         where P: Fn(&str, isize) -> bool + Send + Sync + 'static
     {
-        self.watch(pattern, move |key, entry| {
+        self.watch(prefix, move |key, entry| {
             match entry {
                 Some(&Entry::Gauge(value)) => predicate(key, value),
                 Some(_) => false,
@@ -138,21 +141,25 @@ impl Memory {
         });
     }
 
-    fn watch<P>(&self, pattern: &str, predicate: P)
+    fn watch<P>(&self, prefix: &str, predicate: P)
         where P: Fn(&str, Option<&Entry>) -> bool + Send + Sync + 'static
     {
+        let id = {
+            let mut next_watch_id = self.next_watch_id.write().unwrap();
+            let id = *next_watch_id;
+            *next_watch_id += 1;
+            id
+        };
+
         let tuple = Arc::new((Mutex::new(false), Condvar::new()));
         {
             let mut watches = self.watches.write().unwrap();
 
-            if !predicate(pattern, self.get(pattern).as_ref()) {
+            if !predicate(prefix, self.get(prefix).as_ref()) {
                 return;
             }
 
-            if watches.contains_key(pattern) {
-                panic!("entry exists");
-            }
-            watches.insert(pattern.to_string(), (Box::new(predicate), tuple.clone()));
+            watches.insert(id, (prefix.to_string(), Box::new(predicate), tuple.clone()));
         }
 
         let &(ref mutex, ref condvar) = &*tuple;
@@ -163,7 +170,7 @@ impl Memory {
 
         {
             let mut watches = self.watches.write().unwrap();
-            watches.remove(pattern);
+            watches.remove(&id);
         }
     }
 }
@@ -302,6 +309,23 @@ mod tests {
         });
 
         metric.watch_gauge("test", |_, value| value > -10);
+    }
+
+    #[test]
+    fn watch_gauges_using_prefix() {
+        let metric = Arc::new(Memory::new());
+
+        metric.watch_gauge("test", |_, value| value != 0);
+
+        let metric_clone = metric.clone();
+        thread::spawn(move || {
+            for _ in 0..10 {
+                metric_clone.change_gauge("test_one", metric::Change::Delta(1));
+                metric_clone.change_gauge("test_two", metric::Change::Delta(2));
+            }
+        });
+
+        metric.watch_gauge("test", |_, value| value < 20);
     }
 
 }

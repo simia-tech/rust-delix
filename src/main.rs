@@ -77,8 +77,10 @@ fn main() {
         }
     };
 
-    node.metric().watch_gauge("connections", |key, value| {
-        info!("{} = {}", key, value);
+    node.metric().watch_gauge("", |key, value| {
+        if key != "" {
+            info!("{} = {}", key, value);
+        }
         true
     });
 }
