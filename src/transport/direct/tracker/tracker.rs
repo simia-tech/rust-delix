@@ -15,8 +15,7 @@
 
 use std::fmt;
 use std::result;
-use std::sync::{Arc, mpsc};
-use std::sync::atomic;
+use std::sync::{Arc, atomic, mpsc};
 use std::thread;
 
 use time::{self, Duration};

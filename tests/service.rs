@@ -65,7 +65,7 @@ fn distribution_in_joined_network() {
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-            thread::sleep(::std::time::Duration::from_millis(200));
+    thread::sleep(::std::time::Duration::from_millis(200));
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
 }

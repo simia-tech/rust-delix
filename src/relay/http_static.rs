@@ -15,7 +15,7 @@
 
 use std::io::{self, Read, Write};
 use std::net::{self, SocketAddr};
-use std::sync::{Arc, RwLock, atomic};
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 use metric::Metric;
@@ -29,7 +29,7 @@ pub struct HttpStatic<M>
     node: Arc<Node<M>>,
     header_field: String,
     join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
-    running: Arc<atomic::AtomicBool>,
+    running: Arc<RwLock<bool>>,
 }
 
 enum StatusCode {
@@ -45,7 +45,7 @@ impl<M> HttpStatic<M> where M: Metric
             node: node,
             header_field: header_field.to_string(),
             join_handle: RwLock::new(None),
-            running: Arc::new(atomic::AtomicBool::new(false)),
+            running: Arc::new(RwLock::new(false)),
         }
     }
 
@@ -74,9 +74,9 @@ impl<M> Relay for HttpStatic<M> where M: Metric
         let running_clone = self.running.clone();
         let header_field = self.header_field.to_lowercase().trim().to_string();
         *self.join_handle.write().unwrap() = Some((thread::spawn(move || {
-            running_clone.store(true, atomic::Ordering::SeqCst);
+            *running_clone.write().unwrap() = true;
             for stream in tcp_listener.incoming() {
-                if !running_clone.load(atomic::Ordering::SeqCst) {
+                if !*running_clone.read().unwrap() {
                     break;
                 }
 
@@ -121,7 +121,7 @@ impl<M> Relay for HttpStatic<M> where M: Metric
     }
 
     fn unbind(&self) -> Result<()> {
-        self.running.store(false, atomic::Ordering::SeqCst);
+        *self.running.write().unwrap() = false;
         if let Some((join_handle, address)) = self.join_handle.write().unwrap().take() {
             // connect to local address to enable the thread to escape the accept loop.
             try!(net::TcpStream::connect(address));

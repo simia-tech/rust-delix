@@ -16,8 +16,7 @@
 use std::fmt;
 use std::io;
 use std::result;
-use std::sync::Arc;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{Arc, RwLock};
 use std::thread;
 
 use discovery::Discovery;
@@ -34,7 +33,7 @@ pub struct Node<M>
     transport: Arc<Box<Transport>>,
     metric: Arc<M>,
     join_handle: Option<thread::JoinHandle<()>>,
-    running: Arc<AtomicBool>,
+    running: Arc<RwLock<bool>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -53,7 +52,7 @@ impl<M> Node<M> where M: Metric
 
         try!(t.bind(node_id));
 
-        let running = Arc::new(AtomicBool::new(true));
+        let running = Arc::new(RwLock::new(true));
         let running_clone = running.clone();
 
         let discovery = Arc::new(d);
@@ -63,7 +62,7 @@ impl<M> Node<M> where M: Metric
         let transport_clone = transport.clone();
 
         let join_handle = Some(thread::spawn(move || {
-            while running_clone.load(Ordering::SeqCst) {
+            while *running_clone.read().unwrap() {
                 if let Some(address) = discovery_clone.discover() {
                     match transport_clone.join(address, node_id) {
                         Ok(()) => break,
@@ -139,7 +138,7 @@ impl<M> fmt::Display for Node<M> where M: Metric
 impl<M> Drop for Node<M> where M: Metric
 {
     fn drop(&mut self) {
-        self.running.store(false, Ordering::SeqCst);
+        *self.running.write().unwrap() = false;
         self.join_handle.take().unwrap().join().unwrap();
     }
 }

@@ -17,7 +17,6 @@ use std::fmt;
 use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, RwLock, mpsc};
-use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use time::Duration;
@@ -33,7 +32,7 @@ pub struct Direct<M>
     where M: Metric
 {
     join_handle: RwLock<Option<thread::JoinHandle<()>>>,
-    running: Arc<AtomicBool>,
+    running: Arc<RwLock<bool>>,
     local_address: SocketAddr,
     public_address: SocketAddr,
     cipher: Arc<Box<Cipher>>,
@@ -57,7 +56,7 @@ impl<M> Direct<M> where M: Metric
 
         Direct {
             join_handle: RwLock::new(None),
-            running: Arc::new(AtomicBool::new(false)),
+            running: Arc::new(RwLock::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             cipher: Arc::new(cipher),
@@ -68,7 +67,7 @@ impl<M> Direct<M> where M: Metric
     }
 
     fn unbind(&mut self) -> Result<()> {
-        self.running.store(false, Ordering::SeqCst);
+        *self.running.write().unwrap() = false;
         if let Some(join_handle) = self.join_handle.write().unwrap().take() {
             // connect to local address to enable the thread to escape the accept loop.
             try!(TcpStream::connect(self.local_address));
@@ -90,9 +89,9 @@ impl<M> Transport for Direct<M> where M: Metric
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
         *self.join_handle.write().unwrap() = Some(thread::spawn(move || {
-            running_clone.store(true, Ordering::SeqCst);
+            *running_clone.write().unwrap() = true;
             for stream in tcp_listener.incoming() {
-                if !running_clone.load(Ordering::SeqCst) {
+                if !*running_clone.read().unwrap() {
                     break;
                 }
 
