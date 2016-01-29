@@ -81,6 +81,7 @@ fn single_echo_from_remote_without_timeout() {
     let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
     helper::wait_for_joined(&[&node_one, &node_two]);
+    helper::wait_for_services(&[&node_one, &node_two], 1);
 
     assert_eq!("test message", String::from_utf8_lossy(&node_two.request_bytes("echo", b"test message").unwrap()));
 }
@@ -98,6 +99,7 @@ fn single_echo_from_remote_with_timeout() {
     let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
 
     helper::wait_for_joined(&[&node_one, &node_two]);
+    helper::wait_for_services(&[&node_one, &node_two], 1);
 
     assert_eq!(Err(request::Error::Timeout), node_two.request_bytes("echo", b""));
 }
@@ -113,8 +115,7 @@ fn multiple_echos_from_remote() {
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
     helper::wait_for_joined(&[&node_one, &node_two]);
-    assert_eq!(1, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
+    helper::wait_for_services(&[&node_one, &node_two], 1);
 
     assert_eq!(b"test message one".to_vec(), node_two.request_bytes("echo", b"test message one").unwrap());
     assert_eq!(b"test message two".to_vec(), node_two.request_bytes("echo", b"test message two").unwrap());
@@ -143,9 +144,7 @@ fn balanced_echos_from_two_remotes() {
     })).unwrap();
 
     helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
-    assert_eq!(1, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
-    assert_eq!(1, node_three.service_count());
+    helper::wait_for_services(&[&node_one, &node_two, &node_three], 1);
 
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));

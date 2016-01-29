@@ -102,10 +102,6 @@ impl<M> Node<M> where M: Metric
         Ok(())
     }
 
-    pub fn service_count(&self) -> usize {
-        self.transport.service_count()
-    }
-
     pub fn request_bytes(&self,
                          name: &str,
                          request: &[u8])
@@ -128,7 +124,7 @@ impl<M> Node<M> where M: Metric
     }
 }
 
-impl<M> fmt::Display for Node<M> where M: Metric
+impl<M> fmt::Debug for Node<M> where M: Metric
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(Node {})", self.id)

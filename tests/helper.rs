@@ -92,6 +92,12 @@ pub fn wait_for_discovering(node: &Arc<Node<metric::Memory>>) {
     node.metric().watch_gauge("connections", |_, value| value > 0);
 }
 
+pub fn wait_for_services(nodes: &[&Arc<Node<metric::Memory>>], count: isize) {
+    for node in nodes {
+        node.metric().watch_gauge("services", move |_, value| value != count);
+    }
+}
+
 pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
     let mut result = Vec::new();
     loop {

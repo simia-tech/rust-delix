@@ -17,12 +17,10 @@ extern crate delix;
 
 #[allow(dead_code)] mod helper;
 
-use std::thread;
-
 use delix::node::request;
 
 #[test]
-fn distribution_over_incoming_connection() {
+fn registration_over_incoming_connection() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3001", &[], None);
@@ -32,13 +30,11 @@ fn distribution_over_incoming_connection() {
     let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
     helper::wait_for_joined(&[&node_one, &node_two]);
-
-    assert_eq!(1, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
+    helper::wait_for_services(&[&node_one, &node_two], 1);
 }
 
 #[test]
-fn distribution_over_outgoing_connection() {
+fn registration_over_outgoing_connection() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3011", &[], None);
@@ -48,13 +44,11 @@ fn distribution_over_outgoing_connection() {
             .unwrap();
 
     helper::wait_for_joined(&[&node_one, &node_two]);
-
-    assert_eq!(1, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
+    helper::wait_for_services(&[&node_one, &node_two], 1);
 }
 
 #[test]
-fn distribution_in_joined_network() {
+fn registration_in_joined_network() {
     helper::set_up();
 
     let node_one = helper::build_node("127.0.0.1:3021", &[], None);
@@ -62,12 +56,10 @@ fn distribution_in_joined_network() {
 
     helper::wait_for_joined(&[&node_one, &node_two]);
 
+    helper::wait_for_services(&[&node_one, &node_two], 0);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
-
-    thread::sleep(::std::time::Duration::from_millis(200));
-    assert_eq!(1, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
+    helper::wait_for_services(&[&node_one, &node_two], 1);
 }
 
 #[test]
@@ -77,14 +69,14 @@ fn deregistration() {
     let node = helper::build_node("127.0.0.1:3031", &[], None);
     node.register("echo", Box::new(|request| Ok(request)))
         .unwrap();
+
+    helper::wait_for_services(&[&node], 1);
     node.deregister("echo").unwrap();
-
-    thread::sleep(::std::time::Duration::from_millis(100));
-
-    assert_eq!(0, node.service_count());
+    helper::wait_for_services(&[&node], 0);
 }
 
 #[test]
+#[ignore]
 fn deregistration_in_joined_network() {
     helper::set_up();
 
@@ -96,14 +88,9 @@ fn deregistration_in_joined_network() {
 
     helper::wait_for_joined(&[&node_one, &node_two]);
 
-    assert_eq!(1, node_one.service_count());
-    assert_eq!(1, node_two.service_count());
-
+    helper::wait_for_services(&[&node_one, &node_two], 1);
     node_one.deregister("echo").unwrap();
-    thread::sleep(::std::time::Duration::from_millis(100));
-
-    assert_eq!(0, node_one.service_count());
-    assert_eq!(0, node_two.service_count());
+    helper::wait_for_services(&[&node_one, &node_two], 0);
 
     assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request_bytes("echo", b"test"));
 }

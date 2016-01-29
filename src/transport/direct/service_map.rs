@@ -17,18 +17,14 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, Mutex, RwLock};
 
+use metric::Metric;
 use node::{ID, request};
 use transport::direct::{self, Link};
 
-pub struct ServiceMap {
+pub struct ServiceMap<M> {
     balancer: Box<direct::Balancer>,
     entries: RwLock<HashMap<String, Entry>>,
-}
-
-struct Entry {
-    local_handler: Option<Arc<Mutex<Box<request::Handler>>>>,
-    links: Vec<Link>,
-    queue: Vec<Link>,
+    metric: Arc<M>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -41,11 +37,13 @@ pub enum Error {
     ConnectionMap(direct::ConnectionMapError),
 }
 
-impl ServiceMap {
-    pub fn new(balancer: Box<direct::Balancer>) -> ServiceMap {
+impl<M> ServiceMap<M> where M: Metric
+{
+    pub fn new(balancer: Box<direct::Balancer>, metric: Arc<M>) -> Self {
         ServiceMap {
             balancer: balancer,
             entries: RwLock::new(HashMap::new()),
+            metric: metric,
         }
     }
 
@@ -54,6 +52,7 @@ impl ServiceMap {
 
         if !entries.contains_key(name) {
             entries.insert(name.to_string(), Entry::new());
+            self.metric.gauge_delta("services", 1);
         }
         let mut entry = entries.get_mut(name).unwrap();
 
@@ -72,6 +71,7 @@ impl ServiceMap {
 
         if !entries.contains_key(name) {
             entries.insert(name.to_string(), Entry::new());
+            self.metric.gauge_delta("services", 1);
         }
         let mut entry = entries.get_mut(name).unwrap();
 
@@ -90,6 +90,7 @@ impl ServiceMap {
         for name in names {
             if !entries.contains_key(name) {
                 entries.insert(name.to_string(), Entry::new());
+                self.metric.gauge_delta("services", 1);
             }
             let mut entry = entries.get_mut(name).unwrap();
 
@@ -188,6 +189,7 @@ impl ServiceMap {
         };
         if remove {
             entries.remove(name);
+            self.metric.gauge_delta("services", -1);
         }
         Ok(())
     }
@@ -205,6 +207,7 @@ impl ServiceMap {
         };
         if remove {
             entries.remove(name);
+            self.metric.gauge_delta("services", -1);
         }
         Ok(())
     }
@@ -223,6 +226,7 @@ impl ServiceMap {
             };
             if remove {
                 entries.remove(name);
+                self.metric.gauge_delta("services", -1);
             }
         }
     }
@@ -239,8 +243,15 @@ impl ServiceMap {
         }
         for name in names {
             entries.remove(&name);
+            self.metric.gauge_delta("services", -1);
         }
     }
+}
+
+struct Entry {
+    local_handler: Option<Arc<Mutex<Box<request::Handler>>>>,
+    links: Vec<Link>,
+    queue: Vec<Link>,
 }
 
 impl Entry {
@@ -253,9 +264,9 @@ impl Entry {
     }
 }
 
-unsafe impl Send for ServiceMap {}
+unsafe impl<M> Send for ServiceMap<M> {}
 
-unsafe impl Sync for ServiceMap {}
+unsafe impl<M> Sync for ServiceMap<M> {}
 
 impl From<direct::ConnectionError> for Error {
     fn from(error: direct::ConnectionError) -> Self {
@@ -272,14 +283,15 @@ impl From<direct::ConnectionMapError> for Error {
 #[cfg(test)]
 mod tests {
 
+    use std::sync::Arc;
+    use metric;
     use node::ID;
     use super::ServiceMap;
     use super::super::balancer;
 
     #[test]
     fn insert_local() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
 
         assert!(service_map.insert_local("test", Box::new(|request| Ok(request))).is_ok());
         assert!(service_map.insert_local("test", Box::new(|request| Ok(request)))
@@ -291,8 +303,7 @@ mod tests {
 
     #[test]
     fn insert_remote() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         let node_id = ID::new_random();
 
         assert!(service_map.insert_remote("test", node_id).is_ok());
@@ -305,8 +316,7 @@ mod tests {
 
     #[test]
     fn remove_local() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         service_map.insert_local("test", Box::new(|request| Ok(request))).unwrap();
         service_map.insert_remote("test", ID::new_random()).unwrap();
 
@@ -317,8 +327,7 @@ mod tests {
 
     #[test]
     fn remove_local_and_clean_up() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         service_map.insert_local("test", Box::new(|request| Ok(request))).unwrap();
 
         assert!(service_map.remove_local("test").is_ok());
@@ -328,8 +337,7 @@ mod tests {
 
     #[test]
     fn remove_remote() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         let id_one = ID::new_random();
         let id_two = ID::new_random();
         service_map.insert_remote("test", id_one).unwrap();
@@ -342,8 +350,7 @@ mod tests {
 
     #[test]
     fn remove_remote_and_clean_up() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         let id = ID::new_random();
         service_map.insert_remote("test", id).unwrap();
 
@@ -354,8 +361,7 @@ mod tests {
 
     #[test]
     fn remove_all_remotes() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         let node_id = ID::new_random();
         service_map.insert_remote("test", node_id).unwrap();
         service_map.insert_local("test", Box::new(|request| Ok(request))).unwrap();
@@ -367,14 +373,19 @@ mod tests {
 
     #[test]
     fn remove_all_remotes_and_clean_up() {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
-        let service_map = ServiceMap::new(balancer);
+        let service_map = build_service_map();
         let node_id = ID::new_random();
         service_map.insert_remote("test", node_id).unwrap();
 
         service_map.remove_all_remotes(&node_id);
 
         assert_eq!(0, service_map.len());
+    }
+
+    fn build_service_map() -> ServiceMap<metric::Memory> {
+        let balancer = Box::new(balancer::DynamicRoundRobin::new());
+        let metric = Arc::new(metric::Memory::new());
+        ServiceMap::new(balancer, metric)
     }
 
 }

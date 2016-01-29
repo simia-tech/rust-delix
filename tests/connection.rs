@@ -42,10 +42,9 @@ fn loose_and_service_clean_up() {
         })).unwrap();
 
         helper::wait_for_joined(&[&node_one, &node_two]);
-        assert_eq!(1, node_one.service_count());
-        assert_eq!(1, node_two.service_count());
+        helper::wait_for_services(&[&node_one, &node_two], 1);
     }
 
     helper::wait_for_discovering(&node_one);
-    assert_eq!(0, node_one.service_count());
+    helper::wait_for_services(&[&node_one], 0);
 }

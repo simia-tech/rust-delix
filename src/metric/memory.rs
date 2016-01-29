@@ -21,7 +21,7 @@ use super::{Metric, metric};
 pub struct Memory {
     entries: RwLock<HashMap<String, Entry>>,
     watches: RwLock<HashMap<String,
-                            (Box<Fn(&str, &Entry) -> bool + Send + Sync>,
+                            (Box<Fn(&str, Option<&Entry>) -> bool + Send + Sync>,
                              Arc<(Mutex<bool>, Condvar)>)>>,
 }
 
@@ -105,7 +105,7 @@ impl Memory {
 
         let watches = self.watches.read().unwrap();
         for (pattern, &(ref predicate, ref tuple)) in watches.iter() {
-            if pattern == key && !predicate(key, &entry) {
+            if pattern == key && !predicate(key, Some(&entry)) {
                 let &(ref mutex, ref condvar) = &**tuple;
                 let mut matched = mutex.lock().unwrap();
                 *matched = true;
@@ -118,10 +118,11 @@ impl Memory {
         where P: Fn(&str, usize) -> bool + Send + Sync + 'static
     {
         self.watch(pattern, move |key, entry| {
-            if let Entry::Counter(value) = *entry {
-                return predicate(key, value);
+            match entry {
+                Some(&Entry::Counter(value)) => predicate(key, value),
+                Some(_) => false,
+                None => predicate(key, 0),
             }
-            false
         });
     }
 
@@ -129,24 +130,23 @@ impl Memory {
         where P: Fn(&str, isize) -> bool + Send + Sync + 'static
     {
         self.watch(pattern, move |key, entry| {
-            if let Entry::Gauge(value) = *entry {
-                return predicate(key, value);
+            match entry {
+                Some(&Entry::Gauge(value)) => predicate(key, value),
+                Some(_) => false,
+                None => predicate(key, 0),
             }
-            false
         });
     }
 
     fn watch<P>(&self, pattern: &str, predicate: P)
-        where P: Fn(&str, &Entry) -> bool + Send + Sync + 'static
+        where P: Fn(&str, Option<&Entry>) -> bool + Send + Sync + 'static
     {
         let tuple = Arc::new((Mutex::new(false), Condvar::new()));
         {
             let mut watches = self.watches.write().unwrap();
 
-            if let Some(ref entry) = self.get(pattern) {
-                if !predicate(pattern, entry) {
-                    return;
-                }
+            if !predicate(pattern, self.get(pattern).as_ref()) {
+                return;
             }
 
             if watches.contains_key(pattern) {

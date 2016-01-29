@@ -14,7 +14,6 @@
 //
 
 use std::collections::HashMap;
-use std::fmt;
 use std::net::SocketAddr;
 use std::result;
 use std::sync::{Arc, RwLock, mpsc};
@@ -133,13 +132,6 @@ unsafe impl<M> Send for ConnectionMap<M> where M: Metric
 
 unsafe impl<M> Sync for ConnectionMap<M> where M: Metric
 {}
-
-impl<M> fmt::Display for ConnectionMap<M> where M: Metric
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(Direct connection map)")
-    }
-}
 
 impl<M> Drop for ConnectionMap<M> where M: Metric
 {

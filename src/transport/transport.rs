@@ -26,7 +26,6 @@ pub trait Transport : Send + Sync {
 
     fn register(&self, &str, Box<request::Handler>) -> Result<()>;
     fn deregister(&self, &str) -> Result<()>;
-    fn service_count(&self) -> usize;
 
     fn request(&self,
                &str,

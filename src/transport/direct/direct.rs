@@ -13,7 +13,6 @@
 // limitations under the License.
 //
 
-use std::fmt;
 use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, RwLock, mpsc};
@@ -37,7 +36,7 @@ pub struct Direct<M>
     public_address: SocketAddr,
     cipher: Arc<Box<Cipher>>,
     connections: Arc<ConnectionMap<M>>,
-    services: Arc<ServiceMap>,
+    services: Arc<ServiceMap<M>>,
     tracker: Arc<Tracker>,
 }
 
@@ -60,8 +59,8 @@ impl<M> Direct<M> where M: Metric
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             cipher: Arc::new(cipher),
-            connections: Arc::new(ConnectionMap::new(metric)),
-            services: Arc::new(ServiceMap::new(balancer)),
+            connections: Arc::new(ConnectionMap::new(metric.clone())),
+            services: Arc::new(ServiceMap::new(balancer, metric.clone())),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
         }
     }
@@ -170,10 +169,6 @@ impl<M> Transport for Direct<M> where M: Metric
         Ok(())
     }
 
-    fn service_count(&self) -> usize {
-        self.services.len()
-    }
-
     fn request(&self,
                name: &str,
                reader: Box<request::Reader>,
@@ -222,13 +217,6 @@ impl<M> Transport for Direct<M> where M: Metric
     }
 }
 
-impl<M> fmt::Display for Direct<M> where M: Metric
-{
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(Direct transport {} services)", self.service_count())
-    }
-}
-
 impl<M> Drop for Direct<M> where M: Metric
 {
     fn drop(&mut self) {
@@ -236,7 +224,9 @@ impl<M> Drop for Direct<M> where M: Metric
     }
 }
 
-fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc<Tracker>) {
+fn set_up<M>(connection: &mut Connection, services: &Arc<ServiceMap<M>>, tracker: &Arc<Tracker>)
+    where M: Metric
+{
     let services_clone = services.clone();
     connection.set_on_add_services(Box::new(move |peer_node_id, services| {
         services_clone.insert_remotes(&services, peer_node_id);
