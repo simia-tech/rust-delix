@@ -23,7 +23,6 @@ use transport::direct;
 pub trait Transport : Send + Sync {
     fn bind(&self, ID) -> Result<()>;
     fn join(&self, SocketAddr, ID) -> Result<()>;
-    fn connection_count(&self) -> usize;
 
     fn register(&self, &str, Box<request::Handler>) -> Result<()>;
     fn deregister(&self, &str) -> Result<()>;

@@ -19,7 +19,6 @@ extern crate delix;
 
 use std::thread;
 
-use delix::node::State;
 use delix::node::request;
 
 #[test]
@@ -32,9 +31,7 @@ fn distribution_over_incoming_connection() {
 
     let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
 
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
@@ -50,9 +47,7 @@ fn distribution_over_outgoing_connection() {
     node_two.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
 
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
@@ -65,9 +60,7 @@ fn distribution_in_joined_network() {
     let node_one = helper::build_node("127.0.0.1:3021", &[], None);
     let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
 
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
@@ -87,7 +80,6 @@ fn deregistration() {
     node.deregister("echo").unwrap();
 
     thread::sleep(::std::time::Duration::from_millis(100));
-    helper::assert_node(&node, State::Discovering, 0);
 
     assert_eq!(0, node.service_count());
 }
@@ -102,9 +94,7 @@ fn deregistration_in_joined_network() {
 
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
 
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());

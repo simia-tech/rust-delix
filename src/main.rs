@@ -77,8 +77,8 @@ fn main() {
         }
     };
 
-    loop {
-        info!("state {}", node);
-        ::std::thread::sleep(::std::time::Duration::from_millis(4000));
-    }
+    node.metric().watch_gauge("connections", |key, value| {
+        info!("{} = {}", key, value);
+        true
+    });
 }

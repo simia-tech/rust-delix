@@ -26,27 +26,31 @@ use transport::{Result, Transport};
 use transport::cipher::Cipher;
 use transport::direct::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
 use transport::direct::tracker::{self, Statistic};
-
+use metric::Metric;
 use node::{ID, request};
 
-pub struct Direct {
+pub struct Direct<M>
+    where M: Metric
+{
     join_handle: RwLock<Option<thread::JoinHandle<()>>>,
     running: Arc<AtomicBool>,
     local_address: SocketAddr,
     public_address: SocketAddr,
     cipher: Arc<Box<Cipher>>,
-    connections: Arc<ConnectionMap>,
+    connections: Arc<ConnectionMap<M>>,
     services: Arc<ServiceMap>,
     tracker: Arc<Tracker>,
 }
 
-impl Direct {
+impl<M> Direct<M> where M: Metric
+{
     pub fn new(cipher: Box<Cipher>,
                balancer: Box<Balancer>,
+               metric: Arc<M>,
                local_address: SocketAddr,
                public_address: Option<SocketAddr>,
                request_timeout: Option<Duration>)
-               -> Direct {
+               -> Self {
 
         let statistic = Arc::new(Statistic::new());
         balancer.assign_statistic(statistic.clone());
@@ -57,7 +61,7 @@ impl Direct {
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
             cipher: Arc::new(cipher),
-            connections: Arc::new(ConnectionMap::new()),
+            connections: Arc::new(ConnectionMap::new(metric)),
             services: Arc::new(ServiceMap::new(balancer)),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
         }
@@ -74,7 +78,8 @@ impl Direct {
     }
 }
 
-impl Transport for Direct {
+impl<M> Transport for Direct<M> where M: Metric
+{
     fn bind(&self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(self.local_address));
 
@@ -150,10 +155,6 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn connection_count(&self) -> usize {
-        self.connections.len()
-    }
-
     fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
         try!(self.services.insert_local(name, f));
 
@@ -222,16 +223,15 @@ impl Transport for Direct {
     }
 }
 
-impl fmt::Display for Direct {
+impl<M> fmt::Display for Direct<M> where M: Metric
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "(Direct transport {} connections {} services)",
-               self.connection_count(),
-               self.service_count())
+        write!(f, "(Direct transport {} services)", self.service_count())
     }
 }
 
-impl Drop for Direct {
+impl<M> Drop for Direct<M> where M: Metric
+{
     fn drop(&mut self) {
         self.unbind().unwrap();
     }

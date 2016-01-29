@@ -17,10 +17,6 @@ extern crate delix;
 
 #[allow(dead_code)] mod helper;
 
-use std::thread;
-
-use delix::node::State;
-
 #[test]
 fn loose() {
     helper::set_up();
@@ -28,14 +24,10 @@ fn loose() {
     let node_one = helper::build_node("127.0.0.1:3001", &[], None);
     {
         let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
-
-        thread::sleep(::std::time::Duration::from_millis(1000));
-        helper::assert_node(&node_one, State::Joined, 1);
-        helper::assert_node(&node_two, State::Joined, 1);
+        helper::wait_for_joined(&[&node_one, &node_two]);
     }
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Discovering, 0);
+    helper::wait_for_discovering(&node_one);
 }
 
 #[test]
@@ -49,14 +41,11 @@ fn loose_and_service_clean_up() {
             Ok(request)
         })).unwrap();
 
-        thread::sleep(::std::time::Duration::from_millis(1000));
-        helper::assert_node(&node_one, State::Joined, 1);
-        helper::assert_node(&node_two, State::Joined, 1);
+        helper::wait_for_joined(&[&node_one, &node_two]);
         assert_eq!(1, node_one.service_count());
         assert_eq!(1, node_two.service_count());
     }
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Discovering, 0);
+    helper::wait_for_discovering(&node_one);
     assert_eq!(0, node_one.service_count());
 }

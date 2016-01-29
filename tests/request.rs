@@ -22,7 +22,7 @@ use std::iter;
 use std::sync::mpsc;
 use std::thread;
 
-use delix::node::{State, request};
+use delix::node::request;
 use delix::util::writer;
 
 #[test]
@@ -34,9 +34,25 @@ fn single_echo_from_local_without_timeout() {
             .unwrap();
 
     thread::sleep(::std::time::Duration::from_millis(100));
-    helper::assert_node(&node, State::Discovering, 0);
 
     assert_eq!("test message", String::from_utf8_lossy(&node.request_bytes("echo", b"test message").unwrap()));
+}
+
+#[test]
+fn single_large_echo_from_local_without_timeout() {
+    helper::set_up();
+
+    let node = helper::build_node("127.0.0.1:3061", &[], None);
+    node.register("echo", Box::new(|request| Ok(request)))
+            .unwrap();
+
+    thread::sleep(::std::time::Duration::from_millis(100));
+
+    let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
+    let request = Box::new(io::Cursor::new(request_bytes.clone()));
+    let response = Box::new(writer::Collector::new());
+    node.request("echo", request, response.clone()).unwrap();
+    assert_eq!(request_bytes, response.vec().unwrap());
 }
 
 #[test]
@@ -50,7 +66,6 @@ fn single_echo_from_local_with_timeout() {
     })).unwrap();
 
     thread::sleep(::std::time::Duration::from_millis(100));
-    helper::assert_node(&node, State::Discovering, 0);
 
     assert_eq!(Err(request::Error::Timeout), node.request_bytes("echo", b""));
 }
@@ -65,9 +80,7 @@ fn single_echo_from_remote_without_timeout() {
 
     let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
 
     assert_eq!("test message", String::from_utf8_lossy(&node_two.request_bytes("echo", b"test message").unwrap()));
 }
@@ -84,9 +97,7 @@ fn single_echo_from_remote_with_timeout() {
 
     let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
 
     assert_eq!(Err(request::Error::Timeout), node_two.request_bytes("echo", b""));
 }
@@ -101,9 +112,7 @@ fn multiple_echos_from_remote() {
 
     let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 1);
-    helper::assert_node(&node_two, State::Joined, 1);
+    helper::wait_for_joined(&[&node_one, &node_two]);
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
 
@@ -133,10 +142,7 @@ fn balanced_echos_from_two_remotes() {
         Ok(request)
     })).unwrap();
 
-    thread::sleep(::std::time::Duration::from_millis(1000));
-    helper::assert_node(&node_one, State::Joined, 2);
-    helper::assert_node(&node_two, State::Joined, 2);
-    helper::assert_node(&node_three, State::Joined, 2);
+    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
     assert_eq!(1, node_one.service_count());
     assert_eq!(1, node_two.service_count());
     assert_eq!(1, node_three.service_count());
@@ -152,22 +158,4 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
 
     helper::assert_contains_all(&["two", "two"], &helper::recv_all(&rx));
-}
-
-#[test]
-fn large_echo_from_local() {
-    helper::set_up();
-
-    let node = helper::build_node("127.0.0.1:3061", &[], None);
-    node.register("echo", Box::new(|request| Ok(request)))
-            .unwrap();
-
-    thread::sleep(::std::time::Duration::from_millis(100));
-    helper::assert_node(&node, State::Discovering, 0);
-
-    let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
-    let request = Box::new(io::Cursor::new(request_bytes.clone()));
-    let response = Box::new(writer::Collector::new());
-    node.request("echo", request, response.clone()).unwrap();
-    assert_eq!(request_bytes, response.vec().unwrap());
 }

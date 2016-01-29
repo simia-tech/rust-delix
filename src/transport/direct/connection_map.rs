@@ -20,12 +20,16 @@ use std::result;
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
+use metric::Metric;
 use node::{ID, request};
 use transport::direct::{self, Connection};
 
-pub struct ConnectionMap {
+pub struct ConnectionMap<M>
+    where M: Metric
+{
     map: Arc<RwLock<HashMap<ID, Connection>>>,
     sender: mpsc::Sender<ID>,
+    metric: Arc<M>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -36,8 +40,11 @@ pub enum Error {
     Connection(direct::ConnectionError),
 }
 
-impl ConnectionMap {
-    pub fn new() -> ConnectionMap {
+impl<M> ConnectionMap<M> where M: Metric
+{
+    pub fn new(metric: Arc<M>) -> Self {
+        let metric_clone = metric.clone();
+
         let map = Arc::new(RwLock::new(HashMap::new()));
         let map_clone = map.clone();
 
@@ -45,11 +52,13 @@ impl ConnectionMap {
         thread::spawn(move || {
             for peer_node_id in receiver {
                 map_clone.write().unwrap().remove(&peer_node_id);
+                metric_clone.gauge_delta("connections", -1);
             }
         });
         ConnectionMap {
             map: map,
             sender: sender,
+            metric: metric,
         }
     }
 
@@ -65,6 +74,7 @@ impl ConnectionMap {
         }));
 
         map.insert(connection.peer_node_id(), connection);
+        self.metric.gauge_delta("connections", 1);
         Ok(())
     }
 
@@ -81,10 +91,6 @@ impl ConnectionMap {
                 (*peer_node_id, peer_connection.peer_public_address())
             })
             .collect()
-    }
-
-    pub fn len(&self) -> usize {
-        self.map.read().unwrap().len()
     }
 
     pub fn send_add_services(&self, services: &[String]) -> Result<()> {
@@ -122,17 +128,21 @@ impl ConnectionMap {
     }
 }
 
-unsafe impl Send for ConnectionMap {}
+unsafe impl<M> Send for ConnectionMap<M> where M: Metric
+{}
 
-unsafe impl Sync for ConnectionMap {}
+unsafe impl<M> Sync for ConnectionMap<M> where M: Metric
+{}
 
-impl fmt::Display for ConnectionMap {
+impl<M> fmt::Display for ConnectionMap<M> where M: Metric
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f, "(Direct connection map {} entries)", self.len())
+        write!(f, "(Direct connection map)")
     }
 }
 
-impl Drop for ConnectionMap {
+impl<M> Drop for ConnectionMap<M> where M: Metric
+{
     fn drop(&mut self) {
         self.clear_on_shutdown();
     }

@@ -17,10 +17,8 @@ limitations under the License.
 mod id;
 mod node;
 pub mod request;
-mod state;
 
 pub use node::id::ID;
 pub use node::id::Error as IDError;
 pub use node::node::Node;
 pub use node::node::Error;
-pub use node::state::State;

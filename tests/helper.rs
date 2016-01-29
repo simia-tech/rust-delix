@@ -28,7 +28,8 @@ use self::time::Duration;
 
 use delix::discovery::Constant;
 use delix::logger;
-use delix::node::{Node, State};
+use delix::metric::{self, Metric};
+use delix::node::Node;
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
 use delix::relay::{self, Relay};
@@ -44,7 +45,8 @@ pub fn set_up() {
 pub fn build_node(local_address: &str,
                   discover_addresses: &[&str],
                   request_timeout: Option<i64>)
-                  -> Arc<Node> {
+                  -> Arc<Node<metric::Memory>> {
+
     let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
@@ -53,22 +55,41 @@ pub fn build_node(local_address: &str,
                                                                  s.parse::<SocketAddr>().unwrap()
                                                              })
                                                              .collect()));
+
+    let metric = Arc::new(metric::Memory::new());
     let transport = Box::new(Direct::new(cipher,
                                          balancer,
+                                         metric.clone(),
                                          local_address.parse::<SocketAddr>().unwrap(),
                                          None,
                                          request_timeout.map(|value| {
                                              Duration::milliseconds(value)
                                          })));
-    Arc::new(Node::new(discovery, transport).unwrap())
+
+    Arc::new(Node::new(discovery, transport, metric).unwrap())
 }
 
-pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::HttpStatic> {
+pub fn build_http_static_relay<M>(node: &Arc<Node<M>>,
+                                  address: Option<&str>)
+                                  -> Arc<relay::HttpStatic<M>>
+    where M: Metric
+{
     let relay = relay::HttpStatic::new(node.clone(), "X-Delix-Service");
     if let Some(address) = address {
         relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
     }
     Arc::new(relay)
+}
+
+pub fn wait_for_joined(nodes: &[&Arc<Node<metric::Memory>>]) {
+    let required_connections = nodes.len() as isize - 1;
+    for node in nodes {
+        node.metric().watch_gauge("connections", move |_, value| value < required_connections);
+    }
+}
+
+pub fn wait_for_discovering(node: &Arc<Node<metric::Memory>>) {
+    node.metric().watch_gauge("connections", |_, value| value > 0);
 }
 
 pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
@@ -81,11 +102,6 @@ pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
         });
     }
     result
-}
-
-pub fn assert_node(node: &Arc<Node>, expected_state: State, expected_connection_count: usize) {
-    assert_eq!(expected_state, node.state());
-    assert_eq!(expected_connection_count, node.connection_count());
 }
 
 pub fn assert_response(expected_status_code: StatusCode,

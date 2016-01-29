@@ -13,9 +13,17 @@
 // limitations under the License.
 //
 
-pub trait Metric {
+pub trait Metric : Send + Sync + 'static {
     fn increment_counter(&self, &str);
     fn change_gauge(&self, &str, Change);
+
+    fn gauge_set(&self, key: &str, value: isize) {
+        self.change_gauge(key, Change::Set(value));
+    }
+
+    fn gauge_delta(&self, key: &str, delta: isize) {
+        self.change_gauge(key, Change::Delta(delta));
+    }
 }
 
 pub enum Change {

@@ -21,14 +21,18 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::thread;
 
 use discovery::Discovery;
-use node::{ID, State, request};
+use metric::Metric;
+use node::{ID, request};
 use transport;
 use transport::Transport;
 use util::writer;
 
-pub struct Node {
+pub struct Node<M>
+    where M: Metric
+{
     id: ID,
     transport: Arc<Box<Transport>>,
+    metric: Arc<M>,
     join_handle: Option<thread::JoinHandle<()>>,
     running: Arc<AtomicBool>,
 }
@@ -42,8 +46,9 @@ pub enum Error {
     Request(request::Error),
 }
 
-impl Node {
-    pub fn new(d: Box<Discovery>, t: Box<Transport>) -> Result<Node> {
+impl<M> Node<M> where M: Metric
+{
+    pub fn new(d: Box<Discovery>, t: Box<Transport>, metric: Arc<M>) -> Result<Self> {
         let node_id = ID::new_random();
 
         try!(t.bind(node_id));
@@ -59,10 +64,11 @@ impl Node {
 
         let join_handle = Some(thread::spawn(move || {
             while running_clone.load(Ordering::SeqCst) {
-                if transport_clone.connection_count() == 0 {
-                    if let Some(address) = discovery_clone.discover() {
-                        if let Err(err) = transport_clone.join(address, node_id) {
-                            error!("{}: failed to connect to {}: {:?}", node_id, address, err);
+                if let Some(address) = discovery_clone.discover() {
+                    match transport_clone.join(address, node_id) {
+                        Ok(()) => break,
+                        Err(error) => {
+                            error!("{}: failed to connect to {}: {:?}", node_id, address, error);
                         }
                     }
                 }
@@ -73,6 +79,7 @@ impl Node {
         Ok(Node {
             id: node_id,
             transport: transport,
+            metric: metric,
             join_handle: join_handle,
             running: running,
         })
@@ -82,16 +89,8 @@ impl Node {
         self.id
     }
 
-    pub fn state(&self) -> State {
-        if self.transport.connection_count() == 0 {
-            State::Discovering
-        } else {
-            State::Joined
-        }
-    }
-
-    pub fn connection_count(&self) -> usize {
-        self.transport.connection_count()
+    pub fn metric(&self) -> &Arc<M> {
+        &self.metric
     }
 
     pub fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
@@ -130,17 +129,15 @@ impl Node {
     }
 }
 
-impl fmt::Display for Node {
+impl<M> fmt::Display for Node<M> where M: Metric
+{
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        write!(f,
-               "(Node {} {} {} connections)",
-               self.id,
-               self.state(),
-               self.connection_count())
+        write!(f, "(Node {})", self.id)
     }
 }
 
-impl Drop for Node {
+impl<M> Drop for Node<M> where M: Metric
+{
     fn drop(&mut self) {
         self.running.store(false, Ordering::SeqCst);
         self.join_handle.take().unwrap().join().unwrap();

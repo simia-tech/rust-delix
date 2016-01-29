@@ -199,9 +199,23 @@ impl Connection {
                             {
                                 let mut tx_stream = tx_stream_clone.lock().unwrap();
 
-                                write_container(&mut *tx_stream,
-                                                &container::pack_response(request_id, &response))
-                                    .unwrap();
+                                match write_container(&mut *tx_stream,
+                                                      &container::pack_response(request_id,
+                                                                                &response)) {
+                                    Ok(_) => {}
+                                    Err(Error::Io(error)) => {
+                                        error!("could not send response (may timed out): {:?}",
+                                               error);
+
+                                        if let Ok(ref mut reader) = response {
+                                            io::copy(reader, &mut io::sink()).unwrap();
+                                        }
+
+                                        continue;
+                                    }
+                                    Err(error) => panic!(format!("{:?}", error)),
+                                }
+
                                 if let Ok(ref mut reader) = response {
                                     io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream))
                                         .unwrap();
@@ -359,7 +373,11 @@ impl fmt::Display for Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        self.tx_stream.lock().unwrap().get_ref().shutdown(net::Shutdown::Both).unwrap();
+        match self.tx_stream.lock().unwrap().get_ref().shutdown(net::Shutdown::Both) {
+            Ok(()) => {}
+            Err(ref error) if error.kind() == io::ErrorKind::NotConnected => {}
+            Err(ref error) => panic!(format!("{:?}", error)),
+        }
         self.thread.take().unwrap().join().unwrap();
 
         if let Some(ref f) = *self.on_drop.lock().unwrap() {

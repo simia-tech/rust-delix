@@ -15,7 +15,7 @@ limitations under the License.
 */
 
 mod memory;
-mod metric;
+pub mod metric;
 
 pub use metric::memory::Memory;
-pub use metric::metric::{Change, Metric};
+pub use metric::metric::Metric;

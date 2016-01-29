@@ -21,6 +21,7 @@ use time::Duration;
 use log;
 
 use delix::logger;
+use delix::metric::{self, Metric};
 use delix::node::{self, Node};
 use delix::discovery::{Constant, Discovery};
 use delix::relay::{self, Relay};
@@ -91,7 +92,7 @@ impl Loader {
         Ok(())
     }
 
-    pub fn load_node(&self) -> Result<Arc<Node>> {
+    pub fn load_node(&self) -> Result<Arc<Node<metric::Memory>>> {
         let discovery_type = try!(self.configuration
                                       .string_at("discovery.type")
                                       .ok_or(Error::NoDiscoveryType));
@@ -127,6 +128,8 @@ impl Loader {
             _ => return Err(Error::UnknownCipherType(cipher_type)),
         };
 
+        let metric = Arc::new(metric::Memory::new());
+
         let transport_type = try!(self.configuration
                                       .string_at("transport.type")
                                       .ok_or(Error::NoTransportType));
@@ -161,6 +164,7 @@ impl Loader {
 
                 Box::new(Direct::new(cipher,
                                      balancer,
+                                     metric.clone(),
                                      local_address,
                                      public_address,
                                      request_timeout))
@@ -168,10 +172,12 @@ impl Loader {
             _ => return Err(Error::UnknownTransportType(transport_type)),
         };
 
-        Ok(Arc::new(try!(Node::new(discovery, transport))))
+        Ok(Arc::new(try!(Node::new(discovery, transport, metric))))
     }
 
-    pub fn load_relays(&self, node: &Arc<Node>) -> Result<Vec<Box<Relay>>> {
+    pub fn load_relays<M>(&self, node: &Arc<Node<M>>) -> Result<Vec<Box<Relay>>>
+        where M: Metric
+    {
         let mut relays = Vec::new();
         if let Some(configurations) = self.configuration.configurations_at("relay") {
             for configuration in configurations {
