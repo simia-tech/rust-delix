@@ -15,7 +15,7 @@
 
 extern crate delix;
 
-#[allow(dead_code)] mod helper;
+mod helper;
 
 use delix::node::request;
 
@@ -76,7 +76,6 @@ fn deregistration() {
 }
 
 #[test]
-#[ignore]
 fn deregistration_in_joined_network() {
     helper::set_up();
 

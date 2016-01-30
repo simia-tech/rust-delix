@@ -13,34 +13,18 @@
 // limitations under the License.
 //
 
-extern crate delix;
-extern crate hyper;
-extern crate log;
 extern crate time;
 
-use std::io::Read;
 use std::net::SocketAddr;
-use std::sync::{self, Arc, mpsc};
+use std::sync::Arc;
 
-use self::hyper::client::response::Response;
-use self::hyper::status::StatusCode;
 use self::time::Duration;
 
 use delix::discovery::Constant;
-use delix::logger;
-use delix::metric::{self, Metric};
+use delix::metric;
 use delix::node::Node;
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
-use delix::relay::{self, Relay};
-
-static START: sync::Once = sync::ONCE_INIT;
-
-pub fn set_up() {
-    START.call_once(|| {
-        logger::Console::init(log::LogLevelFilter::Trace, "delix").unwrap();
-    });
-}
 
 pub fn build_node(local_address: &str,
                   discover_addresses: &[&str],
@@ -69,18 +53,6 @@ pub fn build_node(local_address: &str,
     Arc::new(Node::new(discovery, transport, metric).unwrap())
 }
 
-pub fn build_http_static_relay<M>(node: &Arc<Node<M>>,
-                                  address: Option<&str>)
-                                  -> Arc<relay::HttpStatic<M>>
-    where M: Metric
-{
-    let relay = relay::HttpStatic::new(node.clone(), "X-Delix-Service");
-    if let Some(address) = address {
-        relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
-    }
-    Arc::new(relay)
-}
-
 pub fn wait_for_joined(nodes: &[&Arc<Node<metric::Memory>>]) {
     let required_connections = nodes.len() as isize - 1;
     for node in nodes {
@@ -95,32 +67,5 @@ pub fn wait_for_discovering(node: &Arc<Node<metric::Memory>>) {
 pub fn wait_for_services(nodes: &[&Arc<Node<metric::Memory>>], count: isize) {
     for node in nodes {
         node.metric().watch_gauge("services", move |_, value| value != count);
-    }
-}
-
-pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
-    let mut result = Vec::new();
-    loop {
-        result.push(match rx.try_recv() {
-            Ok(value) => value,
-            Err(mpsc::TryRecvError::Empty) => break,
-            Err(error) => panic!(error),
-        });
-    }
-    result
-}
-
-pub fn assert_response(expected_status_code: StatusCode,
-                       expected_body: &[u8],
-                       response: &mut Response) {
-    assert_eq!(expected_status_code, response.status);
-    let mut response_body = String::new();
-    response.read_to_string(&mut response_body).unwrap();
-    assert_eq!(String::from_utf8_lossy(expected_body), response_body);
-}
-
-pub fn assert_contains_all<T: PartialEq>(expected: &[T], actual: &Vec<T>) {
-    for e in expected {
-        assert!(actual.contains(e));
     }
 }

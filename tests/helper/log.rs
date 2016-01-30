@@ -13,27 +13,15 @@
 // limitations under the License.
 //
 
-extern crate delix;
+extern crate log;
 
-mod helper;
+use std::sync;
+use delix::logger;
 
-#[test]
-fn two_nodes() {
-    helper::set_up();
+static START: sync::Once = sync::ONCE_INIT;
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two]);
-}
-
-#[test]
-fn three_nodes() {
-    helper::set_up();
-
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
+pub fn set_up() {
+    START.call_once(|| {
+        logger::Console::init(log::LogLevelFilter::Trace, "delix").unwrap();
+    });
 }

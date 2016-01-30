@@ -13,27 +13,24 @@
 // limitations under the License.
 //
 
-extern crate delix;
+extern crate hyper;
 
-mod helper;
+use std::io::Read;
 
-#[test]
-fn two_nodes() {
-    helper::set_up();
+use self::hyper::client::response::Response;
+use self::hyper::status::StatusCode;
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two]);
+pub fn assert_response(expected_status_code: StatusCode,
+                       expected_body: &[u8],
+                       response: &mut Response) {
+    assert_eq!(expected_status_code, response.status);
+    let mut response_body = String::new();
+    response.read_to_string(&mut response_body).unwrap();
+    assert_eq!(String::from_utf8_lossy(expected_body), response_body);
 }
 
-#[test]
-fn three_nodes() {
-    helper::set_up();
-
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
+pub fn assert_contains_all<T: PartialEq>(expected: &[T], actual: &Vec<T>) {
+    for e in expected {
+        assert!(actual.contains(e));
+    }
 }

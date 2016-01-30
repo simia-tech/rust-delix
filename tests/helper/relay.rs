@@ -13,27 +13,21 @@
 // limitations under the License.
 //
 
-extern crate delix;
+use std::net::SocketAddr;
+use std::sync::Arc;
 
-mod helper;
+use delix::metric::Metric;
+use delix::node::Node;
+use delix::relay::{self, Relay};
 
-#[test]
-fn two_nodes() {
-    helper::set_up();
-
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two]);
-}
-
-#[test]
-fn three_nodes() {
-    helper::set_up();
-
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
+pub fn build_http_static_relay<M>(node: &Arc<Node<M>>,
+                                  address: Option<&str>)
+                                  -> Arc<relay::HttpStatic<M>>
+    where M: Metric
+{
+    let relay = relay::HttpStatic::new(node.clone(), "X-Delix-Service");
+    if let Some(address) = address {
+        relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
+    }
+    Arc::new(relay)
 }

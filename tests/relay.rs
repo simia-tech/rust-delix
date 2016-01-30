@@ -16,7 +16,7 @@
 extern crate delix;
 #[macro_use] extern crate hyper;
 
-#[allow(dead_code)] mod helper;
+mod helper;
 
 use std::io::{self, Read};
 use std::net::SocketAddr;

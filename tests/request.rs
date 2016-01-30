@@ -15,7 +15,7 @@
 
 extern crate delix;
 
-#[allow(dead_code)] mod helper;
+mod helper;
 
 use std::io;
 use std::iter;

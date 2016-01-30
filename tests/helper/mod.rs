@@ -15,25 +15,26 @@
 
 extern crate delix;
 
-mod helper;
+#[allow(dead_code)] mod assert;
+#[allow(dead_code)] mod log;
+#[allow(dead_code)] mod node;
+#[allow(dead_code)] mod relay;
 
-#[test]
-fn two_nodes() {
-    helper::set_up();
+pub use helper::assert::*;
+pub use helper::log::*;
+pub use helper::node::*;
+pub use helper::relay::*;
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
+use std::sync::mpsc;
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
-}
-
-#[test]
-fn three_nodes() {
-    helper::set_up();
-
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
-
-    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
+#[allow(dead_code)] pub fn recv_all<T>(rx: &mpsc::Receiver<T>) -> Vec<T> {
+    let mut result = Vec::new();
+    loop {
+        result.push(match rx.try_recv() {
+            Ok(value) => value,
+            Err(mpsc::TryRecvError::Empty) => break,
+            Err(error) => panic!(error),
+        });
+    }
+    result
 }
