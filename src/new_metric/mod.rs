@@ -14,21 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-extern crate ansi_term;
-extern crate byteorder;
-extern crate crypto;
-#[macro_use] extern crate log;
-extern crate protobuf;
-extern crate rand;
-extern crate rustc_serialize;
-extern crate time;
+pub mod item;
+mod memory;
+mod metric;
+mod query;
+mod value;
 
-pub mod discovery;
-pub mod logger;
-pub mod message;
-pub mod metric;
-pub mod new_metric;
-pub mod node;
-pub mod relay;
-pub mod transport;
-pub mod util;
+pub use self::memory::Memory;
+pub use self::metric::Metric;
+pub use self::query::Query;
+pub use self::value::Value;
