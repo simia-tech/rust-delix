@@ -125,7 +125,7 @@ mod tests {
         let subject = Subject::local("test");
         statistic.assign_store(store.clone());
 
-        statistic.push(subject.clone(), Duration::milliseconds(100));
+        statistic.push(subject.clone(), Duration::milliseconds(1000));
 
         let (response_tx, _) = mpsc::channel();
         store.insert(10,
@@ -133,10 +133,11 @@ mod tests {
                      time::now_utc(),
                      (Some(Box::new(io::sink())), response_tx))
              .unwrap();
-        thread::sleep(::std::time::Duration::from_millis(50));
+        thread::sleep(::std::time::Duration::from_millis(10));
 
-        assert!(statistic.average("test", &Link::Local) > Duration::milliseconds(50));
-        assert!(statistic.average("test", &Link::Local) < Duration::milliseconds(100));
+        let average = statistic.average("test", &Link::Local);
+        assert!(average > Duration::milliseconds(10));
+        assert!(average < Duration::milliseconds(1000));
     }
 
 }
