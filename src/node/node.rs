@@ -16,8 +16,7 @@
 use std::fmt;
 use std::io;
 use std::result;
-use std::sync::{Arc, RwLock};
-use std::thread;
+use std::sync::Arc;
 
 use discovery::Discovery;
 use metric::Metric;
@@ -29,11 +28,10 @@ use util::writer;
 pub struct Node<M>
     where M: Metric
 {
-    id: ID,
+    pub id: ID,
+    discovery: Arc<Box<Discovery>>,
     transport: Arc<Box<Transport>>,
     metric: Arc<M>,
-    join_handle: Option<thread::JoinHandle<()>>,
-    running: Arc<RwLock<bool>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -52,44 +50,30 @@ impl<M> Node<M> where M: Metric
 
         try!(t.bind(node_id));
 
-        let running = Arc::new(RwLock::new(true));
-        let running_clone = running.clone();
-
         let discovery = Arc::new(d);
         let transport = Arc::new(t);
 
-        let discovery_clone = discovery.clone();
-        let transport_clone = transport.clone();
-
-        let join_handle = Some(thread::spawn(move || {
-            while *running_clone.read().unwrap() {
-                if let Some(address) = discovery_clone.discover() {
-                    match transport_clone.join(address, node_id) {
-                        Ok(()) => break,
-                        Err(error) => {
-                            error!("{}: failed to connect to {}: {:?}", node_id, address, error);
-                        }
-                    }
-                }
-                thread::sleep(::std::time::Duration::from_millis(2000));
-            }
-        }));
-
         Ok(Node {
             id: node_id,
+            discovery: discovery,
             transport: transport,
             metric: metric,
-            join_handle: join_handle,
-            running: running,
         })
-    }
-
-    pub fn id(&self) -> ID {
-        self.id
     }
 
     pub fn metric(&self) -> &Arc<M> {
         &self.metric
+    }
+
+    pub fn join(&self) {
+        while let Some(address) = self.discovery.discover() {
+            match self.transport.join(address, self.id) {
+                Ok(()) => break,
+                Err(error) => {
+                    error!("{}: failed to connect to {}: {:?}", self.id, address, error);
+                }
+            }
+        }
     }
 
     pub fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
@@ -128,14 +112,6 @@ impl<M> fmt::Debug for Node<M> where M: Metric
 {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(Node {})", self.id)
-    }
-}
-
-impl<M> Drop for Node<M> where M: Metric
-{
-    fn drop(&mut self) {
-        *self.running.write().unwrap() = false;
-        self.join_handle.take().unwrap().join().unwrap();
     }
 }
 

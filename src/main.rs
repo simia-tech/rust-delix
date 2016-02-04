@@ -69,6 +69,8 @@ fn main() {
         }
     };
 
+    node.join();
+
     let relays = match loader.load_relays(&node) {
         Ok(relays) => relays,
         Err(error) => {

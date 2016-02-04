@@ -50,7 +50,9 @@ pub fn build_node(local_address: &str,
                                              Duration::milliseconds(value)
                                          })));
 
-    Arc::new(Node::new(discovery, transport, metric).unwrap())
+    let node = Arc::new(Node::new(discovery, transport, metric).unwrap());
+    node.join();
+    node
 }
 
 pub fn wait_for_joined(nodes: &[&Arc<Node<metric::Memory>>]) {

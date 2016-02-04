@@ -1,6 +1,6 @@
 [package]
 name = "delix"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
 description = "Decentral HTTP proxy / load balancer"
 homepage = "https://github.com/simia-tech/rust-delix"
