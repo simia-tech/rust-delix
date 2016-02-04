@@ -29,11 +29,11 @@ use delix::util::writer;
 fn single_echo_from_local_without_timeout() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3001", &[], None);
+    let (node, metric) = helper::build_node("127.0.0.1:3001", &[], None);
     node.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    thread::sleep(::std::time::Duration::from_millis(100));
+    helper::wait_for_services(&[&metric], 1);
 
     assert_eq!("test message", String::from_utf8_lossy(&node.request_bytes("echo", b"test message").unwrap()));
 }
@@ -42,11 +42,11 @@ fn single_echo_from_local_without_timeout() {
 fn single_large_echo_from_local_without_timeout() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3061", &[], None);
+    let (node, metric) = helper::build_node("127.0.0.1:3061", &[], None);
     node.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    thread::sleep(::std::time::Duration::from_millis(100));
+    helper::wait_for_services(&[&metric], 1);
 
     let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
     let request = Box::new(io::Cursor::new(request_bytes.clone()));
@@ -59,13 +59,13 @@ fn single_large_echo_from_local_without_timeout() {
 fn single_echo_from_local_with_timeout() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3011", &[], Some(10));
+    let (node, metric) = helper::build_node("127.0.0.1:3011", &[], Some(10));
     node.register("echo", Box::new(|request| {
         thread::sleep(::std::time::Duration::from_millis(20));
         Ok(request)
     })).unwrap();
 
-    thread::sleep(::std::time::Duration::from_millis(100));
+    helper::wait_for_services(&[&metric], 1);
 
     assert_eq!(Err(request::Error::Timeout), node.request_bytes("echo", b""));
 }
@@ -74,14 +74,14 @@ fn single_echo_from_local_with_timeout() {
 fn single_echo_from_remote_without_timeout() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3021", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3021", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     assert_eq!("test message", String::from_utf8_lossy(&node_two.request_bytes("echo", b"test message").unwrap()));
 }
@@ -90,16 +90,16 @@ fn single_echo_from_remote_without_timeout() {
 fn single_echo_from_remote_with_timeout() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3031", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3031", &[], None);
     node_one.register("echo", Box::new(|request| {
         thread::sleep(::std::time::Duration::from_millis(20));
         Ok(request)
     })).unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], Some(10));
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     assert_eq!(Err(request::Error::Timeout), node_two.request_bytes("echo", b""));
 }
@@ -108,14 +108,14 @@ fn single_echo_from_remote_with_timeout() {
 fn multiple_echos_from_remote() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3041", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3041", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     assert_eq!(b"test message one".to_vec(), node_two.request_bytes("echo", b"test message one").unwrap());
     assert_eq!(b"test message two".to_vec(), node_two.request_bytes("echo", b"test message two").unwrap());
@@ -125,26 +125,26 @@ fn multiple_echos_from_remote() {
 fn balanced_echos_from_two_remotes() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3051", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3051", &[], None);
 
     let (tx, rx) = mpsc::channel();
 
-    let node_two = helper::build_node("127.0.0.1:3052", &["127.0.0.1:3051"], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3052", &["127.0.0.1:3051"], None);
     let tx_clone = tx.clone();
     node_two.register("echo", Box::new(move |request| {
         tx_clone.send("two").unwrap();
         Ok(request)
     })).unwrap();
 
-    let node_three = helper::build_node("127.0.0.1:3053", &["127.0.0.1:3051"], None);
+    let (node_three, metric_three) = helper::build_node("127.0.0.1:3053", &["127.0.0.1:3051"], None);
     let tx_clone = tx.clone();
     node_three.register("echo", Box::new(move |request| {
         tx_clone.send("three").unwrap();
         Ok(request)
     })).unwrap();
 
-    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
-    helper::wait_for_services(&[&node_one, &node_two, &node_three], 1);
+    helper::wait_for_joined(&[&metric_one, &metric_two, &metric_three]);
+    helper::wait_for_services(&[&metric_one, &metric_two, &metric_three], 1);
 
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));

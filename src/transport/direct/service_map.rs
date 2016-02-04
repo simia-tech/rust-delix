@@ -17,14 +17,14 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::{Arc, Mutex, RwLock};
 
-use metric::Metric;
+use metric::{self, Metric};
 use node::{ID, request};
 use transport::direct::{self, Link};
 
 pub struct ServiceMap {
     balancer: Box<direct::Balancer>,
     entries: RwLock<HashMap<String, Entry>>,
-    metric: Arc<Metric>,
+    services_gauge: metric::item::Gauge,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -42,7 +42,7 @@ impl ServiceMap {
         ServiceMap {
             balancer: balancer,
             entries: RwLock::new(HashMap::new()),
-            metric: metric,
+            services_gauge: metric.gauge("services"),
         }
     }
 
@@ -51,7 +51,7 @@ impl ServiceMap {
 
         if !entries.contains_key(name) {
             entries.insert(name.to_string(), Entry::new());
-            self.metric.gauge_delta("services", 1);
+            self.services_gauge.change(1);
         }
         let mut entry = entries.get_mut(name).unwrap();
 
@@ -70,7 +70,7 @@ impl ServiceMap {
 
         if !entries.contains_key(name) {
             entries.insert(name.to_string(), Entry::new());
-            self.metric.gauge_delta("services", 1);
+            self.services_gauge.change(1);
         }
         let mut entry = entries.get_mut(name).unwrap();
 
@@ -89,7 +89,7 @@ impl ServiceMap {
         for name in names {
             if !entries.contains_key(name) {
                 entries.insert(name.to_string(), Entry::new());
-                self.metric.gauge_delta("services", 1);
+                self.services_gauge.change(1);
             }
             let mut entry = entries.get_mut(name).unwrap();
 
@@ -188,7 +188,7 @@ impl ServiceMap {
         };
         if remove {
             entries.remove(name);
-            self.metric.gauge_delta("services", -1);
+            self.services_gauge.change(-1);
         }
         Ok(())
     }
@@ -206,7 +206,7 @@ impl ServiceMap {
         };
         if remove {
             entries.remove(name);
-            self.metric.gauge_delta("services", -1);
+            self.services_gauge.change(-1);
         }
         Ok(())
     }
@@ -225,7 +225,7 @@ impl ServiceMap {
             };
             if remove {
                 entries.remove(name);
-                self.metric.gauge_delta("services", -1);
+                self.services_gauge.change(-1);
             }
         }
     }
@@ -242,7 +242,7 @@ impl ServiceMap {
         }
         for name in names {
             entries.remove(&name);
-            self.metric.gauge_delta("services", -1);
+            self.services_gauge.change(-1);
         }
     }
 }

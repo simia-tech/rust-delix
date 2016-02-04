@@ -21,7 +21,7 @@ use std::sync::Arc;
 use self::time::Duration;
 
 use delix::discovery::Constant;
-use delix::metric;
+use delix::metric::{self, Query};
 use delix::node::Node;
 use delix::transport::{Direct, cipher};
 use delix::transport::direct::balancer;
@@ -29,7 +29,7 @@ use delix::transport::direct::balancer;
 pub fn build_node(local_address: &str,
                   discover_addresses: &[&str],
                   request_timeout: Option<i64>)
-                  -> Arc<Node> {
+                  -> (Arc<Node>, Arc<metric::Memory>) {
 
     let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
@@ -50,24 +50,26 @@ pub fn build_node(local_address: &str,
                                              Duration::milliseconds(value)
                                          })));
 
-    let node = Arc::new(Node::new(discovery, transport, metric).unwrap());
+    let node = Arc::new(Node::new(discovery, transport, metric.clone()).unwrap());
     node.join();
-    node
+    (node, metric)
 }
 
-pub fn wait_for_joined(nodes: &[&Arc<Node>]) {
-    // let required_connections = nodes.len() as isize - 1;
-    // for node in nodes {
-    //     node.metric().watch_gauge("connections", move |_, value| value < required_connections);
-    // }
+pub fn wait_for_joined(queries: &[&Arc<metric::Memory>]) {
+    let required_connections = queries.len() as isize - 1;
+    for &query in queries {
+        query.watch("connections",
+                    move |_, value| *value < metric::Value::Gauge(required_connections));
+    }
 }
 
-pub fn wait_for_discovering(node: &Arc<Node>) {
-    // node.metric().watch_gauge("connections", |_, value| value > 0);
+pub fn wait_for_discovering(query: &Arc<metric::Memory>) {
+    query.watch("connections", |_, value| *value > metric::Value::Gauge(0));
 }
 
-pub fn wait_for_services(nodes: &[&Arc<Node>], count: isize) {
-    // for node in nodes {
-    //     node.metric().watch_gauge("services", move |_, value| value != count);
-    // }
+pub fn wait_for_services(queries: &[&Arc<metric::Memory>], count: isize) {
+    for &query in queries {
+        query.watch("services",
+                    move |_, value| *value != metric::Value::Gauge(count));
+    }
 }

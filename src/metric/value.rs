@@ -13,9 +13,8 @@
 // limitations under the License.
 //
 
-use new_metric::item;
-
-pub trait Metric : Sync + Send {
-    fn counter(&self, &str) -> item::Counter;
-    fn gauge(&self, &str) -> item::Gauge;
+#[derive(Clone, Debug, PartialEq, PartialOrd)]
+pub enum Value {
+    Counter(usize),
+    Gauge(isize),
 }

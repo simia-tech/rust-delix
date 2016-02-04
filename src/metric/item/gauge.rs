@@ -13,8 +13,26 @@
 // limitations under the License.
 //
 
-use super::Value;
+pub struct Gauge {
+    on_set: Box<Fn(isize) + Send + Sync>,
+    on_change: Box<Fn(isize) + Send + Sync>,
+}
 
-pub trait Query {
-    fn get(&self, &str) -> Option<Value>;
+impl Gauge {
+    pub fn new(on_set: Box<Fn(isize) + Send + Sync>,
+               on_change: Box<Fn(isize) + Send + Sync>)
+               -> Self {
+        Gauge {
+            on_set: on_set,
+            on_change: on_change,
+        }
+    }
+
+    pub fn set(&self, value: isize) {
+        (*self.on_set)(value);
+    }
+
+    pub fn change(&self, value: isize) {
+        (*self.on_change)(value);
+    }
 }

@@ -77,6 +77,8 @@ impl Transport for Direct {
     fn bind(&self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(self.local_address));
 
+        *self.running.write().unwrap() = true;
+
         let public_address = self.public_address;
         let running_clone = self.running.clone();
         let cipher_clone = self.cipher.clone();
@@ -84,7 +86,6 @@ impl Transport for Direct {
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
         *self.join_handle.write().unwrap() = Some(thread::spawn(move || {
-            *running_clone.write().unwrap() = true;
             for stream in tcp_listener.incoming() {
                 if !*running_clone.read().unwrap() {
                     break;

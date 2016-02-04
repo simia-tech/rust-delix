@@ -19,7 +19,7 @@ use std::result;
 use std::sync::Arc;
 
 use discovery::Discovery;
-use metric::Metric;
+use metric::{self, Metric};
 use node::{ID, request};
 use transport;
 use transport::Transport;
@@ -29,7 +29,7 @@ pub struct Node {
     pub id: ID,
     discovery: Box<Discovery>,
     transport: Box<Transport>,
-    metric: Arc<Metric>,
+    requests_counter: metric::item::Counter,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -54,12 +54,8 @@ impl Node {
             id: node_id,
             discovery: discovery,
             transport: transport,
-            metric: metric,
+            requests_counter: metric.counter("requests"),
         })
-    }
-
-    pub fn metric(&self) -> &Arc<Metric> {
-        &self.metric
     }
 
     pub fn join(&self) {
@@ -101,6 +97,7 @@ impl Node {
                    reader: Box<request::Reader>,
                    response_writer: Box<request::ResponseWriter>)
                    -> request::Response {
+        self.requests_counter.increment();
         Ok(try!(self.transport.request(name, reader, response_writer)))
     }
 }

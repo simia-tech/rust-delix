@@ -14,8 +14,13 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
+pub mod item;
 mod memory;
 pub mod metric;
+mod query;
+mod value;
 
-pub use metric::memory::Memory;
-pub use metric::metric::Metric;
+pub use self::memory::Memory;
+pub use self::metric::Metric;
+pub use self::query::Query;
+pub use self::value::Value;

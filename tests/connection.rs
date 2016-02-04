@@ -18,33 +18,35 @@ extern crate delix;
 mod helper;
 
 #[test]
+#[allow(unused_variables)]
 fn loose() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3001", &[], None);
     {
-        let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
-        helper::wait_for_joined(&[&node_one, &node_two]);
+        let (node_two, metric_two) = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
+        helper::wait_for_joined(&[&metric_one, &metric_two]);
     }
 
-    helper::wait_for_discovering(&node_one);
+    helper::wait_for_discovering(&metric_one);
 }
 
 #[test]
+#[allow(unused_variables)]
 fn loose_and_service_clean_up() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3011", &[], None);
     {
-        let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
+        let (node_two, metric_two) = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
         node_two.register("echo", Box::new(|request| {
             Ok(request)
         })).unwrap();
 
-        helper::wait_for_joined(&[&node_one, &node_two]);
-        helper::wait_for_services(&[&node_one, &node_two], 1);
+        helper::wait_for_joined(&[&metric_one, &metric_two]);
+        helper::wait_for_services(&[&metric_one, &metric_two], 1);
     }
 
-    helper::wait_for_discovering(&node_one);
-    helper::wait_for_services(&[&node_one], 0);
+    helper::wait_for_discovering(&metric_one);
+    helper::wait_for_services(&[&metric_one], 0);
 }

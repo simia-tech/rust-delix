@@ -13,8 +13,16 @@
 // limitations under the License.
 //
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Value {
-    Counter(usize),
-    Gauge(isize),
+pub struct Counter {
+    on_increment: Box<Fn(usize) + Send + Sync>,
+}
+
+impl Counter {
+    pub fn new(on_increment: Box<Fn(usize) + Send + Sync>) -> Self {
+        Counter { on_increment: on_increment }
+    }
+
+    pub fn increment(&self) {
+        (*self.on_increment)(1);
+    }
 }

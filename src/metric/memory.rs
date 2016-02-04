@@ -14,135 +14,85 @@
 //
 
 use std::collections::{HashMap, hash_map};
-use std::sync::{Arc, Condvar, Mutex, RwLock};
-
-use super::{Metric, metric};
+use std::sync::{Arc, Condvar, RwLock, Mutex, atomic};
+use super::{Metric, Query, Value, item};
 
 pub struct Memory {
-    entries: RwLock<HashMap<String, Entry>>,
-    watches: RwLock<HashMap<u16,
-                            (String,
-                             Box<Fn(&str, Option<&Entry>) -> bool + Send + Sync>,
-                             Arc<(Mutex<bool>, Condvar)>)>>,
+    entries: RwLock<HashMap<String, Arc<Entry>>>,
+    watches: Arc<RwLock<HashMap<u16,
+                                (String,
+                                 Box<Fn(&str, &Value) -> bool + Send + Sync>,
+                                 Arc<(Mutex<bool>, Condvar)>)>>>,
     next_watch_id: RwLock<u16>,
-}
-
-#[derive(Clone, Debug, PartialEq)]
-enum Entry {
-    Counter(usize),
-    Gauge(isize),
 }
 
 impl Memory {
     pub fn new() -> Self {
         Memory {
             entries: RwLock::new(HashMap::new()),
-            watches: RwLock::new(HashMap::new()),
+            watches: Arc::new(RwLock::new(HashMap::new())),
             next_watch_id: RwLock::new(0u16),
         }
     }
 
-    pub fn get_counter(&self, key: &str) -> usize {
-        self.get(key)
-            .map(|entry| {
-                if let Entry::Counter(value) = entry {
-                    value
-                } else {
-                    0
-                }
-            })
-            .unwrap_or(0)
-    }
-
-    pub fn get_gauge(&self, key: &str) -> isize {
-        self.get(key)
-            .map(|entry| {
-                if let Entry::Gauge(value) = entry {
-                    value
-                } else {
-                    0
-                }
-            })
-            .unwrap_or(0)
-    }
-
-    fn get(&self, key: &str) -> Option<Entry> {
-        let entries = self.entries.read().unwrap();
-        entries.get(key).map(|entry| entry.clone())
-    }
-
-    fn update_counter<F>(&self, key: &str, default: usize, f: F)
-        where F: Fn(&mut usize)
-    {
-        self.update(key, Entry::Counter(default), |entry| {
-            if let Entry::Counter(ref mut value) = *entry {
-                f(value);
-            }
-        });
-    }
-
-    fn update_gauge<F>(&self, key: &str, default: isize, f: F)
-        where F: Fn(&mut isize)
-    {
-        self.update(key, Entry::Gauge(default), |entry| {
-            if let Entry::Gauge(ref mut value) = *entry {
-                f(value);
-            }
-        });
-    }
-
-    fn update<F>(&self, key: &str, default: Entry, f: F)
-        where F: Fn(&mut Entry)
-    {
+    fn get_or_insert(&self, key: &str, default: Entry) -> Arc<Entry> {
         let mut entries = self.entries.write().unwrap();
-        let entry = match entries.entry(key.to_string()) {
+        match entries.entry(key.to_string()) {
             hash_map::Entry::Vacant(ve) => {
-                ve.insert(default.clone());
-                default
+                let entry = Arc::new(default);
+                ve.insert(entry.clone());
+                entry
             }
-            hash_map::Entry::Occupied(ref mut oe) => {
-                f(oe.get_mut());
-                oe.get().clone()
-            }
-        };
-
-        let watches = self.watches.read().unwrap();
-        for (_, &(ref prefix, ref predicate, ref tuple)) in watches.iter() {
-            if key.starts_with(prefix) && !predicate(key, Some(&entry)) {
-                let &(ref mutex, ref condvar) = &**tuple;
-                let mut matched = mutex.lock().unwrap();
-                *matched = true;
-                condvar.notify_all();
-            }
+            hash_map::Entry::Occupied(ref mut oe) => oe.get().clone(),
         }
     }
+}
 
-    pub fn watch_counter<P>(&self, prefix: &str, predicate: P)
-        where P: Fn(&str, usize) -> bool + Send + Sync + 'static
-    {
-        self.watch(prefix, move |key, entry| {
-            match entry {
-                Some(&Entry::Counter(value)) => predicate(key, value),
-                Some(_) => false,
-                None => predicate(key, 0),
+impl Metric for Memory {
+    fn counter(&self, key: &str) -> item::Counter {
+        let entry = self.get_or_insert(key, Entry::Counter(atomic::AtomicUsize::new(0)));
+        let key = key.to_string();
+        let watches = self.watches.clone();
+        item::Counter::new(Box::new(move |delta_value| {
+            if let Entry::Counter(ref value) = *entry {
+                value.fetch_add(delta_value, atomic::Ordering::SeqCst);
+                trigger_watches(&watches, &key, Value::from(&*entry));
             }
-        });
+        }))
     }
 
-    pub fn watch_gauge<P>(&self, prefix: &str, predicate: P)
-        where P: Fn(&str, isize) -> bool + Send + Sync + 'static
-    {
-        self.watch(prefix, move |key, entry| {
-            match entry {
-                Some(&Entry::Gauge(value)) => predicate(key, value),
-                Some(_) => false,
-                None => predicate(key, 0),
-            }
-        });
+    fn gauge(&self, key: &str) -> item::Gauge {
+        let entry = self.get_or_insert(key, Entry::Gauge(atomic::AtomicIsize::new(0)));
+        let entry_clone = entry.clone();
+        let key = key.to_string();
+        let key_clone = key.to_string();
+        let watches = self.watches.clone();
+        let watches_clone = self.watches.clone();
+        item::Gauge::new(Box::new(move |new_value| {
+                             if let Entry::Gauge(ref value) = *entry_clone {
+                                 value.store(new_value, atomic::Ordering::SeqCst);
+                                 trigger_watches(&watches_clone,
+                                                 &key_clone,
+                                                 Value::from(&*entry_clone));
+                             }
+                         }),
+                         Box::new(move |delta_value| {
+                             if let Entry::Gauge(ref value) = *entry {
+                                 value.fetch_add(delta_value, atomic::Ordering::SeqCst);
+                                 trigger_watches(&watches, &key, Value::from(&*entry));
+                             }
+                         }))
+    }
+}
+
+impl Query for Memory {
+    fn get(&self, key: &str) -> Option<Value> {
+        let entries = self.entries.read().unwrap();
+        entries.get(key).map(|entry| Value::from(&**entry))
     }
 
     fn watch<P>(&self, prefix: &str, predicate: P)
-        where P: Fn(&str, Option<&Entry>) -> bool + Send + Sync + 'static
+        where P: Fn(&str, &Value) -> bool + Send + Sync + 'static
     {
         let id = {
             let mut next_watch_id = self.next_watch_id.write().unwrap();
@@ -155,8 +105,11 @@ impl Memory {
         {
             let mut watches = self.watches.write().unwrap();
 
-            if !predicate(prefix, self.get(prefix).as_ref()) {
-                return;
+            let entries = self.entries.read().unwrap();
+            for (key, entry) in entries.iter() {
+                if key.starts_with(prefix) && !predicate(key, &Value::from(&**entry)) {
+                    return;
+                }
             }
 
             watches.insert(id, (prefix.to_string(), Box::new(predicate), tuple.clone()));
@@ -175,157 +128,157 @@ impl Memory {
     }
 }
 
-impl Metric for Memory {
-    fn increment_counter(&self, key: &str) {
-        self.update_counter(key, 1, |value| {
-            *value += 1;
-        });
-    }
+#[derive(Debug)]
+pub enum Entry {
+    Counter(atomic::AtomicUsize),
+    Gauge(atomic::AtomicIsize),
+}
 
-    fn change_gauge(&self, key: &str, change: metric::Change) {
-        match change {
-            metric::Change::Set(new_value) => {
-                self.update_gauge(key, new_value, |value| *value = new_value);
-            }
-            metric::Change::Delta(delta_value) => {
-                self.update_gauge(key, delta_value, |value| *value += delta_value);
-            }
+impl<'a> From<&'a Entry> for Value {
+    fn from(entry: &Entry) -> Self {
+        match *entry {
+            Entry::Counter(ref value) => Value::Counter(value.load(atomic::Ordering::SeqCst)),
+            Entry::Gauge(ref value) => Value::Gauge(value.load(atomic::Ordering::SeqCst)),
         }
     }
 }
 
-unsafe impl Send for Memory {}
-
-unsafe impl Sync for Memory {}
+fn trigger_watches(watches: &Arc<RwLock<HashMap<u16,
+                                                (String,
+                                                 Box<Fn(&str, &Value) -> bool + Send + Sync>,
+                                                 Arc<(Mutex<bool>, Condvar)>)>>>,
+                   key: &str,
+                   value: Value) {
+    let watches = watches.read().unwrap();
+    for (_, &(ref prefix, ref predicate, ref tuple)) in watches.iter() {
+        if key.starts_with(prefix) && !predicate(&key, &value) {
+            let &(ref mutex, ref condvar) = &**tuple;
+            let mut matched = mutex.lock().unwrap();
+            *matched = true;
+            condvar.notify_all();
+        }
+    }
+}
 
 #[cfg(test)]
 mod tests {
 
-    use std::sync::Arc;
     use std::thread;
-    use super::super::{Metric, metric};
     use super::Memory;
+    use super::super::{Metric, Query, Value};
 
     #[test]
-    fn increment_counter() {
+    fn counter() {
         let metric = Memory::new();
-        assert_eq!(0, metric.get_counter("test"));
-        metric.increment_counter("test");
-        assert_eq!(1, metric.get_counter("test"));
-        metric.increment_counter("test");
-        assert_eq!(2, metric.get_counter("test"));
+        let counter = metric.counter("test");
+        counter.increment();
+        assert_eq!(Some(Value::Counter(1)), metric.get("test"));
     }
 
     #[test]
-    fn increment_counter_concurrently() {
-        let metric = Arc::new(Memory::new());
+    fn concurrent_counter() {
+        let metric = Memory::new();
 
-        let metric_clone = metric.clone();
+        let counter = metric.counter("test");
         let jh1 = thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.increment_counter("test");
+                counter.increment();
             }
         });
 
-        let metric_clone = metric.clone();
+        let counter = metric.counter("test");
         let jh2 = thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.increment_counter("test");
+                counter.increment();
             }
         });
 
         jh1.join().unwrap();
         jh2.join().unwrap();
 
-        assert_eq!(20, metric.get_counter("test"));
+        assert_eq!(Some(Value::Counter(20)), metric.get("test"));
     }
 
     #[test]
     fn watch_counter() {
-        let metric = Arc::new(Memory::new());
+        let metric = Memory::new();
 
-        let metric_clone = metric.clone();
+        let counter = metric.counter("test");
         thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.increment_counter("test");
+                counter.increment();
             }
         });
 
-        metric.watch_counter("test", |_, value| value < 10);
+        metric.watch("test", |_, value| *value < Value::Counter(10));
     }
 
     #[test]
-    fn watch_counter_without_trigger() {
+    fn gauge() {
+        let memory = Memory::new();
+        let gauge = memory.gauge("test");
+        gauge.set(10);
+        assert_eq!(Some(Value::Gauge(10)), memory.get("test"));
+        gauge.change(-5);
+        assert_eq!(Some(Value::Gauge(5)), memory.get("test"));
+        gauge.change(10);
+        assert_eq!(Some(Value::Gauge(15)), memory.get("test"));
+    }
+
+    #[test]
+    fn concurrent_gauge() {
         let metric = Memory::new();
-        metric.increment_counter("test");
-        metric.watch_counter("test", |_, value| value < 1);
-    }
 
-    #[test]
-    fn change_gauge() {
-        let metric = Memory::new();
-        assert_eq!(0, metric.get_gauge("test"));
-        metric.change_gauge("test", metric::Change::Set(10));
-        assert_eq!(10, metric.get_gauge("test"));
-        metric.change_gauge("test", metric::Change::Delta(-5));
-        assert_eq!(5, metric.get_gauge("test"));
-        metric.change_gauge("test", metric::Change::Delta(10));
-        assert_eq!(15, metric.get_gauge("test"));
-    }
-
-    #[test]
-    fn change_gauge_concurrently() {
-        let metric = Arc::new(Memory::new());
-
-        let metric_clone = metric.clone();
+        let gauge = metric.gauge("test");
         let jh1 = thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.change_gauge("test", metric::Change::Delta(5));
+                gauge.change(5);
             }
         });
 
-        let metric_clone = metric.clone();
+        let gauge = metric.gauge("test");
         let jh2 = thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.change_gauge("test", metric::Change::Delta(-10));
+                gauge.change(-10);
             }
         });
 
         jh1.join().unwrap();
         jh2.join().unwrap();
 
-        assert_eq!(-50isize, metric.get_gauge("test"));
+        assert_eq!(Some(Value::Gauge(-50)), metric.get("test"));
     }
 
     #[test]
     fn watch_gauge() {
-        let metric = Arc::new(Memory::new());
+        let metric = Memory::new();
 
-        let metric_clone = metric.clone();
+        let gauge = metric.gauge("test");
         thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.change_gauge("test", metric::Change::Delta(-1isize));
+                gauge.change(-1);
             }
         });
 
-        metric.watch_gauge("test", |_, value| value > -10);
+        metric.watch("test", |_, value| *value > Value::Gauge(-10));
     }
 
     #[test]
     fn watch_gauges_using_prefix() {
-        let metric = Arc::new(Memory::new());
+        let metric = Memory::new();
 
-        metric.watch_gauge("test", |_, value| value != 0);
+        let gauge_one = metric.gauge("test_one");
+        let gauge_two = metric.gauge("test_two");
 
-        let metric_clone = metric.clone();
+        metric.watch("test", |_, value| *value != Value::Gauge(0));
+
         thread::spawn(move || {
             for _ in 0..10 {
-                metric_clone.change_gauge("test_one", metric::Change::Delta(1));
-                metric_clone.change_gauge("test_two", metric::Change::Delta(2));
+                gauge_one.change(1);
+                gauge_two.change(2);
             }
         });
 
-        metric.watch_gauge("test", |_, value| value < 20);
+        metric.watch("test", |_, value| *value < Value::Gauge(20));
     }
-
 }

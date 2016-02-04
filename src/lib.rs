@@ -27,7 +27,6 @@ pub mod discovery;
 pub mod logger;
 pub mod message;
 pub mod metric;
-pub mod new_metric;
 pub mod node;
 pub mod relay;
 pub mod transport;

@@ -20,76 +20,79 @@ mod helper;
 use delix::node::request;
 
 #[test]
+#[allow(unused_variables)]
 fn registration_over_incoming_connection() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3001", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
 }
 
 #[test]
+#[allow(unused_variables)]
 fn registration_over_outgoing_connection() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3011", &[], None);
 
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
     node_two.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
 }
 
 #[test]
+#[allow(unused_variables)]
 fn registration_in_joined_network() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3021", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3021", &[], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
 
-    helper::wait_for_services(&[&node_one, &node_two], 0);
+    helper::wait_for_services(&[&metric_one, &metric_two], 0);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
 }
 
 #[test]
 fn deregistration() {
     helper::set_up();
 
-    let node = helper::build_node("127.0.0.1:3031", &[], None);
+    let (node, metric) = helper::build_node("127.0.0.1:3031", &[], None);
     node.register("echo", Box::new(|request| Ok(request)))
         .unwrap();
 
-    helper::wait_for_services(&[&node], 1);
+    helper::wait_for_services(&[&metric], 1);
     node.deregister("echo").unwrap();
-    helper::wait_for_services(&[&node], 0);
+    helper::wait_for_services(&[&metric], 0);
 }
 
 #[test]
 fn deregistration_in_joined_network() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3041", &[], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3041", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    let node_two = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3042", &["127.0.0.1:3041"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
 
-    helper::wait_for_services(&[&node_one, &node_two], 1);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
     node_one.deregister("echo").unwrap();
-    helper::wait_for_services(&[&node_one, &node_two], 0);
+    helper::wait_for_services(&[&metric_one, &metric_two], 0);
 
     assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request_bytes("echo", b"test"));
 }

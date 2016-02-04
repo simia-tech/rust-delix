@@ -19,14 +19,14 @@ use std::result;
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
-use metric::Metric;
+use metric::{self, Metric};
 use node::{ID, request};
 use transport::direct::{self, Connection};
 
 pub struct ConnectionMap {
     map: Arc<RwLock<HashMap<ID, Connection>>>,
     sender: mpsc::Sender<ID>,
-    metric: Arc<Metric>,
+    connections_gauge: Arc<metric::item::Gauge>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -39,22 +39,23 @@ pub enum Error {
 
 impl ConnectionMap {
     pub fn new(metric: Arc<Metric>) -> Self {
-        let metric_clone = metric.clone();
-
         let map = Arc::new(RwLock::new(HashMap::new()));
         let map_clone = map.clone();
+
+        let connections_gauge = Arc::new(metric.gauge("connections"));
+        let connections_gauge_clone = connections_gauge.clone();
 
         let (sender, receiver) = mpsc::channel::<ID>();
         thread::spawn(move || {
             for peer_node_id in receiver {
                 map_clone.write().unwrap().remove(&peer_node_id);
-                metric_clone.gauge_delta("connections", -1);
+                connections_gauge_clone.change(-1);
             }
         });
         ConnectionMap {
             map: map,
             sender: sender,
-            metric: metric,
+            connections_gauge: connections_gauge,
         }
     }
 
@@ -70,7 +71,7 @@ impl ConnectionMap {
         }));
 
         map.insert(connection.peer_node_id(), connection);
-        self.metric.gauge_delta("connections", 1);
+        self.connections_gauge.change(1);
         Ok(())
     }
 

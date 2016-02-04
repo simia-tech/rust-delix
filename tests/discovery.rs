@@ -18,22 +18,24 @@ extern crate delix;
 mod helper;
 
 #[test]
+#[allow(unused_variables)]
 fn two_nodes() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3001", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3001", &[], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two]);
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
 }
 
 #[test]
+#[allow(unused_variables)]
 fn three_nodes() {
     helper::set_up();
 
-    let node_one = helper::build_node("127.0.0.1:3011", &[], None);
-    let node_two = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    let node_three = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3011", &[], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
+    let (node_three, metric_three) = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
 
-    helper::wait_for_joined(&[&node_one, &node_two, &node_three]);
+    helper::wait_for_joined(&[&metric_one, &metric_two, &metric_three]);
 }
