@@ -36,6 +36,9 @@ mod configuration;
 mod loader;
 
 #[cfg(not(test))]
+use delix::metric::Query;
+
+#[cfg(not(test))]
 #[allow(unused_variables)]
 fn main() {
     let arguments = match ::arguments::Arguments::parse() {
@@ -61,7 +64,7 @@ fn main() {
         return;
     }
 
-    let node = match loader.load_node() {
+    let (node, metric) = match loader.load_node() {
         Ok(node) => node,
         Err(error) => {
             error!("error while loading node: {:?}", error);
@@ -79,10 +82,10 @@ fn main() {
         }
     };
 
-    // node.metric().watch_gauge("", |key, value| {
-    //     if key != "" {
-    //         info!("{} = {}", key, value);
-    //     }
-    //     true
-    // });
+    metric.watch("", |key, value| {
+        if key != "" {
+            info!("{} = {:?}", key, value);
+        }
+        true
+    });
 }

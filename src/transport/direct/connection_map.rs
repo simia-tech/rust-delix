@@ -66,6 +66,12 @@ impl ConnectionMap {
         }
 
         let sender = self.sender.clone();
+        connection.set_on_error(Box::new(move |peer_node_id, error| {
+            error!("got connection error: {:?}", error);
+            sender.send(peer_node_id).unwrap()
+        }));
+
+        let sender = self.sender.clone();
         connection.set_on_shutdown(Box::new(move |peer_node_id| {
             sender.send(peer_node_id).unwrap()
         }));
@@ -110,16 +116,16 @@ impl ConnectionMap {
                         peer_node_id: &ID,
                         id: u32,
                         name: &str,
-                        reader: &mut request::Reader)
-                        -> Result<()> {
+                        reader: &mut request::Reader) {
         let mut map = self.map.write().unwrap();
         let mut connection = map.get_mut(peer_node_id).unwrap();
-        Ok(try!(connection.send_request(id, name, reader)))
+        connection.send_request(id, name, reader);
     }
 
-    pub fn clear_on_shutdown(&self) {
+    pub fn clear(&self) {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
+            connection.clear_on_error();
             connection.clear_on_shutdown();
         }
     }
@@ -131,7 +137,7 @@ unsafe impl Sync for ConnectionMap {}
 
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
-        self.clear_on_shutdown();
+        self.clear();
     }
 }
 

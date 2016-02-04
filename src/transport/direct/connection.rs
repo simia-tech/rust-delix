@@ -43,7 +43,8 @@ pub struct Connection {
     on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
     on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>>,
-    on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) + Send>>>>,
+    on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send>>>>,
+    on_error: Arc<Mutex<Option<Box<Fn(ID, Error) + Send>>>>,
     on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
     on_drop: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
 }
@@ -116,9 +117,12 @@ impl Connection {
             Arc::new(Mutex::new(None));
         let on_request_clone = on_request.clone();
 
-        let on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) + Send>>>> =
+        let on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send>>>> =
             Arc::new(Mutex::new(None));
         let on_response_clone = on_response.clone();
+
+        let on_error: Arc<Mutex<Option<Box<Fn(ID, Error) + Send>>>> = Arc::new(Mutex::new(None));
+        let on_error_clone = on_error.clone();
 
         let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
         let on_shutdown_clone = on_shutdown.clone();
@@ -213,7 +217,12 @@ impl Connection {
                             if let Ok(_) = response {
                                 response = Ok(Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
                             }
-                            f(request_id, response);
+                            if let Err(error) = f(request_id, response) {
+                                if let Some(ref f) = *on_error_clone.lock().unwrap() {
+                                    f(peer_node_id, Error::Io(error));
+                                }
+                                break;
+                            }
                         }
                     }
                     _ => {
@@ -236,6 +245,7 @@ impl Connection {
             on_remove_services: on_remove_services,
             on_request: on_request,
             on_response: on_response,
+            on_error: on_error,
             on_shutdown: on_shutdown,
             on_drop: Arc::new(Mutex::new(None)),
         },
@@ -271,8 +281,16 @@ impl Connection {
         *self.on_request.lock().unwrap() = Some(f);
     }
 
-    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Response) + Send>) {
+    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send>) {
         *self.on_response.lock().unwrap() = Some(f);
+    }
+
+    pub fn set_on_error(&mut self, f: Box<Fn(ID, Error) + Send>) {
+        *self.on_error.lock().unwrap() = Some(f);
+    }
+
+    pub fn clear_on_error(&mut self) {
+        *self.on_error.lock().unwrap() = None;
     }
 
     pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send>) {
@@ -311,15 +329,13 @@ impl Connection {
         Ok(())
     }
 
-    pub fn send_request(&mut self,
-                        id: u32,
-                        name: &str,
-                        reader: &mut request::Reader)
-                        -> Result<()> {
-        let mut tx_stream = self.tx_stream.lock().unwrap();
-        try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
-        try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
-        Ok(())
+    pub fn send_request(&mut self, id: u32, name: &str, reader: &mut request::Reader) {
+        self.catch_error((), || {
+            let mut tx_stream = self.tx_stream.lock().unwrap();
+            try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
+            try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+            Ok(())
+        })
     }
 
     fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
@@ -331,6 +347,20 @@ impl Connection {
     fn receive_peers(&mut self) -> Result<Vec<(ID, SocketAddr)>> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
         Ok(try!(container::unpack_peers(try!(read_container(&mut *tx_stream)))))
+    }
+
+    fn catch_error<F, T>(&self, default: T, f: F) -> T
+        where F: FnOnce() -> Result<T>
+    {
+        match f() {
+            Ok(value) => value,
+            Err(error) => {
+                if let Some(ref f) = *self.on_error.lock().unwrap() {
+                    f(self.peer_node_id, error);
+                }
+                default
+            }
+        }
     }
 }
 

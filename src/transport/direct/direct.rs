@@ -207,8 +207,7 @@ impl Transport for Direct {
                                      self.tracker
                                          .begin(name, &Link::Remote(peer_node_id), response_writer);
                                  self.connections
-                                     .send_request(&peer_node_id, request_id, name, &mut reader)
-                                     .unwrap();
+                                     .send_request(&peer_node_id, request_id, name, &mut reader);
                                  response_rx.recv().unwrap()
                              })
     }
@@ -240,7 +239,7 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
     connection.set_on_response(Box::new(move |request_id, mut response| {
         if let Ok(ref mut reader) = response {
             if let Some(ref mut response_writer) = tracker_clone.take_response_writer(request_id) {
-                io::copy(reader, response_writer).unwrap();
+                try!(io::copy(reader, response_writer));
             }
         }
 
@@ -248,6 +247,8 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
             debug!("got response for request ({}) that already timed out",
                    request_id);
         }
+
+        Ok(())
     }));
 
     let services_clone = services.clone();

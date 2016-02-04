@@ -47,7 +47,7 @@ impl<R> Drop for DrainOnDrop<R> where R: io::Read
 {
     fn drop(&mut self) {
         if !self.eof_reached {
-            io::copy(&mut self.reader, &mut io::sink()).unwrap();
+            let _ = io::copy(&mut self.reader, &mut io::sink());
         }
     }
 }

@@ -93,7 +93,7 @@ impl Loader {
         Ok(())
     }
 
-    pub fn load_node(&self) -> Result<Arc<Node>> {
+    pub fn load_node(&self) -> Result<(Arc<Node>, Arc<metric::Memory>)> {
         let discovery = try!(self.load_discovery());
 
         let cipher = try!(self.load_cipher());
@@ -102,7 +102,8 @@ impl Loader {
 
         let transport = try!(self.load_transport(cipher, metric.clone()));
 
-        Ok(Arc::new(try!(Node::new(discovery, transport, metric))))
+        Ok((Arc::new(try!(Node::new(discovery, transport, metric.clone()))),
+            metric))
     }
 
     fn load_discovery(&self) -> Result<Box<Discovery>> {
