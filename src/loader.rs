@@ -23,9 +23,10 @@ use log;
 use delix::logger;
 use delix::metric::{self, Metric};
 use delix::node::{self, Node};
-use delix::discovery::{Constant, Discovery};
+use delix::discovery::{self, Discovery};
 use delix::relay::{self, Relay};
-use delix::transport::{Direct, Transport, cipher};
+use delix::transport::{self, Transport};
+use delix::transport::cipher::{self, Cipher};
 use delix::transport::direct::{Balancer, balancer};
 use configuration::Configuration;
 
@@ -92,30 +93,47 @@ impl Loader {
         Ok(())
     }
 
-    pub fn load_node(&self) -> Result<Arc<Node<metric::Memory>>> {
+    pub fn load_node(&self) -> Result<Arc<Node>> {
+        let discovery = try!(self.load_discovery());
+
+        let cipher = try!(self.load_cipher());
+
+        let metric = Arc::new(metric::Memory::new());
+
+        let transport = try!(self.load_transport(cipher, metric.clone()));
+
+        Ok(Arc::new(try!(Node::new(discovery, transport, metric))))
+    }
+
+    fn load_discovery(&self) -> Result<Box<Discovery>> {
         let discovery_type = try!(self.configuration
                                       .string_at("discovery.type")
                                       .ok_or(Error::NoDiscoveryType));
 
-        let discovery: Box<Discovery> = match discovery_type.as_ref() {
+        match discovery_type.as_ref() {
             "constant" => {
-                let constant = Constant::new(try!(self.configuration
-                                                      .strings_at("discovery.addresses")
-                                                      .unwrap_or(vec![])
-                                                      .iter()
-                                                      .map(|s| s.parse::<SocketAddr>())
-                                                      .collect()));
+                let constant = discovery::Constant::new(try!(self.configuration
+                                                                 .strings_at("discovery.\
+                                                                              addresses")
+                                                                 .unwrap_or(vec![])
+                                                                 .iter()
+                                                                 .map(|s| {
+                                                                     s.parse::<SocketAddr>()
+                                                                 })
+                                                                 .collect()));
                 info!("loaded constant discovery");
-                Box::new(constant)
+                Ok(Box::new(constant))
             }
-            _ => return Err(Error::UnknownDiscoveryType(discovery_type)),
-        };
+            _ => Err(Error::UnknownDiscoveryType(discovery_type)),
+        }
+    }
 
+    fn load_cipher(&self) -> Result<Box<Cipher>> {
         let cipher_type = try!(self.configuration
                                    .string_at("cipher.type")
                                    .ok_or(Error::NoCipherType));
 
-        let cipher: Box<cipher::Cipher> = match cipher_type.as_ref() {
+        match cipher_type.as_ref() {
             "symmetric" => {
                 let key = match self.configuration.bytes_at("cipher.key") {
                     Some(key) => key,
@@ -123,18 +141,18 @@ impl Loader {
                 };
                 let cipher = try!(cipher::Symmetric::new(&key, None));
                 info!("loaded symmetric cipher");
-                Box::new(cipher)
+                Ok(Box::new(cipher))
             }
-            _ => return Err(Error::UnknownCipherType(cipher_type)),
-        };
+            _ => Err(Error::UnknownCipherType(cipher_type)),
+        }
+    }
 
-        let metric = Arc::new(metric::Memory::new());
-
+    fn load_transport(&self, cipher: Box<Cipher>, metric: Arc<Metric>) -> Result<Box<Transport>> {
         let transport_type = try!(self.configuration
                                       .string_at("transport.type")
                                       .ok_or(Error::NoTransportType));
 
-        let transport: Box<Transport> = match transport_type.as_ref() {
+        match transport_type.as_ref() {
             "direct" => {
                 let local_address = try!(try!(self.configuration
                                                   .string_at("transport.local_address")
@@ -162,22 +180,18 @@ impl Loader {
 
                 info!("loaded direct transport - listening at {}", local_address);
 
-                Box::new(Direct::new(cipher,
-                                     balancer,
-                                     metric.clone(),
-                                     local_address,
-                                     public_address,
-                                     request_timeout))
+                Ok(Box::new(transport::Direct::new(cipher,
+                                                   balancer,
+                                                   metric,
+                                                   local_address,
+                                                   public_address,
+                                                   request_timeout)))
             }
-            _ => return Err(Error::UnknownTransportType(transport_type)),
-        };
-
-        Ok(Arc::new(try!(Node::new(discovery, transport, metric))))
+            _ => Err(Error::UnknownTransportType(transport_type)),
+        }
     }
 
-    pub fn load_relays<M>(&self, node: &Arc<Node<M>>) -> Result<Vec<Box<Relay>>>
-        where M: Metric
-    {
+    pub fn load_relays(&self, node: &Arc<Node>) -> Result<Vec<Box<Relay>>> {
         let mut relays = Vec::new();
         if let Some(configurations) = self.configuration.configurations_at("relay") {
             for configuration in configurations {

@@ -21,10 +21,10 @@ use metric::Metric;
 use node::{ID, request};
 use transport::direct::{self, Link};
 
-pub struct ServiceMap<M> {
+pub struct ServiceMap {
     balancer: Box<direct::Balancer>,
     entries: RwLock<HashMap<String, Entry>>,
-    metric: Arc<M>,
+    metric: Arc<Metric>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -37,9 +37,8 @@ pub enum Error {
     ConnectionMap(direct::ConnectionMapError),
 }
 
-impl<M> ServiceMap<M> where M: Metric
-{
-    pub fn new(balancer: Box<direct::Balancer>, metric: Arc<M>) -> Self {
+impl ServiceMap {
+    pub fn new(balancer: Box<direct::Balancer>, metric: Arc<Metric>) -> Self {
         ServiceMap {
             balancer: balancer,
             entries: RwLock::new(HashMap::new()),
@@ -264,9 +263,9 @@ impl Entry {
     }
 }
 
-unsafe impl<M> Send for ServiceMap<M> {}
+unsafe impl Send for ServiceMap {}
 
-unsafe impl<M> Sync for ServiceMap<M> {}
+unsafe impl Sync for ServiceMap {}
 
 impl From<direct::ConnectionError> for Error {
     fn from(error: direct::ConnectionError) -> Self {
@@ -382,7 +381,7 @@ mod tests {
         assert_eq!(0, service_map.len());
     }
 
-    fn build_service_map() -> ServiceMap<metric::Memory> {
+    fn build_service_map() -> ServiceMap {
         let balancer = Box::new(balancer::DynamicRoundRobin::new());
         let metric = Arc::new(metric::Memory::new());
         ServiceMap::new(balancer, metric)

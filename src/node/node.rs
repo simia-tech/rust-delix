@@ -25,13 +25,11 @@ use transport;
 use transport::Transport;
 use util::writer;
 
-pub struct Node<M>
-    where M: Metric
-{
+pub struct Node {
     pub id: ID,
-    discovery: Arc<Box<Discovery>>,
-    transport: Arc<Box<Transport>>,
-    metric: Arc<M>,
+    discovery: Box<Discovery>,
+    transport: Box<Transport>,
+    metric: Arc<Metric>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -43,15 +41,14 @@ pub enum Error {
     Request(request::Error),
 }
 
-impl<M> Node<M> where M: Metric
-{
-    pub fn new(d: Box<Discovery>, t: Box<Transport>, metric: Arc<M>) -> Result<Self> {
+impl Node {
+    pub fn new(discovery: Box<Discovery>,
+               transport: Box<Transport>,
+               metric: Arc<Metric>)
+               -> Result<Self> {
         let node_id = ID::new_random();
 
-        try!(t.bind(node_id));
-
-        let discovery = Arc::new(d);
-        let transport = Arc::new(t);
+        try!(transport.bind(node_id));
 
         Ok(Node {
             id: node_id,
@@ -61,7 +58,7 @@ impl<M> Node<M> where M: Metric
         })
     }
 
-    pub fn metric(&self) -> &Arc<M> {
+    pub fn metric(&self) -> &Arc<Metric> {
         &self.metric
     }
 
@@ -108,8 +105,7 @@ impl<M> Node<M> where M: Metric
     }
 }
 
-impl<M> fmt::Debug for Node<M> where M: Metric
-{
+impl fmt::Debug for Node {
     fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
         write!(f, "(Node {})", self.id)
     }

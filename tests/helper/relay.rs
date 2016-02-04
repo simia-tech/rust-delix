@@ -16,15 +16,10 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use delix::metric::Metric;
 use delix::node::Node;
 use delix::relay::{self, Relay};
 
-pub fn build_http_static_relay<M>(node: &Arc<Node<M>>,
-                                  address: Option<&str>)
-                                  -> Arc<relay::HttpStatic<M>>
-    where M: Metric
-{
+pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::HttpStatic> {
     let relay = relay::HttpStatic::new(node.clone(), "X-Delix-Service");
     if let Some(address) = address {
         relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();

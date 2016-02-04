@@ -18,15 +18,12 @@ use std::net::{self, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use metric::Metric;
 use node::{Node, request};
 use relay::{Relay, Result};
 use util::reader;
 
-pub struct HttpStatic<M>
-    where M: Metric
-{
-    node: Arc<Node<M>>,
+pub struct HttpStatic {
+    node: Arc<Node>,
     header_field: String,
     join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
     running: Arc<RwLock<bool>>,
@@ -38,9 +35,8 @@ enum StatusCode {
     ServiceUnavailable,
 }
 
-impl<M> HttpStatic<M> where M: Metric
-{
-    pub fn new(node: Arc<Node<M>>, header_field: &str) -> Self {
+impl HttpStatic {
+    pub fn new(node: Arc<Node>, header_field: &str) -> Self {
         HttpStatic {
             node: node,
             header_field: header_field.to_string(),
@@ -65,8 +61,7 @@ impl<M> HttpStatic<M> where M: Metric
     }
 }
 
-impl<M> Relay for HttpStatic<M> where M: Metric
-{
+impl Relay for HttpStatic {
     fn bind(&self, address: SocketAddr) -> Result<()> {
         let tcp_listener = try!(net::TcpListener::bind(address));
 
@@ -131,8 +126,7 @@ impl<M> Relay for HttpStatic<M> where M: Metric
     }
 }
 
-impl<M> Drop for HttpStatic<M> where M: Metric
-{
+impl Drop for HttpStatic {
     fn drop(&mut self) {
         self.unbind().unwrap();
     }

@@ -29,7 +29,7 @@ use delix::transport::direct::balancer;
 pub fn build_node(local_address: &str,
                   discover_addresses: &[&str],
                   request_timeout: Option<i64>)
-                  -> Arc<Node<metric::Memory>> {
+                  -> Arc<Node> {
 
     let cipher = Box::new(cipher::Symmetric::new(b"test keytest key", None).unwrap());
     let balancer = Box::new(balancer::DynamicRoundRobin::new());
@@ -55,19 +55,19 @@ pub fn build_node(local_address: &str,
     node
 }
 
-pub fn wait_for_joined(nodes: &[&Arc<Node<metric::Memory>>]) {
-    let required_connections = nodes.len() as isize - 1;
-    for node in nodes {
-        node.metric().watch_gauge("connections", move |_, value| value < required_connections);
-    }
+pub fn wait_for_joined(nodes: &[&Arc<Node>]) {
+    // let required_connections = nodes.len() as isize - 1;
+    // for node in nodes {
+    //     node.metric().watch_gauge("connections", move |_, value| value < required_connections);
+    // }
 }
 
-pub fn wait_for_discovering(node: &Arc<Node<metric::Memory>>) {
-    node.metric().watch_gauge("connections", |_, value| value > 0);
+pub fn wait_for_discovering(node: &Arc<Node>) {
+    // node.metric().watch_gauge("connections", |_, value| value > 0);
 }
 
-pub fn wait_for_services(nodes: &[&Arc<Node<metric::Memory>>], count: isize) {
-    for node in nodes {
-        node.metric().watch_gauge("services", move |_, value| value != count);
-    }
+pub fn wait_for_services(nodes: &[&Arc<Node>], count: isize) {
+    // for node in nodes {
+    //     node.metric().watch_gauge("services", move |_, value| value != count);
+    // }
 }

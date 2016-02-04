@@ -27,24 +27,21 @@ use transport::direct::tracker::{self, Statistic};
 use metric::Metric;
 use node::{ID, request};
 
-pub struct Direct<M>
-    where M: Metric
-{
+pub struct Direct {
     join_handle: RwLock<Option<thread::JoinHandle<()>>>,
     running: Arc<RwLock<bool>>,
     local_address: SocketAddr,
     public_address: SocketAddr,
     cipher: Arc<Box<Cipher>>,
-    connections: Arc<ConnectionMap<M>>,
-    services: Arc<ServiceMap<M>>,
+    connections: Arc<ConnectionMap>,
+    services: Arc<ServiceMap>,
     tracker: Arc<Tracker>,
 }
 
-impl<M> Direct<M> where M: Metric
-{
+impl Direct {
     pub fn new(cipher: Box<Cipher>,
                balancer: Box<Balancer>,
-               metric: Arc<M>,
+               metric: Arc<Metric>,
                local_address: SocketAddr,
                public_address: Option<SocketAddr>,
                request_timeout: Option<Duration>)
@@ -76,8 +73,7 @@ impl<M> Direct<M> where M: Metric
     }
 }
 
-impl<M> Transport for Direct<M> where M: Metric
-{
+impl Transport for Direct {
     fn bind(&self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(TcpListener::bind(self.local_address));
 
@@ -217,16 +213,13 @@ impl<M> Transport for Direct<M> where M: Metric
     }
 }
 
-impl<M> Drop for Direct<M> where M: Metric
-{
+impl Drop for Direct {
     fn drop(&mut self) {
         self.unbind().unwrap();
     }
 }
 
-fn set_up<M>(connection: &mut Connection, services: &Arc<ServiceMap<M>>, tracker: &Arc<Tracker>)
-    where M: Metric
-{
+fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc<Tracker>) {
     let services_clone = services.clone();
     connection.set_on_add_services(Box::new(move |peer_node_id, services| {
         services_clone.insert_remotes(&services, peer_node_id);

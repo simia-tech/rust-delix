@@ -79,10 +79,10 @@ fn main() {
         }
     };
 
-    node.metric().watch_gauge("", |key, value| {
-        if key != "" {
-            info!("{} = {}", key, value);
-        }
-        true
-    });
+    // node.metric().watch_gauge("", |key, value| {
+    //     if key != "" {
+    //         info!("{} = {}", key, value);
+    //     }
+    //     true
+    // });
 }

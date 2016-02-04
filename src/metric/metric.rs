@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-pub trait Metric : Send + Sync + 'static {
+pub trait Metric : Send + Sync {
     fn increment_counter(&self, &str);
     fn change_gauge(&self, &str, Change);
 

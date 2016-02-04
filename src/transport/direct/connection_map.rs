@@ -23,12 +23,10 @@ use metric::Metric;
 use node::{ID, request};
 use transport::direct::{self, Connection};
 
-pub struct ConnectionMap<M>
-    where M: Metric
-{
+pub struct ConnectionMap {
     map: Arc<RwLock<HashMap<ID, Connection>>>,
     sender: mpsc::Sender<ID>,
-    metric: Arc<M>,
+    metric: Arc<Metric>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -39,9 +37,8 @@ pub enum Error {
     Connection(direct::ConnectionError),
 }
 
-impl<M> ConnectionMap<M> where M: Metric
-{
-    pub fn new(metric: Arc<M>) -> Self {
+impl ConnectionMap {
+    pub fn new(metric: Arc<Metric>) -> Self {
         let metric_clone = metric.clone();
 
         let map = Arc::new(RwLock::new(HashMap::new()));
@@ -127,14 +124,11 @@ impl<M> ConnectionMap<M> where M: Metric
     }
 }
 
-unsafe impl<M> Send for ConnectionMap<M> where M: Metric
-{}
+unsafe impl Send for ConnectionMap {}
 
-unsafe impl<M> Sync for ConnectionMap<M> where M: Metric
-{}
+unsafe impl Sync for ConnectionMap {}
 
-impl<M> Drop for ConnectionMap<M> where M: Metric
-{
+impl Drop for ConnectionMap {
     fn drop(&mut self) {
         self.clear_on_shutdown();
     }
