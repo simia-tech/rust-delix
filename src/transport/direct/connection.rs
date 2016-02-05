@@ -18,7 +18,7 @@ use std::io::{self, Read, Write};
 use std::iter;
 use std::net::{self, SocketAddr};
 use std::result;
-use std::sync::{Arc, Mutex, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 
 use protobuf::{self, Message};
@@ -40,13 +40,7 @@ pub struct Connection {
 
     aknowledges_tx: Mutex<mpsc::Sender<mpsc::Sender<()>>>,
 
-    on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
-    on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>>,
-    on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>>,
-    on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send>>>>,
-    on_error: Arc<Mutex<Option<Box<Fn(ID, Error) + Send>>>>,
-    on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
-    on_drop: Arc<Mutex<Option<Box<Fn(ID) + Send>>>>,
+    handler: Arc<RwLock<Handler>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -105,27 +99,8 @@ impl Connection {
 
         let (aknowledges_tx, aknowledges_rx) = mpsc::channel();
 
-        let on_add_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
-            Arc::new(Mutex::new(None));
-        let on_add_services_clone = on_add_services.clone();
-
-        let on_remove_services: Arc<Mutex<Option<Box<Fn(ID, Vec<String>) + Send>>>> =
-            Arc::new(Mutex::new(None));
-        let on_remove_services_clone = on_remove_services.clone();
-
-        let on_request: Arc<Mutex<Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>>>> =
-            Arc::new(Mutex::new(None));
-        let on_request_clone = on_request.clone();
-
-        let on_response: Arc<Mutex<Option<Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send>>>> =
-            Arc::new(Mutex::new(None));
-        let on_response_clone = on_response.clone();
-
-        let on_error: Arc<Mutex<Option<Box<Fn(ID, Error) + Send>>>> = Arc::new(Mutex::new(None));
-        let on_error_clone = on_error.clone();
-
-        let on_shutdown: Arc<Mutex<Option<Box<Fn(ID) + Send>>>> = Arc::new(Mutex::new(None));
-        let on_shutdown_clone = on_shutdown.clone();
+        let handler = Arc::new(RwLock::new(Handler::new()));
+        let handler_clone = handler.clone();
 
         let (peer_node_id, peer_public_address) = {
             let mut tx_stream = tx_stream.lock().unwrap();
@@ -141,7 +116,7 @@ impl Connection {
                 let container = match read_container(&mut rx_stream) {
                     Ok(container) => container,
                     Err(Error::ConnectionLost) => {
-                        if let Some(ref f) = *on_shutdown_clone.lock().unwrap() {
+                        if let Some(ref f) = handler_clone.read().unwrap().shutdown {
                             f(peer_node_id);
                         }
                         break;
@@ -153,7 +128,7 @@ impl Connection {
                 };
                 match container.get_kind() {
                     message::Kind::AddServicesMessage => {
-                        if let Some(ref f) = *on_add_services_clone.lock().unwrap() {
+                        if let Some(ref f) = handler_clone.read().unwrap().add_services {
                             f(peer_node_id,
                               container::unpack_add_services(container).unwrap());
                         }
@@ -164,7 +139,7 @@ impl Connection {
                         }
                     }
                     message::Kind::RemoveServicesMessage => {
-                        if let Some(ref f) = *on_remove_services_clone.lock().unwrap() {
+                        if let Some(ref f) = handler_clone.read().unwrap().remove_services {
                             f(peer_node_id,
                               container::unpack_remove_services(container).unwrap());
                         }
@@ -180,7 +155,7 @@ impl Connection {
                         tx.send(()).unwrap();
                     }
                     message::Kind::RequestMessage => {
-                        if let Some(ref f) = *on_request_clone.lock().unwrap() {
+                        if let Some(ref f) = handler_clone.read().unwrap().request {
                             let (request_id, name) = container::unpack_request(container).unwrap();
 
                             let mut response = f(&name,
@@ -211,14 +186,14 @@ impl Connection {
                         }
                     }
                     message::Kind::ResponseMessage => {
-                        if let Some(ref f) = *on_response_clone.lock().unwrap() {
+                        if let Some(ref f) = handler_clone.read().unwrap().response {
                             let (request_id, mut response) = container::unpack_response(container)
                                                                  .unwrap();
                             if let Ok(_) = response {
                                 response = Ok(Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
                             }
                             if let Err(error) = f(request_id, response) {
-                                if let Some(ref f) = *on_error_clone.lock().unwrap() {
+                                if let Some(ref f) = handler_clone.read().unwrap().error {
                                     f(peer_node_id, Error::Io(error));
                                 }
                                 break;
@@ -241,13 +216,7 @@ impl Connection {
             peer_node_id: peer_node_id,
             peer_public_address: peer_public_address,
             aknowledges_tx: Mutex::new(aknowledges_tx),
-            on_add_services: on_add_services,
-            on_remove_services: on_remove_services,
-            on_request: on_request,
-            on_response: on_response,
-            on_error: on_error,
-            on_shutdown: on_shutdown,
-            on_drop: Arc::new(Mutex::new(None)),
+            handler: handler,
         },
             sender))
     }
@@ -268,41 +237,41 @@ impl Connection {
         self.tx_stream.lock().unwrap().get_ref().local_addr().ok()
     }
 
-    pub fn set_on_add_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
-        *self.on_add_services.lock().unwrap() = Some(f);
+    pub fn set_on_add_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send + Sync>) {
+        self.handler.write().unwrap().add_services = Some(f);
     }
 
-    pub fn set_on_remove_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
-        *self.on_remove_services.lock().unwrap() = Some(f);
+    pub fn set_on_remove_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send + Sync>) {
+        self.handler.write().unwrap().remove_services = Some(f);
     }
 
     pub fn set_on_request(&mut self,
-                          f: Box<Fn(&str, Box<request::Reader>) -> request::Response + Send>) {
-        *self.on_request.lock().unwrap() = Some(f);
+                          f: Box<Fn(&str, Box<request::Reader>) -> request::Response + Send + Sync>) {
+        self.handler.write().unwrap().request = Some(f);
     }
 
-    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send>) {
-        *self.on_response.lock().unwrap() = Some(f);
+    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send + Sync>) {
+        self.handler.write().unwrap().response = Some(f);
     }
 
-    pub fn set_on_error(&mut self, f: Box<Fn(ID, Error) + Send>) {
-        *self.on_error.lock().unwrap() = Some(f);
+    pub fn set_on_error(&mut self, f: Box<Fn(ID, Error) + Send + Sync>) {
+        self.handler.write().unwrap().error = Some(f);
     }
 
     pub fn clear_on_error(&mut self) {
-        *self.on_error.lock().unwrap() = None;
+        self.handler.write().unwrap().error = None;
     }
 
-    pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send>) {
-        *self.on_shutdown.lock().unwrap() = Some(f);
+    pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send + Sync>) {
+        self.handler.write().unwrap().shutdown = Some(f);
     }
 
     pub fn clear_on_shutdown(&mut self) {
-        *self.on_shutdown.lock().unwrap() = None;
+        self.handler.write().unwrap().shutdown = None;
     }
 
-    pub fn set_on_drop(&mut self, f: Box<Fn(ID) + Send>) {
-        *self.on_drop.lock().unwrap() = Some(f);
+    pub fn set_on_drop(&mut self, f: Box<Fn(ID) + Send + Sync>) {
+        self.handler.write().unwrap().drop = Some(f);
     }
 
     pub fn send_add_services(&mut self, service_names: &[String]) -> Result<()> {
@@ -355,7 +324,7 @@ impl Connection {
         match f() {
             Ok(value) => value,
             Err(Error::ConnectionLost) => {
-                if let Some(ref f) = *self.on_error.lock().unwrap() {
+                if let Some(ref f) = self.handler.read().unwrap().error {
                     f(self.peer_node_id, Error::ConnectionLost);
                 }
                 default
@@ -396,8 +365,32 @@ impl Drop for Connection {
         }
         self.thread.take().unwrap().join().unwrap();
 
-        if let Some(ref f) = *self.on_drop.lock().unwrap() {
+        if let Some(ref f) = self.handler.read().unwrap().drop {
             f(self.peer_node_id);
+        }
+    }
+}
+
+struct Handler {
+    add_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
+    remove_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
+    request: Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send + Sync>>,
+    response: Option<Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send + Sync>>,
+    error: Option<Box<Fn(ID, Error) + Send + Sync>>,
+    shutdown: Option<Box<Fn(ID) + Send + Sync>>,
+    drop: Option<Box<Fn(ID) + Send + Sync>>,
+}
+
+impl Handler {
+    fn new() -> Self {
+        Handler {
+            add_services: None,
+            remove_services: None,
+            request: None,
+            response: None,
+            error: None,
+            shutdown: None,
+            drop: None,
         }
     }
 }
