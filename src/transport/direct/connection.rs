@@ -113,97 +113,18 @@ impl Connection {
         let thread = Some(thread::spawn(move || {
             receiver.recv().unwrap();
             loop {
-                let container = match read_container(&mut rx_stream) {
-                    Ok(container) => container,
-                    Err(Error::ConnectionLost) => {
-                        if let Some(ref f) = handler_clone.read().unwrap().shutdown {
-                            f(peer_node_id);
+                match process_inbound_container(node_id,
+                                                peer_node_id,
+                                                &mut rx_stream,
+                                                &tx_stream_clone,
+                                                &aknowledges_rx,
+                                                &handler_clone) {
+                    Ok(()) => {}
+                    Err(error) => {
+                        if let Some(ref f) = handler_clone.read().unwrap().error {
+                            f(peer_node_id, error);
                         }
                         break;
-                    }
-                    Err(err) => {
-                        error!("{}: error reading connection: {:?}", node_id, err);
-                        break;
-                    }
-                };
-                match container.get_kind() {
-                    message::Kind::AddServicesMessage => {
-                        if let Some(ref f) = handler_clone.read().unwrap().add_services {
-                            f(peer_node_id,
-                              container::unpack_add_services(container).unwrap());
-                        }
-                        {
-                            let mut tx_stream = tx_stream_clone.lock().unwrap();
-                            write_container(&mut *tx_stream, &container::pack_aknowledge())
-                                .unwrap();
-                        }
-                    }
-                    message::Kind::RemoveServicesMessage => {
-                        if let Some(ref f) = handler_clone.read().unwrap().remove_services {
-                            f(peer_node_id,
-                              container::unpack_remove_services(container).unwrap());
-                        }
-                        {
-                            let mut tx_stream = tx_stream_clone.lock().unwrap();
-                            write_container(&mut *tx_stream, &container::pack_aknowledge())
-                                .unwrap();
-                        }
-                    }
-                    message::Kind::AknowledgeMessage => {
-                        container::unpack_aknowledge(container).unwrap();
-                        let tx: mpsc::Sender<()> = aknowledges_rx.recv().unwrap();
-                        tx.send(()).unwrap();
-                    }
-                    message::Kind::RequestMessage => {
-                        if let Some(ref f) = handler_clone.read().unwrap().request {
-                            let (request_id, name) = container::unpack_request(container).unwrap();
-
-                            let mut response = f(&name,
-                                                 Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
-
-                            {
-                                let mut tx_stream = tx_stream_clone.lock().unwrap();
-
-                                match write_container(&mut *tx_stream,
-                                                      &container::pack_response(request_id,
-                                                                                &response)) {
-                                    Ok(_) => {}
-                                    Err(Error::Io(error)) => {
-                                        error!("could not send response (may timed out): {:?}",
-                                               error);
-
-                                        continue;
-                                    }
-                                    Err(error) => panic!(format!("{:?}", error)),
-                                }
-
-                                if let Ok(ref mut reader) = response {
-                                    io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream))
-                                        .unwrap();
-                                }
-                                tx_stream.flush().unwrap();
-                            }
-                        }
-                    }
-                    message::Kind::ResponseMessage => {
-                        if let Some(ref f) = handler_clone.read().unwrap().response {
-                            let (request_id, mut response) = container::unpack_response(container)
-                                                                 .unwrap();
-                            if let Ok(_) = response {
-                                response = Ok(Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
-                            }
-                            if let Err(error) = f(request_id, response) {
-                                if let Some(ref f) = handler_clone.read().unwrap().error {
-                                    f(peer_node_id, Error::Io(error));
-                                }
-                                break;
-                            }
-                        }
-                    }
-                    _ => {
-                        error!("{}: got unexpected container {:?}",
-                               node_id,
-                               container.get_kind());
                     }
                 }
             }
@@ -371,6 +292,96 @@ impl Drop for Connection {
     }
 }
 
+fn process_inbound_container(node_id: ID,
+                             peer_node_id: ID,
+                             rx_stream: &mut cipher::Stream<net::TcpStream>,
+                             tx_stream: &Arc<Mutex<cipher::Stream<net::TcpStream>>>,
+                             aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
+                             handler: &Arc<RwLock<Handler>>)
+                             -> Result<()> {
+    let container = try!(read_container(rx_stream));
+    match container.get_kind() {
+        message::Kind::AddServicesMessage => {
+            if let Some(ref f) = handler.read().unwrap().add_services {
+                f(peer_node_id,
+                  try!(container::unpack_add_services(container)));
+            }
+            {
+                let mut tx_stream = tx_stream.lock().unwrap();
+                try!(write_container(&mut *tx_stream, &container::pack_aknowledge()));
+            }
+        }
+        message::Kind::RemoveServicesMessage => {
+            if let Some(ref f) = handler.read().unwrap().remove_services {
+                f(peer_node_id,
+                  try!(container::unpack_remove_services(container)));
+            }
+            {
+                let mut tx_stream = tx_stream.lock().unwrap();
+                try!(write_container(&mut *tx_stream, &container::pack_aknowledge()));
+            }
+        }
+        message::Kind::AknowledgeMessage => {
+            try!(container::unpack_aknowledge(container));
+            let tx: mpsc::Sender<()> = aknowledges_rx.recv().unwrap();
+            tx.send(()).unwrap();
+        }
+        message::Kind::RequestMessage => {
+            if let Some(ref f) = handler.read().unwrap().request {
+                let (request_id, name) = try!(container::unpack_request(container));
+
+                let mut response =
+                    f(&name,
+                      Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
+
+                {
+                    let mut tx_stream = tx_stream.lock().unwrap();
+
+                    try!(write_container(&mut *tx_stream,
+                                         &container::pack_response(request_id, &response)));
+
+                    if let Ok(ref mut reader) = response {
+                        try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+                    }
+                    try!(tx_stream.flush());
+                }
+            }
+        }
+        message::Kind::ResponseMessage => {
+            if let Some(ref f) = handler.read().unwrap().response {
+                let (request_id, mut response) = try!(container::unpack_response(container));
+                if let Ok(_) = response {
+                    response = Ok(Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
+                }
+                try!(f(request_id, response));
+            }
+        }
+        _ => {
+            error!("{}: got unexpected container {:?}",
+                   node_id,
+                   container.get_kind());
+        }
+    }
+    Ok(())
+}
+
+fn write_container(w: &mut Write, container: &message::Container) -> Result<usize> {
+    let bytes = try!(container.write_to_bytes());
+    let size = bytes.len() as u64;
+
+    try!(w.write_u64::<byteorder::BigEndian>(size));
+    Ok(8 + try!(w.write(&bytes)))
+}
+
+fn read_container(stream: &mut io::Read) -> Result<message::Container> {
+    let size = try!(stream.read_u64::<byteorder::BigEndian>()) as usize;
+
+    let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
+    try!(stream.read_exact(&mut bytes));
+
+    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
+}
+
 struct Handler {
     add_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
     remove_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
@@ -442,21 +453,4 @@ impl From<container::Error> for Error {
     fn from(error: container::Error) -> Self {
         Error::Container(error)
     }
-}
-
-fn write_container(w: &mut Write, container: &message::Container) -> Result<usize> {
-    let bytes = try!(container.write_to_bytes());
-    let size = bytes.len() as u64;
-
-    try!(w.write_u64::<byteorder::BigEndian>(size));
-    Ok(8 + try!(w.write(&bytes)))
-}
-
-fn read_container(stream: &mut io::Read) -> Result<message::Container> {
-    let size = try!(stream.read_u64::<byteorder::BigEndian>()) as usize;
-
-    let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
-    try!(stream.read_exact(&mut bytes));
-
-    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
 }
