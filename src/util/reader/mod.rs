@@ -16,10 +16,12 @@ limitations under the License.
 
 mod chunk;
 mod drain_on_drop;
+mod error_after;
 mod http;
 mod tee;
 
-pub use util::reader::chunk::Chunk;
-pub use util::reader::drain_on_drop::DrainOnDrop;
-pub use util::reader::http::Http;
-pub use util::reader::tee::Tee;
+pub use self::chunk::Chunk;
+pub use self::drain_on_drop::DrainOnDrop;
+pub use self::error_after::ErrorAfter;
+pub use self::http::Http;
+pub use self::tee::Tee;

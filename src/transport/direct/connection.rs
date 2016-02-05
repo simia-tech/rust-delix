@@ -354,10 +354,14 @@ impl Connection {
     {
         match f() {
             Ok(value) => value,
-            Err(error) => {
+            Err(Error::ConnectionLost) => {
                 if let Some(ref f) = *self.on_error.lock().unwrap() {
-                    f(self.peer_node_id, error);
+                    f(self.peer_node_id, Error::ConnectionLost);
                 }
+                default
+            }
+            Err(error) => {
+                error!("caught transmission error: {:?}", error);
                 default
             }
         }

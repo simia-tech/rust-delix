@@ -116,7 +116,7 @@ impl Tracker {
     pub fn end(&self, id: u32, response: request::Response) -> Result<()> {
         let (subject, started_at, (_, response_tx)) = try!(self.store.remove(&id));
 
-        response_tx.send(response).unwrap();
+        let _ = response_tx.send(response);
 
         self.statistic.push(subject, time::now_utc() - started_at);
 

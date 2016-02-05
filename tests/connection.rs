@@ -17,6 +17,9 @@ extern crate delix;
 
 mod helper;
 
+use std::io;
+use delix::util::reader;
+
 #[test]
 #[allow(unused_variables)]
 fn loose() {
@@ -49,4 +52,21 @@ fn loose_and_service_clean_up() {
 
     helper::wait_for_discovering(&metric_one);
     helper::wait_for_services(&[&metric_one], 0);
+}
+
+#[test]
+fn loose_while_transmitting_request() {
+    helper::set_up();
+
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3021", &[], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
+    node_two.register("echo", Box::new(|request| {
+        Ok(request)
+    })).unwrap();
+
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
+
+    let request = Box::new(reader::ErrorAfter::new_connection_lost(io::Cursor::new(b"test message".to_vec()), 4));
+    assert!(node_one.request("echo", request, Box::new(Vec::new())).is_ok());
 }
