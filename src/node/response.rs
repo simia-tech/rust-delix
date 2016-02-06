@@ -14,17 +14,7 @@
 //
 
 use std::io;
-use std::result;
-use super::{response, service};
 
 pub type Reader = io::Read + Send;
 
-pub type Result = result::Result<Box<response::Writer>, Error>;
-
-#[derive(Debug, PartialEq)]
-pub enum Error {
-    NoService,
-    Timeout,
-    Io(io::ErrorKind, String),
-    Service(service::Error),
-}
+pub type Writer = io::Write + Send;

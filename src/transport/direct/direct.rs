@@ -25,7 +25,7 @@ use transport::cipher::Cipher;
 use transport::direct::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
 use transport::direct::tracker::{self, Statistic};
 use metric::Metric;
-use node::{ID, request};
+use node::{ID, Service, request, response};
 
 pub struct Direct {
     join_handle: RwLock<Option<thread::JoinHandle<()>>>,
@@ -150,7 +150,7 @@ impl Transport for Direct {
         Ok(())
     }
 
-    fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
+    fn register(&self, name: &str, f: Box<Service>) -> Result<()> {
         try!(self.services.insert_local(name, f));
 
         self.connections.send_add_services(&vec![name.to_string()]).unwrap();
@@ -169,8 +169,8 @@ impl Transport for Direct {
     fn request(&self,
                name: &str,
                reader: Box<request::Reader>,
-               response_writer: Box<request::ResponseWriter>)
-               -> request::Response {
+               response_writer: Box<response::Writer>)
+               -> request::Result {
 
         self.services.select(name,
                              reader,
@@ -183,18 +183,28 @@ impl Transport for Direct {
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
                                  thread::spawn(move || {
-                                     let mut response = (*handler_clone.lock()
-                                                                       .unwrap())(reader);
+                                     let service_result = (*handler_clone.lock()
+                                                                         .unwrap())(reader);
 
-                                     if let Ok(ref mut reader) = response {
-                                         if let Some(ref mut response_writer) =
-                                                tracker_clone.take_response_writer(request_id) {
-                                             io::copy(reader, response_writer).unwrap();
+                                     let request_result = match service_result {
+                                         Ok(mut reader) => {
+                                             if let Some(mut response_writer) =
+                                                    tracker_clone.take_response_writer(request_id) {
+                                                 io::copy(&mut reader, &mut response_writer)
+                                                     .unwrap();
+                                                 Ok(response_writer)
+                                             } else {
+                                                 debug!("got response for request ({}) that \
+                                                         already timed out",
+                                                        request_id);
+                                                 return;
+                                             }
                                          }
-                                     }
+                                         Err(error) => Err(request::Error::Service(error)),
+                                     };
 
                                      if let Err(tracker::Error::AlreadyEnded) =
-                                            tracker_clone.end(request_id, response) {
+                                            tracker_clone.end(request_id, request_result) {
                                          debug!("got response for request ({}) that already \
                                                  timed out",
                                                 request_id);
@@ -236,14 +246,22 @@ fn set_up(connection: &mut Connection, services: &Arc<ServiceMap>, tracker: &Arc
     }));
 
     let tracker_clone = tracker.clone();
-    connection.set_on_response(Box::new(move |request_id, mut response| {
-        if let Ok(ref mut reader) = response {
-            if let Some(ref mut response_writer) = tracker_clone.take_response_writer(request_id) {
-                try!(io::copy(reader, response_writer));
+    connection.set_on_response(Box::new(move |request_id, service_result| {
+        let request_result = match service_result {
+            Ok(mut reader) => {
+                if let Some(mut response_writer) = tracker_clone.take_response_writer(request_id) {
+                    try!(io::copy(&mut reader, &mut response_writer));
+                    Ok(response_writer)
+                } else {
+                    debug!("got response for request ({}) that already timed out",
+                           request_id);
+                    return Ok(());
+                }
             }
-        }
+            Err(error) => Err(request::Error::Service(error)),
+        };
 
-        if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, response) {
+        if let Err(tracker::Error::AlreadyEnded) = tracker_clone.end(request_id, request_result) {
             debug!("got response for request ({}) that already timed out",
                    request_id);
         }

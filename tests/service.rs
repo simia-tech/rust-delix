@@ -94,5 +94,5 @@ fn deregistration_in_joined_network() {
     node_one.deregister("echo").unwrap();
     helper::wait_for_services(&[&metric_one, &metric_two], 0);
 
-    assert_eq!(Err(request::Error::ServiceDoesNotExists), node_two.request_bytes("echo", b"test"));
+    assert_eq!(Err(request::Error::NoService), node_two.request_bytes("echo", b"test"));
 }

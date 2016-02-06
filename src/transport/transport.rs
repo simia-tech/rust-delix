@@ -17,21 +17,17 @@ use std::net::SocketAddr;
 use std::io;
 use std::result;
 
-use node::{ID, request};
+use node::{ID, Service, request, response};
 use transport::direct;
 
 pub trait Transport : Send + Sync {
     fn bind(&self, ID) -> Result<()>;
     fn join(&self, SocketAddr, ID) -> Result<()>;
 
-    fn register(&self, &str, Box<request::Handler>) -> Result<()>;
+    fn register(&self, &str, Box<Service>) -> Result<()>;
     fn deregister(&self, &str) -> Result<()>;
 
-    fn request(&self,
-               &str,
-               Box<request::Reader>,
-               Box<request::ResponseWriter>)
-               -> request::Response;
+    fn request(&self, &str, Box<request::Reader>, Box<response::Writer>) -> request::Result;
 }
 
 pub type Result<T> = result::Result<T, Error>;

@@ -19,13 +19,13 @@ use time::{self, Duration};
 
 use transport::direct::Link;
 use transport::direct::tracker::{Subject, Store};
-use node::request;
+use node::{request, response};
 
 const MAXIMAL_SIZE: usize = 20;
 
 pub struct Statistic {
-    store: RwLock<Option<Arc<Store<(Option<Box<request::ResponseWriter>>,
-                                    mpsc::Sender<request::Response>)>>>>,
+    store: RwLock<Option<Arc<Store<(Option<Box<response::Writer>>,
+                                    mpsc::Sender<request::Result>)>>>>,
     entries: RwLock<HashMap<Subject, VecDeque<Duration>>>,
 }
 
@@ -38,8 +38,8 @@ impl Statistic {
     }
 
     pub fn assign_store(&self,
-                        store: Arc<Store<(Option<Box<request::ResponseWriter>>,
-                                          mpsc::Sender<request::Response>)>>) {
+                        store: Arc<Store<(Option<Box<response::Writer>>,
+                                          mpsc::Sender<request::Result>)>>) {
         *self.store.write().unwrap() = Some(store);
     }
 

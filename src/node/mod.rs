@@ -14,11 +14,12 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-mod id;
+pub mod id;
 mod node;
 pub mod request;
+pub mod response;
+pub mod service;
 
-pub use node::id::ID;
-pub use node::id::Error as IDError;
-pub use node::node::Node;
-pub use node::node::Error;
+pub use self::id::ID;
+pub use self::node::{Node, Error};
+pub use self::service::Service;

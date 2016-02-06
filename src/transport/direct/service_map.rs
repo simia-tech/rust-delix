@@ -18,7 +18,7 @@ use std::result;
 use std::sync::{Arc, Mutex, RwLock};
 
 use metric::{self, Metric};
-use node::{ID, request};
+use node::{ID, Service, request, response, service};
 use transport::direct::{self, Link};
 
 pub struct ServiceMap {
@@ -46,7 +46,7 @@ impl ServiceMap {
         }
     }
 
-    pub fn insert_local(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
+    pub fn insert_local(&self, name: &str, f: Box<Service>) -> Result<()> {
         let mut entries = self.entries.write().unwrap();
 
         if !entries.contains_key(name) {
@@ -102,21 +102,21 @@ impl ServiceMap {
     pub fn select<L, R>(&self,
                         name: &str,
                         reader: Box<request::Reader>,
-                        response_writer: Box<request::ResponseWriter>,
+                        response_writer: Box<response::Writer>,
                         local_handler: L,
                         remote_handler: R)
-                        -> request::Response
+                        -> request::Result
         where L: FnOnce(Box<request::Reader>,
-                        Box<request::ResponseWriter>,
-                        &Arc<Mutex<Box<request::Handler>>>)
-                        -> request::Response,
-              R: FnOnce(Box<request::Reader>, Box<request::ResponseWriter>, ID) -> request::Response
+                        Box<response::Writer>,
+                        &Arc<Mutex<Box<Service>>>)
+                        -> request::Result,
+              R: FnOnce(Box<request::Reader>, Box<response::Writer>, ID) -> request::Result
     {
         let mut entries = self.entries.write().unwrap();
 
         let mut entry = match entries.get_mut(name) {
             Some(entry) => entry,
-            None => return Err(request::Error::ServiceDoesNotExists),
+            None => return Err(request::Error::NoService),
         };
 
         if entry.queue.is_empty() {
@@ -137,19 +137,20 @@ impl ServiceMap {
         }
     }
 
-    pub fn select_local<L>(&self, name: &str, local_handler: L) -> request::Response
-        where L: FnOnce(&Box<request::Handler>) -> request::Response
+    pub fn select_local<L>(&self, name: &str, local_handler: L) -> service::Result
+        where L: FnOnce(&Box<Service>) -> service::Result
     {
         let entries = self.entries.read().unwrap();
 
         let entry = match entries.get(name) {
             Some(entry) => entry,
-            None => return Err(request::Error::ServiceDoesNotExists),
+            None => return Err(service::Error::Unavailable),
+            // TODO: this should never be possible since the request should never arrive here when the service does not exists.
         };
 
         let link = match entry.links.iter().find(|link| Link::is_local(link)) {
             Some(link) => link,
-            None => return Err(request::Error::ServiceDoesNotExists),
+            None => return Err(service::Error::Unavailable),
         };
 
         if let Link::Local = *link {
@@ -248,7 +249,7 @@ impl ServiceMap {
 }
 
 struct Entry {
-    local_handler: Option<Arc<Mutex<Box<request::Handler>>>>,
+    local_handler: Option<Arc<Mutex<Box<Service>>>>,
     links: Vec<Link>,
     queue: Vec<Link>,
 }

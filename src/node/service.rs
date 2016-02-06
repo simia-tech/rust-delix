@@ -13,18 +13,16 @@
 // limitations under the License.
 //
 
-use std::io;
 use std::result;
-use super::{response, service};
+use super::{request, response};
 
-pub type Reader = io::Read + Send;
+pub type Service = Fn(Box<request::Reader>) -> Result + Send;
 
-pub type Result = result::Result<Box<response::Writer>, Error>;
+pub type Result = result::Result<Box<response::Reader>, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {
-    NoService,
+    Unavailable,
     Timeout,
-    Io(io::ErrorKind, String),
-    Service(service::Error),
+    Internal(String),
 }

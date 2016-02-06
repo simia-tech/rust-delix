@@ -4,10 +4,9 @@ package message;
 message Response {
   enum Kind {
     OK = 1;
-    ServiceDoesNotExists = 2;
-    ServiceUnavailable = 3;
-    Timeout = 4;
-    Internal = 5;
+    Unavailable = 2;
+    Timeout = 3;
+    Internal = 4;
   }
 
   optional uint32 request_id = 1;

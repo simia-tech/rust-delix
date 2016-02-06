@@ -13,20 +13,19 @@
 // limitations under the License.
 //
 
-use std::io;
 use std::net::{self, SocketAddr};
 use std::result;
 
 use protobuf::{self, Message};
 
 use message;
-use node::{self, ID, request};
+use node::{ID, id, response, service};
 
 pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
-    Id(node::IDError),
+    Id(id::Error),
     Protobuf(protobuf::ProtobufError),
     AddrParse(net::AddrParseError),
 }
@@ -130,23 +129,20 @@ pub fn unpack_request(container: message::Container) -> Result<(u32, String)> {
         request_packet.get_name().to_string()))
 }
 
-pub fn pack_response(request_id: u32, response: &request::Response) -> message::Container {
+pub fn pack_response(request_id: u32, response: &service::Result) -> message::Container {
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
     match *response {
         Ok(_) => {
             response_packet.set_kind(message::Response_Kind::OK);
         }
-        Err(request::Error::ServiceDoesNotExists) => {
-            response_packet.set_kind(message::Response_Kind::ServiceDoesNotExists);
+        Err(service::Error::Unavailable) => {
+            response_packet.set_kind(message::Response_Kind::Unavailable);
         }
-        Err(request::Error::ServiceUnavailable) => {
-            response_packet.set_kind(message::Response_Kind::ServiceUnavailable);
-        }
-        Err(request::Error::Timeout) => {
+        Err(service::Error::Timeout) => {
             response_packet.set_kind(message::Response_Kind::Timeout);
         }
-        Err(request::Error::Internal(ref message)) => {
+        Err(service::Error::Internal(ref message)) => {
             response_packet.set_kind(message::Response_Kind::Internal);
             response_packet.set_message(message.to_string());
         }
@@ -154,17 +150,16 @@ pub fn pack_response(request_id: u32, response: &request::Response) -> message::
     pack(message::Kind::ResponseMessage, response_packet)
 }
 
-pub fn unpack_response(container: message::Container) -> Result<(u32, request::Response)> {
+pub fn unpack_response(container: message::Container,
+                       response_reader: Box<response::Reader>)
+                       -> Result<(u32, service::Result)> {
     let response_packet = try!(unpack::<message::Response>(&container));
     let result = match response_packet.get_kind() {
-        message::Response_Kind::OK => {
-            Ok(Box::new(io::Cursor::new(response_packet.get_data().to_vec())) as Box<io::Read + Send>)
-        }
-        message::Response_Kind::ServiceDoesNotExists => Err(request::Error::ServiceDoesNotExists),
-        message::Response_Kind::ServiceUnavailable => Err(request::Error::ServiceUnavailable),
-        message::Response_Kind::Timeout => Err(request::Error::Timeout),
+        message::Response_Kind::OK => Ok(response_reader),
+        message::Response_Kind::Unavailable => Err(service::Error::Unavailable),
+        message::Response_Kind::Timeout => Err(service::Error::Timeout),
         message::Response_Kind::Internal => {
-            Err(request::Error::Internal(response_packet.get_message().to_string()))
+            Err(service::Error::Internal(response_packet.get_message().to_string()))
         }
     };
     Ok((response_packet.get_request_id(), result))
@@ -188,8 +183,8 @@ fn unpack<T>(container: &message::Container) -> Result<T>
     Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
 }
 
-impl From<node::IDError> for Error {
-    fn from(error: node::IDError) -> Self {
+impl From<id::Error> for Error {
+    fn from(error: id::Error) -> Self {
         Error::Id(error)
     }
 }

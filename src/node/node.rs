@@ -20,7 +20,7 @@ use std::sync::Arc;
 
 use discovery::Discovery;
 use metric::{self, Metric};
-use node::{ID, request};
+use node::{ID, Service, request, response};
 use transport;
 use transport::Transport;
 use util::writer;
@@ -29,7 +29,7 @@ pub struct Node {
     pub id: ID,
     discovery: Box<Discovery>,
     transport: Box<Transport>,
-    requests_counter: metric::item::Counter,
+    request_counter: metric::item::Counter,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -54,7 +54,7 @@ impl Node {
             id: node_id,
             discovery: discovery,
             transport: transport,
-            requests_counter: metric.counter("requests"),
+            request_counter: metric.counter("requests"),
         })
     }
 
@@ -69,7 +69,7 @@ impl Node {
         }
     }
 
-    pub fn register(&self, name: &str, f: Box<request::Handler>) -> Result<()> {
+    pub fn register(&self, name: &str, f: Box<Service>) -> Result<()> {
         try!(self.transport.register(name, f));
         Ok(())
     }
@@ -95,9 +95,9 @@ impl Node {
     pub fn request(&self,
                    name: &str,
                    reader: Box<request::Reader>,
-                   response_writer: Box<request::ResponseWriter>)
-                   -> request::Response {
-        self.requests_counter.increment();
+                   response_writer: Box<response::Writer>)
+                   -> request::Result {
+        self.request_counter.increment();
         Ok(try!(self.transport.request(name, reader, response_writer)))
     }
 }

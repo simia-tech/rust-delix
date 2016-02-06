@@ -18,7 +18,7 @@ use std::net::{self, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::thread;
 
-use node::{Node, request};
+use node::{Node, request, service};
 use relay::{Relay, Result};
 use util::reader;
 
@@ -86,18 +86,18 @@ impl Relay for HttpStatic {
                            })
                            .unwrap();
 
-                let response = node_clone.request(&service_name,
-                                                  Box::new(http_reader),
-                                                  Box::new(stream.try_clone()
-                                                                 .unwrap()));
+                let result = node_clone.request(&service_name,
+                                                Box::new(http_reader),
+                                                Box::new(stream.try_clone()
+                                                               .unwrap()));
 
-                let response = match response {
+                let response = match result {
                     Ok(_) => Vec::new(),
-                    Err(request::Error::ServiceDoesNotExists) => {
+                    Err(request::Error::NoService) => {
                         build_text_response(StatusCode::BadGateway,
                                             &format!("service [{}] not found", service_name))
                     }
-                    Err(request::Error::ServiceUnavailable) => {
+                    Err(request::Error::Service(service::Error::Unavailable)) => {
                         build_text_response(StatusCode::ServiceUnavailable,
                                             &format!("service [{}] is unavailable", service_name))
                     }
@@ -132,11 +132,11 @@ impl Drop for HttpStatic {
     }
 }
 
-impl From<io::Error> for request::Error {
+impl From<io::Error> for service::Error {
     fn from(error: io::Error) -> Self {
         match error.kind() {
-            io::ErrorKind::ConnectionRefused => request::Error::ServiceUnavailable,
-            _ => request::Error::Internal(format!("{:?}", error.kind())),
+            io::ErrorKind::ConnectionRefused => service::Error::Unavailable,
+            _ => service::Error::Internal(format!("{:?}", error.kind())),
         }
     }
 }

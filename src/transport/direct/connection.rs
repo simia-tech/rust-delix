@@ -25,7 +25,7 @@ use protobuf::{self, Message};
 use message;
 use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
-use node::{self, ID, request};
+use node::{ID, id, request, service};
 use transport::cipher::{self, Cipher};
 use transport::direct::container;
 use util::{reader, writer};
@@ -48,12 +48,13 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ConnectionLost,
-    Id(node::IDError),
+    Id(id::Error),
     AddrParse(net::AddrParseError),
     Protobuf(protobuf::ProtobufError),
     Io(io::Error),
     Cipher(cipher::Error),
     Container(container::Error),
+    Service(service::Error),
 }
 
 impl Connection {
@@ -167,11 +168,12 @@ impl Connection {
     }
 
     pub fn set_on_request(&mut self,
-                          f: Box<Fn(&str, Box<request::Reader>) -> request::Response + Send + Sync>) {
+                          f: Box<Fn(&str, Box<request::Reader>) -> service::Result + Send + Sync>) {
         self.handler.write().unwrap().request = Some(f);
     }
 
-    pub fn set_on_response(&mut self, f: Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send + Sync>) {
+    pub fn set_on_response(&mut self,
+                           f: Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send + Sync>) {
         self.handler.write().unwrap().response = Some(f);
     }
 
@@ -349,10 +351,10 @@ fn process_inbound_container(node_id: ID,
         }
         message::Kind::ResponseMessage => {
             if let Some(ref f) = handler.read().unwrap().response {
-                let (request_id, mut response) = try!(container::unpack_response(container));
-                if let Ok(_) = response {
-                    response = Ok(Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
-                }
+                let response_reader =
+                    Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone())));
+                let (request_id, response) = try!(container::unpack_response(container,
+                                                                             response_reader));
                 try!(f(request_id, response));
             }
         }
@@ -383,10 +385,11 @@ fn read_container(stream: &mut io::Read) -> Result<message::Container> {
 }
 
 struct Handler {
+    // TODO: remove Sync
     add_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
     remove_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
-    request: Option<Box<Fn(&str, Box<request::Reader>) -> request::Response + Send + Sync>>,
-    response: Option<Box<Fn(u32, request::Response) -> result::Result<(), io::Error> + Send + Sync>>,
+    request: Option<Box<Fn(&str, Box<request::Reader>) -> service::Result + Send + Sync>>,
+    response: Option<Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send + Sync>>,
     error: Option<Box<Fn(ID, Error) + Send + Sync>>,
     shutdown: Option<Box<Fn(ID) + Send + Sync>>,
     drop: Option<Box<Fn(ID) + Send + Sync>>,
@@ -419,8 +422,8 @@ impl From<byteorder::Error> for Error {
     }
 }
 
-impl From<node::IDError> for Error {
-    fn from(error: node::IDError) -> Self {
+impl From<id::Error> for Error {
+    fn from(error: id::Error) -> Self {
         Error::Id(error)
     }
 }
@@ -452,5 +455,11 @@ impl From<cipher::Error> for Error {
 impl From<container::Error> for Error {
     fn from(error: container::Error) -> Self {
         Error::Container(error)
+    }
+}
+
+impl From<service::Error> for Error {
+    fn from(error: service::Error) -> Self {
+        Error::Service(error)
     }
 }
