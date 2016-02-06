@@ -20,7 +20,7 @@ pub type Service = Fn(Box<request::Reader>) -> Result + Send;
 
 pub type Result = result::Result<Box<response::Reader>, Error>;
 
-#[derive(Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub enum Error {
     Unavailable,
     Timeout,

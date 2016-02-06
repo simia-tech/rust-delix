@@ -26,7 +26,7 @@ pub struct DynamicRoundRobin {
 }
 
 impl DynamicRoundRobin {
-    pub fn new() -> DynamicRoundRobin {
+    pub fn new() -> Self {
         DynamicRoundRobin { statistic: RwLock::new(None) }
     }
 }

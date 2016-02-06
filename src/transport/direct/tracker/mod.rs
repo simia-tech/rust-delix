@@ -18,7 +18,7 @@ pub mod store;
 mod subject;
 mod tracker;
 
-pub use transport::direct::tracker::statistic::Statistic;
-pub use transport::direct::tracker::tracker::{Error, Tracker};
-pub use transport::direct::tracker::subject::Subject;
-pub use transport::direct::tracker::store::Store;
+pub use self::statistic::Statistic;
+pub use self::tracker::{Error, Tracker};
+pub use self::subject::Subject;
+pub use self::store::Store;

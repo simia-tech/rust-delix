@@ -17,12 +17,16 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::RwLock;
 
-use transport::direct::tracker::Subject;
+use super::Subject;
 
 use time;
 
 pub struct Store<T> {
     entries: RwLock<HashMap<u32, (Subject, time::Tm, T)>>,
+}
+
+pub trait Query {
+    fn started_ats_with_subject(&self, &Subject) -> Vec<time::Tm>;
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -100,21 +104,23 @@ impl<T> Store<T> {
         (result, next_at)
     }
 
-    pub fn started_ats_with_subject<F: FnMut(&[&time::Tm])>(&self, subject: &Subject, mut f: F) {
-        let entries = self.entries.read().unwrap();
-        f(&entries.iter()
-                  .filter_map(|(_, &(ref entry_subject, ref started_at, _))| {
-                      if entry_subject == subject {
-                          Some(started_at)
-                      } else {
-                          None
-                      }
-                  })
-                  .collect::<Vec<&time::Tm>>());
-    }
-
     pub fn len(&self) -> usize {
         self.entries.read().unwrap().len()
+    }
+}
+
+impl<T> Query for Store<T> {
+    fn started_ats_with_subject(&self, subject: &Subject) -> Vec<time::Tm> {
+        let entries = self.entries.read().unwrap();
+        entries.iter()
+               .filter_map(|(_, &(ref entry_subject, ref started_at, _))| {
+                   if entry_subject == subject {
+                       Some(*started_at)
+                   } else {
+                       None
+                   }
+               })
+               .collect::<Vec<time::Tm>>()
     }
 }
 
@@ -128,6 +134,7 @@ mod tests {
     use time;
     use super::{Error, Store};
     use super::super::Subject;
+    use super::super::store::Query;
 
     #[test]
     fn insert() {
@@ -191,10 +198,9 @@ mod tests {
         store.insert(20, Subject::local("two"), build_time(100), "test entry")
              .unwrap();
 
-        store.started_ats_with_subject(&Subject::local("two"), |started_ats| {
-            assert_eq!(1, started_ats.len());
-            assert_eq!(&build_time(100), started_ats[0]);
-        });
+        let started_ats = store.started_ats_with_subject(&Subject::local("two"));
+        assert_eq!(1, started_ats.len());
+        assert_eq!(build_time(100), started_ats[0]);
     }
 
     fn build_time(seconds: i64) -> time::Tm {

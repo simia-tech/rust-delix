@@ -14,33 +14,29 @@
 //
 
 use std::collections::{HashMap, VecDeque};
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::{Arc, RwLock};
 use time::{self, Duration};
 
 use transport::direct::Link;
-use transport::direct::tracker::{Subject, Store};
-use node::{request, response};
+use super::{Subject, store};
 
 const MAXIMAL_SIZE: usize = 20;
 
 pub struct Statistic {
-    store: RwLock<Option<Arc<Store<(Option<Box<response::Writer>>,
-                                    mpsc::Sender<request::Result>)>>>>,
+    query: RwLock<Option<Arc<store::Query>>>,
     entries: RwLock<HashMap<Subject, VecDeque<Duration>>>,
 }
 
 impl Statistic {
-    pub fn new() -> Statistic {
+    pub fn new() -> Self {
         Statistic {
-            store: RwLock::new(None),
+            query: RwLock::new(None),
             entries: RwLock::new(HashMap::new()),
         }
     }
 
-    pub fn assign_store(&self,
-                        store: Arc<Store<(Option<Box<response::Writer>>,
-                                          mpsc::Sender<request::Result>)>>) {
-        *self.store.write().unwrap() = Some(store);
+    pub fn assign_query(&self, query: Arc<store::Query>) {
+        *self.query.write().unwrap() = Some(query);
     }
 
     pub fn push(&self, subject: Subject, duration: Duration) {
@@ -68,15 +64,14 @@ impl Statistic {
         let mut sum = durations.iter().fold(Duration::zero(), |sum, &duration| sum + duration);
         let mut count = durations.len() as i32;
 
-        let store_option = self.store.read().unwrap();
-        if let Some(ref store) = *store_option {
-            store.started_ats_with_subject(&subject, |times| {
-                let now = time::now_utc();
-                sum = sum +
-                      times.iter().fold(Duration::zero(),
-                                        |sum, &started_at| sum + (now - *started_at));
-                count += times.len() as i32;
-            });
+        if let Some(ref query) = *self.query.read().unwrap() {
+            let times = query.started_ats_with_subject(&subject);
+
+            let now = time::now_utc();
+            sum = sum +
+                  times.iter().fold(Duration::zero(),
+                                    |sum, &started_at| sum + (now - started_at));
+            count += times.len() as i32;
         }
 
         sum / count
@@ -86,9 +81,8 @@ impl Statistic {
 #[cfg(test)]
 mod tests {
 
-    use std::io;
     use std::thread;
-    use std::sync::{Arc, mpsc};
+    use std::sync::Arc;
     use time::{self, Duration};
     use super::Statistic;
     use super::super::{Subject, Store};
@@ -123,15 +117,11 @@ mod tests {
         let store = Arc::new(Store::new());
         let statistic = Statistic::new();
         let subject = Subject::local("test");
-        statistic.assign_store(store.clone());
+        statistic.assign_query(store.clone());
 
         statistic.push(subject.clone(), Duration::milliseconds(1000));
 
-        let (response_tx, _) = mpsc::channel();
-        store.insert(10,
-                     subject.clone(),
-                     time::now_utc(),
-                     (Some(Box::new(io::sink())), response_tx))
+        store.insert(10, subject.clone(), time::now_utc(), "test entry")
              .unwrap();
         thread::sleep(::std::time::Duration::from_millis(10));
 
@@ -139,5 +129,4 @@ mod tests {
         assert!(average > Duration::milliseconds(10));
         assert!(average < Duration::milliseconds(1000));
     }
-
 }
