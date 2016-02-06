@@ -67,8 +67,10 @@ impl ConnectionMap {
 
         let sender = self.sender.clone();
         connection.set_on_error(Box::new(move |peer_node_id, error| {
-            error!("got connection error: {:?}", error);
-            sender.send(peer_node_id).unwrap()
+            if error.kind() != io::ErrorKind::UnexpectedEof {
+                error!("got connection error: {:?}", error);
+            }
+            sender.send(peer_node_id).unwrap();
         }));
 
         map.insert(connection.peer_node_id(), connection);

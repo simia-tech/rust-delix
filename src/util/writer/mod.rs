@@ -16,6 +16,8 @@ limitations under the License.
 
 mod chunk;
 mod collector;
+mod size;
 
-pub use util::writer::chunk::Chunk;
-pub use util::writer::collector::Collector;
+pub use self::chunk::Chunk;
+pub use self::collector::Collector;
+pub use self::size::write_size;

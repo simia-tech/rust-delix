@@ -22,7 +22,6 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use message;
-use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
 use node::{ID, request, service};
 use transport::cipher::{self, Cipher};
@@ -345,26 +344,14 @@ fn process_inbound_container(node_id: ID,
     Ok(())
 }
 
-fn write_container(w: &mut Write, container: &Container) -> io::Result<usize> {
+fn write_container(mut w: &mut Write, container: &Container) -> io::Result<usize> {
     let bytes = try!(container.write_to_bytes());
-    let size = bytes.len() as u64;
-
-    try!(w.write_u64::<byteorder::BigEndian>(size));
+    try!(writer::write_size(&mut w, bytes.len()));
     Ok(8 + try!(w.write(&bytes)))
 }
 
-fn read_container(stream: &mut io::Read) -> io::Result<Container> {
-    let size = match stream.read_u64::<byteorder::BigEndian>() {
-        Ok(size) => size as usize,
-        Err(byteorder::Error::Io(ref error)) if error.kind() == io::ErrorKind::Other &&
-                                                format!("{}", error) == "unexpected EOF" => {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"));
-        }
-        Err(byteorder::Error::Io(error)) => return Err(error),
-        Err(byteorder::Error::UnexpectedEOF) => {
-            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"));
-        }
-    };
+fn read_container(mut stream: &mut io::Read) -> io::Result<Container> {
+    let size = try!(reader::read_size(&mut stream));
 
     let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
     try!(stream.read_exact(&mut bytes));
