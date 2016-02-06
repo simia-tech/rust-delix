@@ -68,5 +68,5 @@ fn loose_while_transmitting_request() {
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     let request = Box::new(reader::ErrorAfter::new_connection_lost(io::Cursor::new(b"test message".to_vec()), 4));
-    assert!(node_one.request("echo", request, Box::new(Vec::new())).is_ok());
+    assert!(node_one.request("echo", request, Box::new(Vec::new())).is_err());
 }

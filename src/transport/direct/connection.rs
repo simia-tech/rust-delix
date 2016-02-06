@@ -21,13 +21,12 @@ use std::result;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
-use protobuf::{self, Message};
 use message;
 use byteorder::{self, WriteBytesExt, ReadBytesExt};
 
-use node::{ID, id, request, service};
+use node::{ID, request, service};
 use transport::cipher::{self, Cipher};
-use transport::direct::container;
+use transport::direct::container::{self, Container};
 use util::{reader, writer};
 
 pub struct Connection {
@@ -43,27 +42,13 @@ pub struct Connection {
     handler: Arc<Mutex<Handler>>,
 }
 
-pub type Result<T> = result::Result<T, Error>;
-
-#[derive(Debug)]
-pub enum Error {
-    ConnectionLost,
-    Id(id::Error),
-    AddrParse(net::AddrParseError),
-    Protobuf(protobuf::ProtobufError),
-    Io(io::Error),
-    Cipher(cipher::Error),
-    Container(container::Error),
-    Service(service::Error),
-}
-
 impl Connection {
     pub fn new_inbound(tcp_stream: net::TcpStream,
                        cipher: Arc<Box<Cipher>>,
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)])
-                       -> Result<Connection> {
+                       -> io::Result<Connection> {
 
         let (mut connection, sender) = try!(Self::new(tcp_stream, cipher, node_id, public_address));
 
@@ -77,7 +62,7 @@ impl Connection {
                         cipher: Arc<Box<Cipher>>,
                         node_id: ID,
                         public_address: SocketAddr)
-                        -> Result<(Connection, Vec<(ID, SocketAddr)>)> {
+                        -> io::Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
         let (mut connection, sender) = try!(Self::new(tcp_stream, cipher, node_id, public_address));
 
@@ -91,7 +76,7 @@ impl Connection {
            cipher: Arc<Box<Cipher>>,
            node_id: ID,
            public_address: SocketAddr)
-           -> Result<(Connection, mpsc::Sender<bool>)> {
+           -> io::Result<(Connection, mpsc::Sender<bool>)> {
 
         let tx_stream = Arc::new(Mutex::new(cipher::Stream::new(tcp_stream.try_clone().unwrap(),
                                                                 cipher.box_clone())));
@@ -121,7 +106,7 @@ impl Connection {
                                                 &aknowledges_rx,
                                                 &handler_clone) {
                     Ok(()) => {}
-                    Err(error) => {
+                    Err(ref error) => {
                         if let Some(ref f) = handler_clone.lock().unwrap().error {
                             f(peer_node_id, error);
                         }
@@ -177,7 +162,7 @@ impl Connection {
         self.handler.lock().unwrap().response = Some(f);
     }
 
-    pub fn set_on_error(&mut self, f: Box<Fn(ID, Error) + Send>) {
+    pub fn set_on_error(&mut self, f: Box<Fn(ID, &io::Error) + Send>) {
         self.handler.lock().unwrap().error = Some(f);
     }
 
@@ -189,7 +174,7 @@ impl Connection {
         self.handler.lock().unwrap().drop = Some(f);
     }
 
-    pub fn send_add_services(&mut self, service_names: &[String]) -> Result<()> {
+    pub fn send_add_services(&mut self, service_names: &[String]) -> io::Result<()> {
         let (tx, rx) = mpsc::channel();
         self.aknowledges_tx.lock().unwrap().send(tx).unwrap();
         {
@@ -201,7 +186,7 @@ impl Connection {
         Ok(())
     }
 
-    pub fn send_remove_services(&mut self, service_names: &[String]) -> Result<()> {
+    pub fn send_remove_services(&mut self, service_names: &[String]) -> io::Result<()> {
         let (tx, rx) = mpsc::channel();
         self.aknowledges_tx.lock().unwrap().send(tx).unwrap();
         {
@@ -213,7 +198,11 @@ impl Connection {
         Ok(())
     }
 
-    pub fn send_request(&mut self, id: u32, name: &str, reader: &mut request::Reader) {
+    pub fn send_request(&mut self,
+                        id: u32,
+                        name: &str,
+                        reader: &mut request::Reader)
+                        -> io::Result<()> {
         self.catch_error((), || {
             let mut tx_stream = self.tx_stream.lock().unwrap();
             try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
@@ -222,32 +211,29 @@ impl Connection {
         })
     }
 
-    fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> Result<()> {
+    fn send_peers(&mut self, peers: &[(ID, SocketAddr)]) -> io::Result<()> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
         try!(write_container(&mut *tx_stream, &container::pack_peers(peers)));
         Ok(())
     }
 
-    fn receive_peers(&mut self) -> Result<Vec<(ID, SocketAddr)>> {
+    fn receive_peers(&mut self) -> io::Result<Vec<(ID, SocketAddr)>> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
         Ok(try!(container::unpack_peers(try!(read_container(&mut *tx_stream)))))
     }
 
-    fn catch_error<F, T>(&self, default: T, f: F) -> T
-        where F: FnOnce() -> Result<T>
+    fn catch_error<F, T>(&self, default: T, f: F) -> io::Result<T>
+        where F: FnOnce() -> io::Result<T>
     {
         match f() {
-            Ok(value) => value,
-            Err(Error::ConnectionLost) => {
+            Ok(value) => Ok(value),
+            Err(ref error) if is_write_error(error) => {
                 if let Some(ref f) = self.handler.lock().unwrap().error {
-                    f(self.peer_node_id, Error::ConnectionLost);
+                    f(self.peer_node_id, error);
                 }
-                default
+                Ok(default)
             }
-            Err(error) => {
-                error!("caught transmission error: {:?}", error);
-                default
-            }
+            Err(error) => Err(error),
         }
     }
 }
@@ -292,7 +278,7 @@ fn process_inbound_container(node_id: ID,
                              tx_stream: &Arc<Mutex<cipher::Stream<net::TcpStream>>>,
                              aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
                              handler: &Arc<Mutex<Handler>>)
-                             -> Result<()> {
+                             -> io::Result<()> {
     let container = try!(read_container(rx_stream));
     match container.get_kind() {
         message::Kind::AddServicesMessage => {
@@ -359,7 +345,7 @@ fn process_inbound_container(node_id: ID,
     Ok(())
 }
 
-fn write_container(w: &mut Write, container: &message::Container) -> Result<usize> {
+fn write_container(w: &mut Write, container: &Container) -> io::Result<usize> {
     let bytes = try!(container.write_to_bytes());
     let size = bytes.len() as u64;
 
@@ -367,13 +353,27 @@ fn write_container(w: &mut Write, container: &message::Container) -> Result<usiz
     Ok(8 + try!(w.write(&bytes)))
 }
 
-fn read_container(stream: &mut io::Read) -> Result<message::Container> {
-    let size = try!(stream.read_u64::<byteorder::BigEndian>()) as usize;
+fn read_container(stream: &mut io::Read) -> io::Result<Container> {
+    let size = match stream.read_u64::<byteorder::BigEndian>() {
+        Ok(size) => size as usize,
+        Err(byteorder::Error::Io(ref error)) if error.kind() == io::ErrorKind::Other &&
+                                                format!("{}", error) == "unexpected EOF" => {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"));
+        }
+        Err(byteorder::Error::Io(error)) => return Err(error),
+        Err(byteorder::Error::UnexpectedEOF) => {
+            return Err(io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"));
+        }
+    };
 
     let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
     try!(stream.read_exact(&mut bytes));
 
-    Ok(try!(protobuf::parse_from_bytes::<message::Container>(&bytes)))
+    Ok(try!(Container::parse_from_bytes(&bytes)))
+}
+
+fn is_write_error(error: &io::Error) -> bool {
+    error.kind() != io::ErrorKind::UnexpectedEof
 }
 
 struct Handler {
@@ -381,7 +381,7 @@ struct Handler {
     remove_services: Option<Box<Fn(ID, Vec<String>) + Send>>,
     request: Option<Box<Fn(&str, Box<request::Reader>) -> service::Result + Send>>,
     response: Option<Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>>,
-    error: Option<Box<Fn(ID, Error) + Send>>,
+    error: Option<Box<Fn(ID, &io::Error) + Send>>,
     drop: Option<Box<Fn(ID) + Send>>,
 }
 
@@ -395,60 +395,5 @@ impl Handler {
             error: None,
             drop: None,
         }
-    }
-}
-
-impl From<byteorder::Error> for Error {
-    fn from(error: byteorder::Error) -> Self {
-        match error {
-            byteorder::Error::Io(ref err) if err.kind() == io::ErrorKind::Other &&
-                                             format!("{}", error) == "unexpected EOF" => {
-                Error::ConnectionLost
-            }
-            byteorder::Error::Io(err) => Error::Io(err),
-            byteorder::Error::UnexpectedEOF => Error::ConnectionLost,
-        }
-    }
-}
-
-impl From<id::Error> for Error {
-    fn from(error: id::Error) -> Self {
-        Error::Id(error)
-    }
-}
-
-impl From<net::AddrParseError> for Error {
-    fn from(error: net::AddrParseError) -> Self {
-        Error::AddrParse(error)
-    }
-}
-
-impl From<protobuf::ProtobufError> for Error {
-    fn from(error: protobuf::ProtobufError) -> Self {
-        Error::Protobuf(error)
-    }
-}
-
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Error::Io(error)
-    }
-}
-
-impl From<cipher::Error> for Error {
-    fn from(error: cipher::Error) -> Self {
-        Error::Cipher(error)
-    }
-}
-
-impl From<container::Error> for Error {
-    fn from(error: container::Error) -> Self {
-        Error::Container(error)
-    }
-}
-
-impl From<service::Error> for Error {
-    fn from(error: service::Error) -> Self {
-        Error::Service(error)
     }
 }

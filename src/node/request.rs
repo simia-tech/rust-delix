@@ -13,6 +13,7 @@
 // limitations under the License.
 //
 
+use std::error::Error as StdError;
 use std::io;
 use std::result;
 use super::{response, service};
@@ -27,4 +28,10 @@ pub enum Error {
     Timeout,
     Io(io::ErrorKind, String),
     Service(service::Error),
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Error::Io(error.kind(), error.description().to_string())
+    }
 }

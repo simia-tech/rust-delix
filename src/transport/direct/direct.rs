@@ -190,9 +190,11 @@ impl Transport for Direct {
                                          Ok(mut reader) => {
                                              if let Some(mut response_writer) =
                                                     tracker_clone.take_response_writer(request_id) {
-                                                 io::copy(&mut reader, &mut response_writer)
-                                                     .unwrap();
-                                                 Ok(response_writer)
+                                                 if let Err(error) = io::copy(&mut reader, &mut response_writer) {
+                                                     Err(request::Error::from(error))
+                                                 } else {
+                                                     Ok(response_writer)
+                                                 }
                                              } else {
                                                  debug!("got response for request ({}) that \
                                                          already timed out",
@@ -216,8 +218,8 @@ impl Transport for Direct {
                                  let (request_id, response_rx) =
                                      self.tracker
                                          .begin(name, &Link::Remote(peer_node_id), response_writer);
-                                 self.connections
-                                     .send_request(&peer_node_id, request_id, name, &mut reader);
+                                 try!(self.connections
+                                     .send_request(&peer_node_id, request_id, name, &mut reader));
                                  response_rx.recv().unwrap()
                              })
     }

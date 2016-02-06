@@ -13,6 +13,7 @@
 // limitations under the License.
 //
 
+use std::io;
 use std::net::{self, SocketAddr};
 use std::result;
 
@@ -20,6 +21,10 @@ use protobuf::{self, Message};
 
 use message;
 use node::{ID, id, response, service};
+
+pub struct Container {
+    message: message::Container,
+}
 
 pub type Result<T> = result::Result<T, Error>;
 
@@ -30,21 +35,35 @@ pub enum Error {
     AddrParse(net::AddrParseError),
 }
 
-pub fn pack_introduction(node_id: ID, public_address: SocketAddr) -> message::Container {
+impl Container {
+    pub fn parse_from_bytes(bytes: &[u8]) -> Result<Container> {
+        Ok(Container { message: try!(protobuf::parse_from_bytes::<message::Container>(&bytes)) })
+    }
+
+    pub fn write_to_bytes(&self) -> Result<Vec<u8>> {
+        Ok(try!(self.message.write_to_bytes()))
+    }
+
+    pub fn get_kind(&self) -> message::Kind {
+        self.message.get_kind()
+    }
+}
+
+pub fn pack_introduction(node_id: ID, public_address: SocketAddr) -> Container {
     let mut introduction = message::Introduction::new();
     introduction.set_id(node_id.to_vec());
     introduction.set_public_address(format!("{}", public_address));
     pack(message::Kind::IntroductionMessage, introduction)
 }
 
-pub fn unpack_introduction(container: message::Container) -> Result<(ID, SocketAddr)> {
+pub fn unpack_introduction(container: Container) -> Result<(ID, SocketAddr)> {
     let introduction_packet = try!(unpack::<message::Introduction>(&container));
     Ok((try!(ID::from_vec(introduction_packet.get_id().to_vec())),
         try!(introduction_packet.get_public_address()
                                 .parse::<SocketAddr>())))
 }
 
-pub fn pack_peers(peers: &[(ID, SocketAddr)]) -> message::Container {
+pub fn pack_peers(peers: &[(ID, SocketAddr)]) -> Container {
     let mut peers_packet = message::Peers::new();
     for peer in peers {
         let (peer_node_id, peer_public_address) = *peer;
@@ -56,7 +75,7 @@ pub fn pack_peers(peers: &[(ID, SocketAddr)]) -> message::Container {
     pack(message::Kind::PeersMessage, peers_packet)
 }
 
-pub fn unpack_peers(container: message::Container) -> Result<Vec<(ID, SocketAddr)>> {
+pub fn unpack_peers(container: Container) -> Result<Vec<(ID, SocketAddr)>> {
     Ok(try!(unpack::<message::Peers>(&container))
            .get_peers()
            .iter()
@@ -69,7 +88,7 @@ pub fn unpack_peers(container: message::Container) -> Result<Vec<(ID, SocketAddr
            .collect())
 }
 
-pub fn pack_add_services(service_names: &[String]) -> message::Container {
+pub fn pack_add_services(service_names: &[String]) -> Container {
     let mut services_packet = message::AddServices::new();
     for service_name in service_names {
         let mut service_packet = message::Service::new();
@@ -79,7 +98,7 @@ pub fn pack_add_services(service_names: &[String]) -> message::Container {
     pack(message::Kind::AddServicesMessage, services_packet)
 }
 
-pub fn unpack_add_services(container: message::Container) -> Result<Vec<String>> {
+pub fn unpack_add_services(container: Container) -> Result<Vec<String>> {
     Ok(try!(unpack::<message::AddServices>(&container))
            .get_services()
            .to_vec()
@@ -88,7 +107,7 @@ pub fn unpack_add_services(container: message::Container) -> Result<Vec<String>>
            .collect())
 }
 
-pub fn pack_remove_services(service_names: &[String]) -> message::Container {
+pub fn pack_remove_services(service_names: &[String]) -> Container {
     let mut services_packet = message::RemoveServices::new();
     for service_name in service_names {
         let mut service_packet = message::Service::new();
@@ -98,7 +117,7 @@ pub fn pack_remove_services(service_names: &[String]) -> message::Container {
     pack(message::Kind::RemoveServicesMessage, services_packet)
 }
 
-pub fn unpack_remove_services(container: message::Container) -> Result<Vec<String>> {
+pub fn unpack_remove_services(container: Container) -> Result<Vec<String>> {
     Ok(try!(unpack::<message::RemoveServices>(&container))
            .get_services()
            .to_vec()
@@ -107,29 +126,29 @@ pub fn unpack_remove_services(container: message::Container) -> Result<Vec<Strin
            .collect())
 }
 
-pub fn pack_aknowledge() -> message::Container {
+pub fn pack_aknowledge() -> Container {
     pack(message::Kind::AknowledgeMessage, message::Aknowledge::new())
 }
 
-pub fn unpack_aknowledge(container: message::Container) -> Result<()> {
+pub fn unpack_aknowledge(container: Container) -> Result<()> {
     try!(unpack::<message::Aknowledge>(&container));
     Ok(())
 }
 
-pub fn pack_request(id: u32, name: &str) -> message::Container {
+pub fn pack_request(id: u32, name: &str) -> Container {
     let mut request_packet = message::Request::new();
     request_packet.set_id(id);
     request_packet.set_name(name.to_string());
     pack(message::Kind::RequestMessage, request_packet)
 }
 
-pub fn unpack_request(container: message::Container) -> Result<(u32, String)> {
+pub fn unpack_request(container: Container) -> Result<(u32, String)> {
     let request_packet = try!(unpack::<message::Request>(&container));
     Ok((request_packet.get_id(),
         request_packet.get_name().to_string()))
 }
 
-pub fn pack_response(request_id: u32, response: &service::Result) -> message::Container {
+pub fn pack_response(request_id: u32, response: &service::Result) -> Container {
     let mut response_packet = message::Response::new();
     response_packet.set_request_id(request_id);
     match *response {
@@ -150,7 +169,7 @@ pub fn pack_response(request_id: u32, response: &service::Result) -> message::Co
     pack(message::Kind::ResponseMessage, response_packet)
 }
 
-pub fn unpack_response(container: message::Container,
+pub fn unpack_response(container: Container,
                        response_reader: Box<response::Reader>)
                        -> Result<(u32, service::Result)> {
     let response_packet = try!(unpack::<message::Response>(&container));
@@ -165,22 +184,22 @@ pub fn unpack_response(container: message::Container,
     Ok((response_packet.get_request_id(), result))
 }
 
-fn pack<T>(kind: message::Kind, message: T) -> message::Container
+fn pack<T>(kind: message::Kind, message: T) -> Container
     where T: protobuf::Message + protobuf::MessageStatic
 {
     let mut payload = Vec::new();
     message.write_to_vec(&mut payload).unwrap();
 
-    let mut container = message::Container::new();
-    container.set_kind(kind);
-    container.set_payload(payload);
-    container
+    let mut container_message = message::Container::new();
+    container_message.set_kind(kind);
+    container_message.set_payload(payload);
+    Container { message: container_message }
 }
 
-fn unpack<T>(container: &message::Container) -> Result<T>
+fn unpack<T>(container: &Container) -> Result<T>
     where T: protobuf::Message + protobuf::MessageStatic
 {
-    Ok(try!(protobuf::parse_from_bytes::<T>(container.get_payload())))
+    Ok(try!(protobuf::parse_from_bytes::<T>(container.message.get_payload())))
 }
 
 impl From<id::Error> for Error {
@@ -198,5 +217,11 @@ impl From<protobuf::ProtobufError> for Error {
 impl From<net::AddrParseError> for Error {
     fn from(error: net::AddrParseError) -> Self {
         Error::AddrParse(error)
+    }
+}
+
+impl From<Error> for io::Error {
+    fn from(error: Error) -> Self {
+        io::Error::new(io::ErrorKind::Other, format!("{:?}", error))
     }
 }

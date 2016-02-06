@@ -36,7 +36,7 @@ impl<R> ErrorAfter<R> {
     pub fn new_connection_lost(reader: R, limit: usize) -> Self {
         Self::new(reader,
                   limit,
-                  io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected eof"))
+                  io::Error::new(io::ErrorKind::UnexpectedEof, "unexpected EOF"))
     }
 }
 

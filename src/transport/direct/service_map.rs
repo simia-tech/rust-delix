@@ -33,7 +33,6 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     ServiceAlreadyExists,
     ServiceDoesNotExists,
-    Connection(direct::ConnectionError),
     ConnectionMap(direct::ConnectionMapError),
 }
 
@@ -142,15 +141,17 @@ impl ServiceMap {
     {
         let entries = self.entries.read().unwrap();
 
+        let no_service_error = service::Error::Internal("no service on delix target node"
+                                                            .to_string());
+
         let entry = match entries.get(name) {
             Some(entry) => entry,
-            None => return Err(service::Error::Unavailable),
-            // TODO: this should never be possible since the request should never arrive here when the service does not exists.
+            None => return Err(no_service_error),
         };
 
         let link = match entry.links.iter().find(|link| Link::is_local(link)) {
             Some(link) => link,
-            None => return Err(service::Error::Unavailable),
+            None => return Err(no_service_error),
         };
 
         if let Link::Local = *link {
@@ -267,12 +268,6 @@ impl Entry {
 unsafe impl Send for ServiceMap {}
 
 unsafe impl Sync for ServiceMap {}
-
-impl From<direct::ConnectionError> for Error {
-    fn from(error: direct::ConnectionError) -> Self {
-        Error::Connection(error)
-    }
-}
 
 impl From<direct::ConnectionMapError> for Error {
     fn from(error: direct::ConnectionMapError) -> Self {

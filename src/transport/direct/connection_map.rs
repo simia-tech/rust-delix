@@ -14,6 +14,7 @@
 //
 
 use std::collections::HashMap;
+use std::io;
 use std::net::SocketAddr;
 use std::result;
 use std::sync::{Arc, RwLock, mpsc};
@@ -21,7 +22,7 @@ use std::thread;
 
 use metric::{self, Metric};
 use node::{ID, request};
-use transport::direct::{self, Connection};
+use transport::direct::Connection;
 
 pub struct ConnectionMap {
     map: Arc<RwLock<HashMap<ID, Connection>>>,
@@ -34,7 +35,6 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug)]
 pub enum Error {
     ConnectionAlreadyExists,
-    Connection(direct::ConnectionError),
 }
 
 impl ConnectionMap {
@@ -91,7 +91,7 @@ impl ConnectionMap {
             .collect()
     }
 
-    pub fn send_add_services(&self, services: &[String]) -> Result<()> {
+    pub fn send_add_services(&self, services: &[String]) -> io::Result<()> {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
             try!(connection.send_add_services(services));
@@ -99,7 +99,7 @@ impl ConnectionMap {
         Ok(())
     }
 
-    pub fn send_remove_services(&self, services: &[String]) -> Result<()> {
+    pub fn send_remove_services(&self, services: &[String]) -> io::Result<()> {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
             try!(connection.send_remove_services(services));
@@ -111,10 +111,11 @@ impl ConnectionMap {
                         peer_node_id: &ID,
                         id: u32,
                         name: &str,
-                        reader: &mut request::Reader) {
+                        reader: &mut request::Reader)
+                        -> io::Result<()> {
         let mut map = self.map.write().unwrap();
         let mut connection = map.get_mut(peer_node_id).unwrap();
-        connection.send_request(id, name, reader);
+        Ok(try!(connection.send_request(id, name, reader)))
     }
 
     pub fn clear_handlers(&self) {
@@ -132,11 +133,5 @@ unsafe impl Sync for ConnectionMap {}
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
         self.clear_handlers();
-    }
-}
-
-impl From<direct::ConnectionError> for Error {
-    fn from(error: direct::ConnectionError) -> Self {
-        Error::Connection(error)
     }
 }
