@@ -16,7 +16,7 @@
 use std::collections::HashMap;
 use std::net::SocketAddr;
 use std::result;
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
 use metric::{self, Metric};
@@ -65,15 +65,10 @@ impl ConnectionMap {
             return Err(Error::ConnectionAlreadyExists);
         }
 
-        let sender = Mutex::new(self.sender.clone());
+        let sender = self.sender.clone();
         connection.set_on_error(Box::new(move |peer_node_id, error| {
             error!("got connection error: {:?}", error);
-            sender.lock().unwrap().send(peer_node_id).unwrap()
-        }));
-
-        let sender = Mutex::new(self.sender.clone());
-        connection.set_on_shutdown(Box::new(move |peer_node_id| {
-            sender.lock().unwrap().send(peer_node_id).unwrap()
+            sender.send(peer_node_id).unwrap()
         }));
 
         map.insert(connection.peer_node_id(), connection);
@@ -122,11 +117,10 @@ impl ConnectionMap {
         connection.send_request(id, name, reader);
     }
 
-    pub fn clear(&self) {
+    pub fn clear_handlers(&self) {
         let mut map = self.map.write().unwrap();
         for (_, connection) in map.iter_mut() {
             connection.clear_on_error();
-            connection.clear_on_shutdown();
         }
     }
 }
@@ -137,7 +131,7 @@ unsafe impl Sync for ConnectionMap {}
 
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
-        self.clear();
+        self.clear_handlers();
     }
 }
 

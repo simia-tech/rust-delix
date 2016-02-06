@@ -18,7 +18,7 @@ use std::io::{self, Read, Write};
 use std::iter;
 use std::net::{self, SocketAddr};
 use std::result;
-use std::sync::{Arc, Mutex, RwLock, mpsc};
+use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
 use protobuf::{self, Message};
@@ -40,7 +40,7 @@ pub struct Connection {
 
     aknowledges_tx: Mutex<mpsc::Sender<mpsc::Sender<()>>>,
 
-    handler: Arc<RwLock<Handler>>,
+    handler: Arc<Mutex<Handler>>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -100,7 +100,7 @@ impl Connection {
 
         let (aknowledges_tx, aknowledges_rx) = mpsc::channel();
 
-        let handler = Arc::new(RwLock::new(Handler::new()));
+        let handler = Arc::new(Mutex::new(Handler::new()));
         let handler_clone = handler.clone();
 
         let (peer_node_id, peer_public_address) = {
@@ -122,7 +122,7 @@ impl Connection {
                                                 &handler_clone) {
                     Ok(()) => {}
                     Err(error) => {
-                        if let Some(ref f) = handler_clone.read().unwrap().error {
+                        if let Some(ref f) = handler_clone.lock().unwrap().error {
                             f(peer_node_id, error);
                         }
                         break;
@@ -159,42 +159,34 @@ impl Connection {
         self.tx_stream.lock().unwrap().get_ref().local_addr().ok()
     }
 
-    pub fn set_on_add_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send + Sync>) {
-        self.handler.write().unwrap().add_services = Some(f);
+    pub fn set_on_add_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
+        self.handler.lock().unwrap().add_services = Some(f);
     }
 
-    pub fn set_on_remove_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send + Sync>) {
-        self.handler.write().unwrap().remove_services = Some(f);
+    pub fn set_on_remove_services(&mut self, f: Box<Fn(ID, Vec<String>) + Send>) {
+        self.handler.lock().unwrap().remove_services = Some(f);
     }
 
     pub fn set_on_request(&mut self,
-                          f: Box<Fn(&str, Box<request::Reader>) -> service::Result + Send + Sync>) {
-        self.handler.write().unwrap().request = Some(f);
+                          f: Box<Fn(&str, Box<request::Reader>) -> service::Result + Send>) {
+        self.handler.lock().unwrap().request = Some(f);
     }
 
     pub fn set_on_response(&mut self,
-                           f: Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send + Sync>) {
-        self.handler.write().unwrap().response = Some(f);
+                           f: Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>) {
+        self.handler.lock().unwrap().response = Some(f);
     }
 
-    pub fn set_on_error(&mut self, f: Box<Fn(ID, Error) + Send + Sync>) {
-        self.handler.write().unwrap().error = Some(f);
+    pub fn set_on_error(&mut self, f: Box<Fn(ID, Error) + Send>) {
+        self.handler.lock().unwrap().error = Some(f);
     }
 
     pub fn clear_on_error(&mut self) {
-        self.handler.write().unwrap().error = None;
+        self.handler.lock().unwrap().error = None;
     }
 
-    pub fn set_on_shutdown(&mut self, f: Box<Fn(ID) + Send + Sync>) {
-        self.handler.write().unwrap().shutdown = Some(f);
-    }
-
-    pub fn clear_on_shutdown(&mut self) {
-        self.handler.write().unwrap().shutdown = None;
-    }
-
-    pub fn set_on_drop(&mut self, f: Box<Fn(ID) + Send + Sync>) {
-        self.handler.write().unwrap().drop = Some(f);
+    pub fn set_on_drop(&mut self, f: Box<Fn(ID) + Send>) {
+        self.handler.lock().unwrap().drop = Some(f);
     }
 
     pub fn send_add_services(&mut self, service_names: &[String]) -> Result<()> {
@@ -247,7 +239,7 @@ impl Connection {
         match f() {
             Ok(value) => value,
             Err(Error::ConnectionLost) => {
-                if let Some(ref f) = self.handler.read().unwrap().error {
+                if let Some(ref f) = self.handler.lock().unwrap().error {
                     f(self.peer_node_id, Error::ConnectionLost);
                 }
                 default
@@ -288,7 +280,7 @@ impl Drop for Connection {
         }
         self.thread.take().unwrap().join().unwrap();
 
-        if let Some(ref f) = self.handler.read().unwrap().drop {
+        if let Some(ref f) = self.handler.lock().unwrap().drop {
             f(self.peer_node_id);
         }
     }
@@ -299,12 +291,12 @@ fn process_inbound_container(node_id: ID,
                              rx_stream: &mut cipher::Stream<net::TcpStream>,
                              tx_stream: &Arc<Mutex<cipher::Stream<net::TcpStream>>>,
                              aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
-                             handler: &Arc<RwLock<Handler>>)
+                             handler: &Arc<Mutex<Handler>>)
                              -> Result<()> {
     let container = try!(read_container(rx_stream));
     match container.get_kind() {
         message::Kind::AddServicesMessage => {
-            if let Some(ref f) = handler.read().unwrap().add_services {
+            if let Some(ref f) = handler.lock().unwrap().add_services {
                 f(peer_node_id,
                   try!(container::unpack_add_services(container)));
             }
@@ -314,7 +306,7 @@ fn process_inbound_container(node_id: ID,
             }
         }
         message::Kind::RemoveServicesMessage => {
-            if let Some(ref f) = handler.read().unwrap().remove_services {
+            if let Some(ref f) = handler.lock().unwrap().remove_services {
                 f(peer_node_id,
                   try!(container::unpack_remove_services(container)));
             }
@@ -329,7 +321,7 @@ fn process_inbound_container(node_id: ID,
             tx.send(()).unwrap();
         }
         message::Kind::RequestMessage => {
-            if let Some(ref f) = handler.read().unwrap().request {
+            if let Some(ref f) = handler.lock().unwrap().request {
                 let (request_id, name) = try!(container::unpack_request(container));
 
                 let mut response =
@@ -350,7 +342,7 @@ fn process_inbound_container(node_id: ID,
             }
         }
         message::Kind::ResponseMessage => {
-            if let Some(ref f) = handler.read().unwrap().response {
+            if let Some(ref f) = handler.lock().unwrap().response {
                 let response_reader =
                     Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone())));
                 let (request_id, response) = try!(container::unpack_response(container,
@@ -385,14 +377,12 @@ fn read_container(stream: &mut io::Read) -> Result<message::Container> {
 }
 
 struct Handler {
-    // TODO: remove Sync
-    add_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
-    remove_services: Option<Box<Fn(ID, Vec<String>) + Send + Sync>>,
-    request: Option<Box<Fn(&str, Box<request::Reader>) -> service::Result + Send + Sync>>,
-    response: Option<Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send + Sync>>,
-    error: Option<Box<Fn(ID, Error) + Send + Sync>>,
-    shutdown: Option<Box<Fn(ID) + Send + Sync>>,
-    drop: Option<Box<Fn(ID) + Send + Sync>>,
+    add_services: Option<Box<Fn(ID, Vec<String>) + Send>>,
+    remove_services: Option<Box<Fn(ID, Vec<String>) + Send>>,
+    request: Option<Box<Fn(&str, Box<request::Reader>) -> service::Result + Send>>,
+    response: Option<Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>>,
+    error: Option<Box<Fn(ID, Error) + Send>>,
+    drop: Option<Box<Fn(ID) + Send>>,
 }
 
 impl Handler {
@@ -403,7 +393,6 @@ impl Handler {
             request: None,
             response: None,
             error: None,
-            shutdown: None,
             drop: None,
         }
     }
