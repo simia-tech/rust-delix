@@ -18,7 +18,7 @@ extern crate delix;
 mod helper;
 
 use std::io;
-use delix::util::reader;
+use delix::util::{reader, writer};
 
 #[test]
 #[allow(unused_variables)]
@@ -85,5 +85,7 @@ fn loose_while_transmitting_response() {
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     let request = Box::new(io::Cursor::new(b"test message".to_vec()));
-    assert!(node_one.request("echo", request, Box::new(Vec::new())).is_err());
+    let response = Box::new(writer::Collector::new());
+    assert!(node_one.request("echo", request, response.clone()).is_ok());
+    assert!(String::from_utf8_lossy(&response.vec().unwrap()).starts_with("test"));
 }

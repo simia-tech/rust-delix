@@ -21,24 +21,16 @@ pub struct Chunk<T>
     where T: io::Write
 {
     parent: T,
-    finish_on_drop: bool,
 }
 
 impl<T> Chunk<T> where T: io::Write
 {
-    pub fn new(parent: T, finish_on_drop: bool) -> Self {
-        Chunk {
-            parent: parent,
-            finish_on_drop: finish_on_drop,
-        }
+    pub fn new(parent: T) -> Self {
+        Chunk { parent: parent }
     }
 
     pub fn get_ref(&self) -> &T {
         &self.parent
-    }
-
-    pub fn finish(mut self) -> io::Result<()> {
-        Ok(try!(write_size(&mut self.parent, 0)))
     }
 }
 
@@ -57,9 +49,7 @@ impl<T> io::Write for Chunk<T> where T: io::Write
 impl<T> Drop for Chunk<T> where T: io::Write
 {
     fn drop(&mut self) {
-        if self.finish_on_drop {
-            write_size(&mut self.parent, 0).unwrap();
-        }
+        write_size(&mut self.parent, 0).unwrap();
     }
 }
 
@@ -75,9 +65,8 @@ mod tests {
         let mut result = Vec::new();
 
         {
-            let mut writer = Chunk::new(&mut result, false);
+            let mut writer = Chunk::new(&mut result);
             assert!(write!(writer, "test").is_ok());
-            assert!(writer.finish().is_ok());
         }
 
         assert_eq!(vec![0, 0, 0, 0, 0, 0, 0, 4, 116, 101, 115, 116, 0, 0, 0, 0, 0, 0, 0, 0],
@@ -89,7 +78,7 @@ mod tests {
         let mut result = Vec::new();
 
         {
-            let mut writer = Chunk::new(&mut result, true);
+            let mut writer = Chunk::new(&mut result);
             assert_eq!(4,
                        io::copy(&mut io::Cursor::new(b"test".to_vec()), &mut writer).unwrap());
         }

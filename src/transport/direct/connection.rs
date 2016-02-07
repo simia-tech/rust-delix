@@ -207,7 +207,7 @@ impl Connection {
 
             try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
 
-            try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream, true)));
+            try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
 
             Ok(())
         })
@@ -323,9 +323,7 @@ fn process_inbound_container(node_id: ID,
                                          &container::pack_response(request_id, &response)));
 
                     if let Ok(ref mut reader) = response {
-                        let mut chunked_writer = writer::Chunk::new(&mut *tx_stream, false);
-                        try!(io::copy(reader, &mut chunked_writer));
-                        try!(chunked_writer.finish());
+                        try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
                     }
                     try!(tx_stream.flush());
                 }
