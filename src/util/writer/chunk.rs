@@ -15,29 +15,37 @@
 
 use std::io;
 
-use byteorder::{self, WriteBytesExt};
+use super::write_size;
 
 pub struct Chunk<T>
     where T: io::Write
 {
     parent: T,
+    finish_on_drop: bool,
 }
 
 impl<T> Chunk<T> where T: io::Write
 {
-    pub fn new(parent: T) -> Self {
-        Chunk { parent: parent }
+    pub fn new(parent: T, finish_on_drop: bool) -> Self {
+        Chunk {
+            parent: parent,
+            finish_on_drop: finish_on_drop,
+        }
     }
 
     pub fn get_ref(&self) -> &T {
         &self.parent
+    }
+
+    pub fn finish(mut self) -> io::Result<()> {
+        Ok(try!(write_size(&mut self.parent, 0)))
     }
 }
 
 impl<T> io::Write for Chunk<T> where T: io::Write
 {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
-        try!(self.parent.write_u64::<byteorder::BigEndian>(buffer.len() as u64));
+        try!(write_size(&mut self.parent, buffer.len()));
         self.parent.write(buffer)
     }
 
@@ -49,9 +57,12 @@ impl<T> io::Write for Chunk<T> where T: io::Write
 impl<T> Drop for Chunk<T> where T: io::Write
 {
     fn drop(&mut self) {
-        self.parent.write_u64::<byteorder::BigEndian>(0).unwrap();
+        if self.finish_on_drop {
+            write_size(&mut self.parent, 0).unwrap();
+        }
     }
 }
+
 
 #[cfg(test)]
 mod tests {
@@ -62,10 +73,13 @@ mod tests {
     #[test]
     fn write() {
         let mut result = Vec::new();
+
         {
-            let mut writer = Chunk::new(&mut result);
-            write!(writer, "test").unwrap();
+            let mut writer = Chunk::new(&mut result, false);
+            assert!(write!(writer, "test").is_ok());
+            assert!(writer.finish().is_ok());
         }
+
         assert_eq!(vec![0, 0, 0, 0, 0, 0, 0, 4, 116, 101, 115, 116, 0, 0, 0, 0, 0, 0, 0, 0],
                    result);
     }
@@ -73,10 +87,13 @@ mod tests {
     #[test]
     fn copy() {
         let mut result = Vec::new();
-        assert_eq!(4,
-                   io::copy(&mut io::Cursor::new(b"test".to_vec()),
-                            &mut Chunk::new(&mut result))
-                       .unwrap());
+
+        {
+            let mut writer = Chunk::new(&mut result, true);
+            assert_eq!(4,
+                       io::copy(&mut io::Cursor::new(b"test".to_vec()), &mut writer).unwrap());
+        }
+
         assert_eq!(vec![0, 0, 0, 0, 0, 0, 0, 4, 116, 101, 115, 116, 0, 0, 0, 0, 0, 0, 0, 0],
                    result);
     }

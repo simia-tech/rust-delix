@@ -16,7 +16,7 @@
 use std::io;
 use std::iter;
 
-use byteorder::{self, ReadBytesExt};
+use super::read_size;
 
 pub struct Chunk<T> {
     parent: T,
@@ -41,7 +41,7 @@ impl<T> io::Read for Chunk<T> where T: io::Read
 {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.buffer.position() as usize >= self.buffer.get_ref().len() {
-            let size = try!(self.parent.read_u64::<byteorder::BigEndian>()) as usize;
+            let size = try!(read_size(&mut self.parent));
             if size == 0 {
                 return Ok(0);
             }
@@ -59,16 +59,31 @@ impl<T> io::Read for Chunk<T> where T: io::Read
 #[cfg(test)]
 mod tests {
 
-    use std::io::{self, Read};
+    use std::io;
     use super::Chunk;
+    use super::super::ErrorAfter;
 
     #[test]
     fn read() {
-        let mut reader = Chunk::new(io::Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 4, 116, 101, 115,
-                                                         116, 0, 0, 0, 0, 0, 0, 0, 0]));
-        let mut buffer = Vec::new();
-        reader.read_to_end(&mut buffer).unwrap();
-        assert_eq!("test", String::from_utf8_lossy(&buffer));
+        let source = io::Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 4, 116, 101, 115, 116, 0, 0, 0, 0,
+                                          0, 0, 0, 0]);
+        let mut reader = Chunk::new(source);
+        let mut target = Vec::new();
+        assert!(io::copy(&mut reader, &mut target).is_ok());
+        assert_eq!("test", String::from_utf8_lossy(&target));
+    }
+
+    #[test]
+    fn read_unexpected_eof() {
+        let source = io::Cursor::new(vec![0, 0, 0, 0, 0, 0, 0, 4, 116, 101, 115, 116, 0, 0, 0, 0,
+                                          0, 0, 0, 0]);
+        let mut reader = Chunk::new(ErrorAfter::new_unexpected_eof(source, 2));
+        let mut target = Vec::new();
+        let result = io::copy(&mut reader, &mut target);
+        assert!(result.is_err());
+        if let Err(error) = result {
+            assert_eq!(io::ErrorKind::UnexpectedEof, error.kind());
+        }
     }
 
 }

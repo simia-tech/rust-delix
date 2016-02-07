@@ -67,6 +67,23 @@ fn loose_while_transmitting_request() {
     helper::wait_for_joined(&[&metric_one, &metric_two]);
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
-    let request = Box::new(reader::ErrorAfter::new_connection_lost(io::Cursor::new(b"test message".to_vec()), 4));
+    let request = Box::new(reader::ErrorAfter::new_unexpected_eof(io::Cursor::new(b"test message".to_vec()), 4));
+    assert!(node_one.request("echo", request, Box::new(Vec::new())).is_err());
+}
+
+#[test]
+fn loose_while_transmitting_response() {
+    helper::set_up();
+
+    let (node_one, metric_one) = helper::build_node("127.0.0.1:3031", &[], None);
+    let (node_two, metric_two) = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], None);
+    node_two.register("echo", Box::new(|request| {
+        Ok(Box::new(reader::ErrorAfter::new_unexpected_eof(request, 4)))
+    })).unwrap();
+
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
+
+    let request = Box::new(io::Cursor::new(b"test message".to_vec()));
     assert!(node_one.request("echo", request, Box::new(Vec::new())).is_err());
 }

@@ -19,7 +19,7 @@ pub struct DrainOnDrop<R>
     where R: io::Read
 {
     reader: R,
-    eof_reached: bool,
+    drain: bool,
 }
 
 impl<R> DrainOnDrop<R> where R: io::Read
@@ -27,7 +27,7 @@ impl<R> DrainOnDrop<R> where R: io::Read
     pub fn new(reader: R) -> Self {
         DrainOnDrop {
             reader: reader,
-            eof_reached: false,
+            drain: true,
         }
     }
 }
@@ -35,18 +35,24 @@ impl<R> DrainOnDrop<R> where R: io::Read
 impl<R> io::Read for DrainOnDrop<R> where R: io::Read
 {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
-        let result = self.reader.read(buffer);
-        if let Ok(0) = result {
-            self.eof_reached = true;
+        match self.reader.read(buffer) {
+            Ok(0) => {
+                self.drain = false;
+                Ok(0)
+            }
+            Ok(value) => Ok(value),
+            Err(error) => {
+                self.drain = false;
+                Err(error)
+            }
         }
-        result
     }
 }
 
 impl<R> Drop for DrainOnDrop<R> where R: io::Read
 {
     fn drop(&mut self) {
-        if !self.eof_reached {
+        if self.drain {
             let _ = io::copy(&mut self.reader, &mut io::sink());
         }
     }
@@ -57,27 +63,41 @@ mod tests {
 
     use std::io;
     use super::DrainOnDrop;
+    use super::super::ErrorAfter;
 
     #[test]
     fn read() {
-        let parent = io::Cursor::new(b"test message".to_vec());
-        let mut reader = DrainOnDrop::new(parent);
+        let source = io::Cursor::new(b"test message".to_vec());
+        let mut reader = DrainOnDrop::new(source);
 
-        let mut output = Vec::new();
-        io::copy(&mut reader, &mut output).unwrap();
-        assert_eq!("test message", String::from_utf8_lossy(&output));
+        let mut target = Vec::new();
+        io::copy(&mut reader, &mut target).unwrap();
+        assert_eq!("test message", String::from_utf8_lossy(&target));
     }
 
     #[test]
     fn copy_leftover_to_sink_on_drop() {
-        let mut parent = io::Cursor::new(b"test message".to_vec());
+        let mut source = io::Cursor::new(b"test message".to_vec());
         {
-            DrainOnDrop::new(&mut parent);
+            DrainOnDrop::new(&mut source);
         }
 
-        let mut output = Vec::new();
-        io::copy(&mut parent, &mut output).unwrap();
-        assert_eq!("", String::from_utf8_lossy(&output));
+        let mut target = Vec::new();
+        io::copy(&mut source, &mut target).unwrap();
+        assert_eq!("", String::from_utf8_lossy(&target));
+    }
+
+    #[test]
+    fn read_unexpected_eof() {
+        let source = io::Cursor::new(b"test message".to_vec());
+        let mut reader = DrainOnDrop::new(ErrorAfter::new_unexpected_eof(source, 4));
+
+        let mut target = Vec::new();
+        let result = io::copy(&mut reader, &mut target);
+        assert!(result.is_err());
+        if let Err(error) = result {
+            assert_eq!(io::ErrorKind::UnexpectedEof, error.kind());
+        }
     }
 
 }

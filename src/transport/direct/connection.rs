@@ -204,8 +204,11 @@ impl Connection {
                         -> io::Result<()> {
         self.catch_error((), || {
             let mut tx_stream = self.tx_stream.lock().unwrap();
+
             try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
-            try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+
+            try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream, true)));
+
             Ok(())
         })
     }
@@ -278,7 +281,7 @@ fn process_inbound_container(node_id: ID,
                              aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
                              handler: &Arc<Mutex<Handler>>)
                              -> io::Result<()> {
-    let container = try!(read_container(rx_stream));
+    let container = try!(case_eof_to_aborted(read_container(rx_stream)));
     match container.get_kind() {
         message::Kind::AddServicesMessage => {
             if let Some(ref f) = handler.lock().unwrap().add_services {
@@ -320,7 +323,9 @@ fn process_inbound_container(node_id: ID,
                                          &container::pack_response(request_id, &response)));
 
                     if let Ok(ref mut reader) = response {
-                        try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+                        let mut chunked_writer = writer::Chunk::new(&mut *tx_stream, false);
+                        try!(io::copy(reader, &mut chunked_writer));
+                        try!(chunked_writer.finish());
                     }
                     try!(tx_stream.flush());
                 }
@@ -357,6 +362,16 @@ fn read_container(mut stream: &mut io::Read) -> io::Result<Container> {
     try!(stream.read_exact(&mut bytes));
 
     Ok(try!(Container::parse_from_bytes(&bytes)))
+}
+
+fn case_eof_to_aborted<T>(result: io::Result<T>) -> io::Result<T> {
+    match result {
+        Ok(value) => Ok(value),
+        Err(ref error) if error.kind() == io::ErrorKind::UnexpectedEof => {
+            Err(io::Error::new(io::ErrorKind::ConnectionAborted, "connection lost"))
+        }
+        Err(error) => Err(error),
+    }
 }
 
 fn is_write_error(error: &io::Error) -> bool {

@@ -17,9 +17,8 @@ use std::io;
 use std::iter;
 use std::net;
 
-use byteorder::{self, WriteBytesExt, ReadBytesExt};
-
 use transport::cipher::{self, Cipher};
+use util::{reader, writer};
 
 pub struct Stream<T> {
     parent: T,
@@ -45,9 +44,8 @@ impl<T> io::Write for Stream<T> where T: io::Write
 {
     fn write(&mut self, buffer: &[u8]) -> io::Result<usize> {
         let encrypted_bytes = try!(self.cipher.encrypt(buffer));
-        let encrypted_size = encrypted_bytes.len() as u64;
 
-        try!(self.parent.write_u64::<byteorder::BigEndian>(encrypted_size));
+        try!(writer::write_size(&mut self.parent, encrypted_bytes.len()));
         try!(self.parent.write(&encrypted_bytes));
 
         Ok(buffer.len())
@@ -62,7 +60,7 @@ impl<T> io::Read for Stream<T> where T: io::Read
 {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if self.buffer.position() as usize >= self.buffer.get_ref().len() {
-            let encrypted_size = try!(self.parent.read_u64::<byteorder::BigEndian>()) as usize;
+            let encrypted_size = try!(reader::read_size(&mut self.parent));
 
             let mut encrypted_bytes = iter::repeat(0u8).take(encrypted_size).collect::<Vec<u8>>();
             try!(self.parent.read_exact(&mut encrypted_bytes));
