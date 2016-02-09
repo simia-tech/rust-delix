@@ -13,16 +13,16 @@ key = "000102030405060708090a0b0c0d0e0f"
 
 [transport]
 type = "direct"
-public_address = "127.0.0.1:4001"
-local_address = "127.0.0.1:4001"
+local_address = "localhost:4001"
+public_address = "localhost:4001"
 request_timeout_ms = 500
 balancer = { type = "dynamic_round_robin" }
 
 [[relay]]
 type = "http_static"
-address = "127.0.0.1:4200"
+address = "localhost:4200"
 header_field = "X-Delix-Service"
 
 [[relay.service]]
 name = "test"
-address = "127.0.0.1:5000"
+address = "localhost:5000"

@@ -5,7 +5,7 @@ level = "debug"
 
 [discovery]
 type = "constant"
-addresses = [ "127.0.0.1:4001" ]
+addresses = [ "localhost:4001" ]
 
 [cipher]
 type = "symmetric"
@@ -13,7 +13,7 @@ key = "000102030405060708090a0b0c0d0e0f"
 
 [transport]
 type = "direct"
-local_address = "127.0.0.1:4003"
+local_address = "localhost:4003"
 request_timeout_ms = 5000
 balancer = { type = "dynamic_round_robin" }
 
@@ -23,4 +23,4 @@ header_field = "X-Delix-Service"
 
 [[relay.service]]
 name = "slashdot"
-address = "216.34.181.45:80"
+address = "slashdot.org:80"

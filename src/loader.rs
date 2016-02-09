@@ -13,8 +13,8 @@
 // limitations under the License.
 //
 
-use std::net::SocketAddr;
-use std::net::AddrParseError;
+use std::net::{SocketAddr, ToSocketAddrs};
+use std::io;
 use std::result;
 use std::sync::Arc;
 use time::Duration;
@@ -53,12 +53,13 @@ pub enum Error {
     UnknownRelayType(String),
     NoKey,
     NoAddress,
+    NoAddresses,
     NoName,
     NoLocalAddress,
     NodeError(node::Error),
-    AddrParseError(AddrParseError),
     Cipher(cipher::Error),
     Relay(relay::Error),
+    Io(io::Error),
 }
 
 impl Loader {
@@ -113,15 +114,11 @@ impl Loader {
 
         match discovery_type.as_ref() {
             "constant" => {
-                let constant = discovery::Constant::new(try!(self.configuration
-                                                                 .strings_at("discovery.\
-                                                                              addresses")
-                                                                 .unwrap_or(vec![])
-                                                                 .iter()
-                                                                 .map(|s| {
-                                                                     s.parse::<SocketAddr>()
-                                                                 })
-                                                                 .collect()));
+                let addresses = try!(self.configuration
+                                         .strings_at("discovery.addresses")
+                                         .ok_or(Error::NoAddresses));
+                let addresses = try!(resolve_socket_addresses(&addresses));
+                let constant = discovery::Constant::new(addresses);
                 info!("loaded constant discovery");
                 Ok(Box::new(constant))
             }
@@ -155,14 +152,14 @@ impl Loader {
 
         match transport_type.as_ref() {
             "direct" => {
-                let local_address = try!(try!(self.configuration
-                                                  .string_at("transport.local_address")
-                                                  .ok_or(Error::NoLocalAddress))
-                                             .parse::<SocketAddr>());
+                let local_address = try!(self.configuration
+                                             .string_at("transport.local_address")
+                                             .ok_or(Error::NoLocalAddress));
+                let local_address = try!(resolve_socket_address(&local_address));
 
                 let public_address = match self.configuration
                                                .string_at("transport.public_address") {
-                    Some(public_address) => Some(try!(public_address.parse::<SocketAddr>())),
+                    Some(ref value) => Some(try!(resolve_socket_address(value))),
                     None => None,
                 };
 
@@ -210,16 +207,15 @@ impl Loader {
                             for configuration in configurations {
                                 let name = try!(configuration.string_at("name")
                                                              .ok_or(Error::NoName));
-                                let address = try!(try!(configuration.string_at("address")
-                                                                     .ok_or(Error::NoAddress))
-                                                       .parse::<SocketAddr>());
+                                let address = try!(configuration.string_at("address")
+                                                                .ok_or(Error::NoAddress));
+                                let address = try!(resolve_socket_address(&address));
                                 http_static.add_service(&name, address);
                             }
                         }
 
-                        if let Some(address) = address {
-                            let address = try!(address.parse::<SocketAddr>());
-                            try!(http_static.bind(address));
+                        if let Some(ref address) = address {
+                            try!(http_static.bind(try!(resolve_socket_address(address))));
                             info!("loaded http static relay - listening at {}", address);
                         } else {
                             info!("loaded http static relay");
@@ -244,12 +240,6 @@ impl From<node::Error> for Error {
     }
 }
 
-impl From<AddrParseError> for Error {
-    fn from(error: AddrParseError) -> Self {
-        Error::AddrParseError(error)
-    }
-}
-
 impl From<cipher::Error> for Error {
     fn from(error: cipher::Error) -> Self {
         Error::Cipher(error)
@@ -260,4 +250,25 @@ impl From<relay::Error> for Error {
     fn from(error: relay::Error) -> Self {
         Error::Relay(error)
     }
+}
+
+impl From<io::Error> for Error {
+    fn from(error: io::Error) -> Self {
+        Error::Io(error)
+    }
+}
+
+fn resolve_socket_address(address: &str) -> io::Result<SocketAddr> {
+    Ok(try!(try!(address.to_socket_addrs())
+                .next()
+                .ok_or(io::Error::new(io::ErrorKind::Other,
+                                      format!("could not resolve address [{}]", address)))))
+}
+
+fn resolve_socket_addresses(addresses: &[String]) -> io::Result<Vec<SocketAddr>> {
+    let mut result = Vec::new();
+    for address in addresses {
+        result.append(&mut try!(address.to_socket_addrs()).collect::<Vec<SocketAddr>>());
+    }
+    Ok(result)
 }

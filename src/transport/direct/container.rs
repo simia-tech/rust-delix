@@ -222,6 +222,6 @@ impl From<net::AddrParseError> for Error {
 
 impl From<Error> for io::Error {
     fn from(error: Error) -> Self {
-        io::Error::new(io::ErrorKind::Other, format!("{:?}", error))
+        io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", error))
     }
 }

@@ -14,8 +14,7 @@
 //
 
 use std::fs::File;
-use std::io;
-use std::io::Read;
+use std::io::{self, Read};
 use std::result;
 
 use toml;
