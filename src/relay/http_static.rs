@@ -45,12 +45,13 @@ impl HttpStatic {
         }
     }
 
-    pub fn add_service(&self, name: &str, address: SocketAddr) {
+    pub fn add_service(&self, name: &str, address: &str) {
         let name_clone = name.to_string();
+        let address_clone = address.to_string();
         self.node
             .register(name,
                       Box::new(move |mut request| {
-                          let mut stream = try!(net::TcpStream::connect(address));
+                          let mut stream = try!(net::TcpStream::connect(&*address_clone));
                           io::copy(&mut request, &mut stream).unwrap();
 
                           debug!("handled request to {}", name_clone);

@@ -25,9 +25,9 @@ use delix::util::{reader, writer};
 fn loose() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("127.0.0.1:3001", &[], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3001", &[], None);
     {
-        let (node_two, metric_two) = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
+        let (node_two, metric_two) = helper::build_node("localhost:3002", &["localhost:3001"], None);
         helper::wait_for_joined(&[&metric_one, &metric_two]);
     }
 
@@ -39,9 +39,9 @@ fn loose() {
 fn loose_and_service_clean_up() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("127.0.0.1:3011", &[], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3011", &[], None);
     {
-        let (node_two, metric_two) = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
+        let (node_two, metric_two) = helper::build_node("localhost:3012", &["localhost:3011"], None);
         node_two.register("echo", Box::new(|request| {
             Ok(request)
         })).unwrap();
@@ -58,8 +58,8 @@ fn loose_and_service_clean_up() {
 fn loose_while_transmitting_request() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("127.0.0.1:3021", &[], None);
-    let (node_two, metric_two) = helper::build_node("127.0.0.1:3022", &["127.0.0.1:3021"], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3021", &[], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3022", &["localhost:3021"], None);
     node_two.register("echo", Box::new(|request| {
         Ok(request)
     })).unwrap();
@@ -75,8 +75,8 @@ fn loose_while_transmitting_request() {
 fn loose_while_transmitting_response() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("127.0.0.1:3031", &[], None);
-    let (node_two, metric_two) = helper::build_node("127.0.0.1:3032", &["127.0.0.1:3031"], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3031", &[], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3032", &["localhost:3031"], None);
     node_two.register("echo", Box::new(|request| {
         Ok(Box::new(reader::ErrorAfter::new_unexpected_eof(request, 4)))
     })).unwrap();

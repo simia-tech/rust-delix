@@ -209,8 +209,7 @@ impl Loader {
                                                              .ok_or(Error::NoName));
                                 let address = try!(configuration.string_at("address")
                                                                 .ok_or(Error::NoAddress));
-                                let address = try!(resolve_socket_address(&address));
-                                http_static.add_service(&name, address);
+                                http_static.add_service(&name, &address);
                             }
                         }
 

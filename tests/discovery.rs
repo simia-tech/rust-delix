@@ -22,8 +22,8 @@ mod helper;
 fn two_nodes() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("127.0.0.1:3001", &[], None);
-    let (node_two, metric_two) = helper::build_node("127.0.0.1:3002", &["127.0.0.1:3001"], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3001", &[], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3002", &["localhost:3001"], None);
 
     helper::wait_for_joined(&[&metric_one, &metric_two]);
 }
@@ -33,9 +33,9 @@ fn two_nodes() {
 fn three_nodes() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("127.0.0.1:3011", &[], None);
-    let (node_two, metric_two) = helper::build_node("127.0.0.1:3012", &["127.0.0.1:3011"], None);
-    let (node_three, metric_three) = helper::build_node("127.0.0.1:3013", &["127.0.0.1:3011"], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3011", &[], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3012", &["localhost:3011"], None);
+    let (node_three, metric_three) = helper::build_node("localhost:3013", &["localhost:3011"], None);
 
     helper::wait_for_joined(&[&metric_one, &metric_two, &metric_three]);
 }

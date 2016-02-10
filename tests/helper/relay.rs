@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
 use delix::node::Node;
@@ -22,7 +22,7 @@ use delix::relay::{self, Relay};
 pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::HttpStatic> {
     let relay = relay::HttpStatic::new(node.clone(), "X-Delix-Service");
     if let Some(address) = address {
-        relay.bind(address.parse::<SocketAddr>().unwrap()).unwrap();
+        relay.bind(address.to_socket_addrs().unwrap().next().unwrap()).unwrap();
     }
     Arc::new(relay)
 }

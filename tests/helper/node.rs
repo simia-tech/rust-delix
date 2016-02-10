@@ -15,7 +15,7 @@
 
 extern crate time;
 
-use std::net::SocketAddr;
+use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
 use self::time::Duration;
@@ -36,7 +36,10 @@ pub fn build_node(local_address: &str,
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
                                                              .iter()
                                                              .map(|s| {
-                                                                 s.parse::<SocketAddr>().unwrap()
+                                                                 s.to_socket_addrs()
+                                                                  .unwrap()
+                                                                  .next()
+                                                                  .unwrap()
                                                              })
                                                              .collect()));
 
@@ -44,7 +47,7 @@ pub fn build_node(local_address: &str,
     let transport = Box::new(Direct::new(cipher,
                                          balancer,
                                          metric.clone(),
-                                         local_address.parse::<SocketAddr>().unwrap(),
+                                         local_address.to_socket_addrs().unwrap().next().unwrap(),
                                          None,
                                          request_timeout.map(|value| {
                                              Duration::milliseconds(value)
