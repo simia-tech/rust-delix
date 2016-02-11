@@ -200,8 +200,17 @@ impl Loader {
                         let address = configuration.string_at("address");
                         let header_field = configuration.string_at("header_field")
                                                         .unwrap_or("X-Delix-Service".to_string());
+                        let read_timeout = configuration.i64_at("read_timeout_ms")
+                                                        .map(|value| Duration::milliseconds(value));
+                        let write_timeout = configuration.i64_at("write_timeout_ms")
+                                                         .map(|value| {
+                                                             Duration::milliseconds(value)
+                                                         });
 
-                        let http_static = relay::HttpStatic::new(node.clone(), &header_field);
+                        let http_static = relay::HttpStatic::new(node.clone(),
+                                                                 &header_field,
+                                                                 read_timeout,
+                                                                 write_timeout);
 
                         if let Some(configurations) = configuration.configurations_at("service") {
                             for configuration in configurations {

@@ -17,14 +17,18 @@ use std::io::{self, Read, Write};
 use std::net::{self, SocketAddr};
 use std::sync::{Arc, RwLock};
 use std::thread;
+use time::Duration;
 
 use node::{Node, request, service};
 use relay::{Relay, Result};
 use util::reader;
+use util::time::to_std_duration;
 
 pub struct HttpStatic {
     node: Arc<Node>,
     header_field: String,
+    read_timeout: Option<Duration>,
+    write_timeout: Option<Duration>,
     join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
     running: Arc<RwLock<bool>>,
 }
@@ -36,10 +40,16 @@ enum StatusCode {
 }
 
 impl HttpStatic {
-    pub fn new(node: Arc<Node>, header_field: &str) -> Self {
+    pub fn new(node: Arc<Node>,
+               header_field: &str,
+               read_timeout: Option<Duration>,
+               write_timeout: Option<Duration>)
+               -> Self {
         HttpStatic {
             node: node,
             header_field: header_field.to_string(),
+            read_timeout: read_timeout,
+            write_timeout: write_timeout,
             join_handle: RwLock::new(None),
             running: Arc::new(RwLock::new(false)),
         }
@@ -48,12 +58,16 @@ impl HttpStatic {
     pub fn add_service(&self, name: &str, address: &str) {
         let name_clone = name.to_string();
         let address_clone = address.to_string();
+        let read_timeout = self.read_timeout.map(|value| to_std_duration(value));
+        let write_timeout = self.write_timeout.map(|value| to_std_duration(value));
         self.node
             .register(name,
                       Box::new(move |mut request| {
                           let mut stream = try!(net::TcpStream::connect(&*address_clone));
-                          io::copy(&mut request, &mut stream).unwrap();
+                          try!(stream.set_read_timeout(read_timeout));
+                          try!(stream.set_write_timeout(write_timeout));
 
+                          try!(io::copy(&mut request, &mut stream));
                           debug!("handled request to {}", name_clone);
 
                           Ok(Box::new(reader::Http::new(stream)))
@@ -77,11 +91,23 @@ impl Relay for HttpStatic {
                 }
 
                 let mut stream = stream.unwrap();
+                // stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
+                //
+                // debug!("time out: {:?}", stream.read_timeout().unwrap());
+                // let mut b = Vec::with_capacity(10000);
+                // unsafe {
+                //     b.set_len(10000);
+                // }
+                // let r = stream.read_exact(&mut b);
+                // if let Err(e) = r {
+                //     error!("error: {:?}", e);
+                // }
 
                 let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
                 let mut service_name = String::new();
                 http_reader.read_header(|name, value| {
                                if name == header_field {
+                                   debug!("service: {}", value);
                                    service_name = value.to_string();
                                }
                            })

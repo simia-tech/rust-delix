@@ -18,7 +18,12 @@ extern crate delix;
 
 mod helper;
 
-use std::io::{self, Read};
+use std::error::Error;
+use std::net;
+use std::io::{self, Read, Write};
+use std::thread;
+
+use delix::util::reader;
 
 use hyper::client::Client;
 use hyper::server::{self, Server};
@@ -87,4 +92,61 @@ fn http_static_with_unreachable_service() {
 
     let mut response = Client::new().post("http://localhost:4030").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
     helper::assert_response(StatusCode::ServiceUnavailable, b"service [echo] is unavailable", &mut response);
+}
+
+#[test]
+fn http_static_with_unfinished_request() {
+    helper::set_up();
+
+    let mut listening = Server::http("localhost:5040").unwrap().handle(|mut request: server::Request, response: server::Response| {
+        let result = io::copy(&mut request, &mut response.start().unwrap()).unwrap_err();
+        assert_eq!(io::ErrorKind::Other, result.kind());
+        assert_eq!("early eof", result.description());
+    }).unwrap();
+
+    let (node, _) = helper::build_node("localhost:3041", &[], None);
+    let relay = helper::build_http_static_relay(&node, Some("localhost:4040"));
+    relay.add_service("echo", "localhost:5040");
+
+    {
+        let mut stream = net::TcpStream::connect("localhost:4040").unwrap();
+        write!(&mut stream, "POST / HTTP/1.1\r\n\
+                             Content-Type: text/plain\r\n\
+                             X-Delix-Service: echo\r\n\
+                             Content-Length: 100\r\n\
+                             \r\n\
+                             test message").unwrap();
+    }
+
+    listening.close().unwrap();
+}
+
+#[test]
+fn http_static_with_unfinished_response() {
+    helper::set_up();
+
+    let join_handle = thread::spawn(move || {
+        let listener = net::TcpListener::bind("localhost:5050").unwrap();
+        let (mut stream, _) = listener.accept().unwrap();
+        {
+            let mut reader = reader::Http::new(stream.try_clone().unwrap());
+            assert!(io::copy(&mut reader, &mut io::sink()).is_ok());
+        }
+        write!(&mut stream, "HTTP/1.1 201 Created\r\n\
+                             Content-Length: 1000\r\n\
+                             \r\n
+                             test message").unwrap();
+    });
+
+    let (node, _) = helper::build_node("localhost:3051", &[], None);
+    let relay = helper::build_http_static_relay(&node, Some("localhost:4050"));
+    relay.add_service("echo", "localhost:5050");
+
+    let mut response = Client::new().post("http://localhost:4050").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+    assert_eq!(StatusCode::Created, response.status);
+    let result = io::copy(&mut response, &mut io::sink()).unwrap_err();
+    assert_eq!(io::ErrorKind::Other, result.kind());
+    assert_eq!("early eof", result.description());
+
+    join_handle.join().unwrap();
 }
