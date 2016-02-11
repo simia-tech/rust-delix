@@ -7,10 +7,6 @@ level = "debug"
 type = "constant"
 addresses = [ ]
 
-[cipher]
-type = "symmetric"
-key = "000102030405060708090a0b0c0d0e0f"
-
 [transport]
 type = "direct"
 local_address = "localhost:4001"

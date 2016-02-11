@@ -80,28 +80,18 @@ impl Relay for HttpStatic {
     fn bind(&self, address: SocketAddr) -> Result<()> {
         let tcp_listener = try!(net::TcpListener::bind(address));
 
+        *self.running.write().unwrap() = true;
+
         let node_clone = self.node.clone();
         let running_clone = self.running.clone();
         let header_field = self.header_field.to_lowercase().trim().to_string();
         *self.join_handle.write().unwrap() = Some((thread::spawn(move || {
-            *running_clone.write().unwrap() = true;
             for stream in tcp_listener.incoming() {
                 if !*running_clone.read().unwrap() {
                     break;
                 }
 
                 let mut stream = stream.unwrap();
-                // stream.set_read_timeout(Some(Duration::from_millis(100))).unwrap();
-                //
-                // debug!("time out: {:?}", stream.read_timeout().unwrap());
-                // let mut b = Vec::with_capacity(10000);
-                // unsafe {
-                //     b.set_len(10000);
-                // }
-                // let r = stream.read_exact(&mut b);
-                // if let Err(e) = r {
-                //     error!("error: {:?}", e);
-                // }
 
                 let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
                 let mut service_name = String::new();

@@ -21,15 +21,15 @@ use std::result;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
-use message;
+use openssl::ssl;
 
+use message;
 use node::{ID, request, service};
-use transport::cipher::{self, Cipher};
 use transport::direct::container::{self, Container};
 use util::{reader, writer};
 
 pub struct Connection {
-    tx_stream: Arc<Mutex<cipher::Stream<net::TcpStream>>>,
+    tx_stream: Arc<Mutex<ssl::SslStream<net::TcpStream>>>,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
@@ -43,13 +43,15 @@ pub struct Connection {
 
 impl Connection {
     pub fn new_inbound(tcp_stream: net::TcpStream,
-                       cipher: Arc<Box<Cipher>>,
+                       ssl_context: &ssl::SslContext,
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)])
                        -> io::Result<Connection> {
 
-        let (mut connection, sender) = try!(Self::new(tcp_stream, cipher, node_id, public_address));
+        let ssl_stream = ssl::SslStream::accept(ssl_context, tcp_stream).unwrap();
+
+        let (mut connection, sender) = try!(Self::new(ssl_stream, node_id, public_address));
 
         try!(connection.send_peers(peers));
         sender.send(true).unwrap();
@@ -58,12 +60,14 @@ impl Connection {
     }
 
     pub fn new_outbound(tcp_stream: net::TcpStream,
-                        cipher: Arc<Box<Cipher>>,
+                        ssl_context: &ssl::SslContext,
                         node_id: ID,
                         public_address: SocketAddr)
                         -> io::Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
-        let (mut connection, sender) = try!(Self::new(tcp_stream, cipher, node_id, public_address));
+        let ssl_stream = ssl::SslStream::connect(ssl_context, tcp_stream).unwrap();
+
+        let (mut connection, sender) = try!(Self::new(ssl_stream, node_id, public_address));
 
         let peers = try!(connection.receive_peers());
         sender.send(true).unwrap();
@@ -71,16 +75,14 @@ impl Connection {
         Ok((connection, peers))
     }
 
-    fn new(tcp_stream: net::TcpStream,
-           cipher: Arc<Box<Cipher>>,
+    fn new(ssl_stream: ssl::SslStream<net::TcpStream>,
            node_id: ID,
            public_address: SocketAddr)
            -> io::Result<(Connection, mpsc::Sender<bool>)> {
 
-        let tx_stream = Arc::new(Mutex::new(cipher::Stream::new(tcp_stream.try_clone().unwrap(),
-                                                                cipher.box_clone())));
+        let tx_stream = Arc::new(Mutex::new(ssl_stream.try_clone().unwrap()));
         let tx_stream_clone = tx_stream.clone();
-        let mut rx_stream = cipher::Stream::new(tcp_stream, cipher.box_clone());
+        let mut rx_stream = ssl_stream;
 
         let (aknowledges_tx, aknowledges_rx) = mpsc::channel();
 
@@ -276,8 +278,8 @@ impl Drop for Connection {
 
 fn process_inbound_container(node_id: ID,
                              peer_node_id: ID,
-                             rx_stream: &mut cipher::Stream<net::TcpStream>,
-                             tx_stream: &Arc<Mutex<cipher::Stream<net::TcpStream>>>,
+                             rx_stream: &mut ssl::SslStream<net::TcpStream>,
+                             tx_stream: &Arc<Mutex<ssl::SslStream<net::TcpStream>>>,
                              aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
                              handler: &Arc<Mutex<Handler>>)
                              -> io::Result<()> {
@@ -314,7 +316,7 @@ fn process_inbound_container(node_id: ID,
 
                 let mut response =
                     f(&name,
-                      Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone()))));
+                      Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.try_clone().unwrap()))));
 
                 {
                     let mut tx_stream = tx_stream.lock().unwrap();
@@ -332,7 +334,8 @@ fn process_inbound_container(node_id: ID,
         message::Kind::ResponseMessage => {
             if let Some(ref f) = handler.lock().unwrap().response {
                 let response_reader =
-                    Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.clone())));
+                    Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.try_clone()
+                                                                                  .unwrap())));
                 let (request_id, response) = try!(container::unpack_response(container,
                                                                              response_reader));
                 try!(f(request_id, response));

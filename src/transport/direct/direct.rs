@@ -17,14 +17,13 @@ use std::io;
 use std::net::{TcpListener, TcpStream, SocketAddr};
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
-
 use time::Duration;
 
+use openssl::ssl;
+
 use transport::{Result, Transport};
-use transport::cipher::Cipher;
 use metric::Metric;
 use node::{ID, Service, request, response};
-
 use super::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
 use super::tracker::Statistic;
 
@@ -33,14 +32,14 @@ pub struct Direct {
     running: Arc<RwLock<bool>>,
     local_address: SocketAddr,
     public_address: SocketAddr,
-    cipher: Arc<Box<Cipher>>,
+    ssl_context: Arc<RwLock<ssl::SslContext>>,
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
     tracker: Arc<Tracker<Box<response::Writer>, request::Result>>,
 }
 
 impl Direct {
-    pub fn new(cipher: Box<Cipher>,
+    pub fn new(ssl_context: ssl::SslContext,
                balancer: Box<Balancer>,
                metric: Arc<Metric>,
                local_address: SocketAddr,
@@ -56,7 +55,7 @@ impl Direct {
             running: Arc::new(RwLock::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
-            cipher: Arc::new(cipher),
+            ssl_context: Arc::new(RwLock::new(ssl_context)),
             connections: Arc::new(ConnectionMap::new(metric.clone())),
             services: Arc::new(ServiceMap::new(balancer, metric.clone())),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
@@ -82,7 +81,7 @@ impl Transport for Direct {
 
         let public_address = self.public_address;
         let running_clone = self.running.clone();
-        let cipher_clone = self.cipher.clone();
+        let ssl_context_clone = self.ssl_context.clone();
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
@@ -93,9 +92,10 @@ impl Transport for Direct {
                 }
 
                 let stream = stream.unwrap();
+                let ssl_context = ssl_context_clone.read().unwrap();
                 let peers = &connections_clone.id_public_address_pairs();
                 let mut connection = Connection::new_inbound(stream,
-                                                             cipher_clone.clone(),
+                                                             &*ssl_context,
                                                              node_id,
                                                              public_address,
                                                              peers)
@@ -131,8 +131,9 @@ impl Transport for Direct {
                 pending_peers_count += 1;
 
                 let stream = try!(TcpStream::connect(peer_public_address));
+                let ssl_context = self.ssl_context.read().unwrap();
                 let (mut connection, peers) = try!(Connection::new_outbound(stream,
-                                                                            self.cipher.clone(),
+                                                                            &*ssl_context,
                                                                             node_id,
                                                                             self.public_address));
                 tx.send(peers).unwrap();

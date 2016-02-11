@@ -20,13 +20,14 @@ use std::sync::Arc;
 use time::Duration;
 use log;
 
+use openssl::{ssl, x509};
+
 use delix::logger;
 use delix::metric::{self, Metric};
 use delix::node::{self, Node};
 use delix::discovery::{self, Discovery};
 use delix::relay::{self, Relay};
 use delix::transport::{self, Transport};
-use delix::transport::cipher::{self, Cipher};
 use delix::transport::direct::{Balancer, balancer};
 use configuration::Configuration;
 
@@ -43,23 +44,20 @@ pub enum Error {
     UnknownLogType(String),
     NoDiscoveryType,
     UnknownDiscoveryType(String),
-    NoCipherType,
-    UnknownCipherType(String),
     NoTransportType,
     UnknownTransportType(String),
     NoBalancerType,
     UnknownBalancerType(String),
     NoRelayType,
     UnknownRelayType(String),
-    NoKey,
     NoAddress,
     NoAddresses,
     NoName,
     NoLocalAddress,
     NodeError(node::Error),
-    Cipher(cipher::Error),
     Relay(relay::Error),
     Io(io::Error),
+    Ssl(ssl::error::SslError),
 }
 
 impl Loader {
@@ -97,11 +95,9 @@ impl Loader {
     pub fn load_node(&self) -> Result<(Arc<Node>, Arc<metric::Memory>)> {
         let discovery = try!(self.load_discovery());
 
-        let cipher = try!(self.load_cipher());
-
         let metric = Arc::new(metric::Memory::new());
 
-        let transport = try!(self.load_transport(cipher, metric.clone()));
+        let transport = try!(self.load_transport(metric.clone()));
 
         Ok((Arc::new(try!(Node::new(discovery, transport, metric.clone()))),
             metric))
@@ -126,26 +122,7 @@ impl Loader {
         }
     }
 
-    fn load_cipher(&self) -> Result<Box<Cipher>> {
-        let cipher_type = try!(self.configuration
-                                   .string_at("cipher.type")
-                                   .ok_or(Error::NoCipherType));
-
-        match cipher_type.as_ref() {
-            "symmetric" => {
-                let key = match self.configuration.bytes_at("cipher.key") {
-                    Some(key) => key,
-                    None => return Err(Error::NoKey),
-                };
-                let cipher = try!(cipher::Symmetric::new(&key, None));
-                info!("loaded symmetric cipher");
-                Ok(Box::new(cipher))
-            }
-            _ => Err(Error::UnknownCipherType(cipher_type)),
-        }
-    }
-
-    fn load_transport(&self, cipher: Box<Cipher>, metric: Arc<Metric>) -> Result<Box<Transport>> {
+    fn load_transport(&self, metric: Arc<Metric>) -> Result<Box<Transport>> {
         let transport_type = try!(self.configuration
                                       .string_at("transport.type")
                                       .ok_or(Error::NoTransportType));
@@ -163,6 +140,13 @@ impl Loader {
                     None => None,
                 };
 
+                let generator = x509::X509Generator::new().set_bitlength(2048);
+                let (certificate, private_key) = generator.generate().unwrap();
+
+                let mut ssl_context = try!(ssl::SslContext::new(ssl::SslMethod::Tlsv1_2));
+                try!(ssl_context.set_certificate(&certificate));
+                try!(ssl_context.set_private_key(&private_key));
+
                 let request_timeout = self.configuration
                                           .i64_at("transport.request_timeout_ms")
                                           .map(|value| Duration::milliseconds(value));
@@ -178,7 +162,7 @@ impl Loader {
 
                 info!("loaded direct transport - listening at {}", local_address);
 
-                Ok(Box::new(transport::Direct::new(cipher,
+                Ok(Box::new(transport::Direct::new(ssl_context,
                                                    balancer,
                                                    metric,
                                                    local_address,
@@ -248,12 +232,6 @@ impl From<node::Error> for Error {
     }
 }
 
-impl From<cipher::Error> for Error {
-    fn from(error: cipher::Error) -> Self {
-        Error::Cipher(error)
-    }
-}
-
 impl From<relay::Error> for Error {
     fn from(error: relay::Error) -> Self {
         Error::Relay(error)
@@ -263,6 +241,12 @@ impl From<relay::Error> for Error {
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::Io(error)
+    }
+}
+
+impl From<ssl::error::SslError> for Error {
+    fn from(error: ssl::error::SslError) -> Self {
+        Error::Ssl(error)
     }
 }
 

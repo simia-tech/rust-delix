@@ -18,7 +18,6 @@ use std::io::{self, Read};
 use std::result;
 
 use toml;
-use rustc_serialize::hex::FromHex;
 
 #[derive(Debug)]
 pub struct Configuration {
@@ -72,10 +71,6 @@ impl Configuration {
                       .map(|value| value.as_str().unwrap().to_string())
                       .collect::<Vec<String>>()
             })
-    }
-
-    pub fn bytes_at(&self, path: &str) -> Option<Vec<u8>> {
-        self.string_at(path).and_then(|value| value.from_hex().ok())
     }
 
     pub fn configurations_at(&self, path: &str) -> Option<Vec<Configuration>> {

@@ -22,6 +22,8 @@ extern crate getopts;
 #[macro_use]
 extern crate log;
 #[cfg(not(test))]
+extern crate openssl;
+#[cfg(not(test))]
 extern crate time;
 #[cfg(not(test))]
 extern crate toml;

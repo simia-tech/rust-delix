@@ -18,6 +18,7 @@ extern crate ansi_term;
 extern crate byteorder;
 extern crate crypto;
 #[macro_use] extern crate log;
+extern crate openssl;
 extern crate protobuf;
 extern crate rand;
 extern crate rustc_serialize;
