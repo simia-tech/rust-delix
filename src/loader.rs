@@ -31,6 +31,8 @@ use delix::transport::{self, Transport};
 use delix::transport::direct::{Balancer, balancer};
 use configuration::Configuration;
 
+const DEFAULT_KEY_LENGTH: u32 = 2048;
+
 #[derive(Debug)]
 pub struct Loader {
     configuration: Configuration,
@@ -140,12 +142,30 @@ impl Loader {
                     None => None,
                 };
 
-                let generator = x509::X509Generator::new().set_bitlength(2048);
-                let (certificate, private_key) = generator.generate().unwrap();
+                let ca_file_name = self.configuration.string_at("transport.ca_file");
+                let cert_file_name = self.configuration.string_at("transport.cert_file");
+                let key_file_name = self.configuration.string_at("transport.key_file");
 
                 let mut ssl_context = try!(ssl::SslContext::new(ssl::SslMethod::Tlsv1_2));
-                try!(ssl_context.set_certificate(&certificate));
-                try!(ssl_context.set_private_key(&private_key));
+                if let (Some(ca_file_name),
+                        Some(cert_file_name),
+                        Some(key_file_name)) = (ca_file_name, cert_file_name, key_file_name) {
+
+                    try!(ssl_context.set_CA_file(&ca_file_name));
+                    try!(ssl_context.set_certificate_file(&cert_file_name,
+                                                          x509::X509FileType::PEM));
+                    try!(ssl_context.set_private_key_file(&key_file_name, x509::X509FileType::PEM));
+                    ssl_context.set_verify(ssl::SSL_VERIFY_PEER, None);
+                    try!(ssl_context.check_private_key());
+                } else {
+                    info!("generating default certificate with a key length of {} ...",
+                          DEFAULT_KEY_LENGTH);
+                    let generator = x509::X509Generator::new().set_bitlength(DEFAULT_KEY_LENGTH);
+                    let (certificate, private_key) = generator.generate().unwrap();
+
+                    try!(ssl_context.set_certificate(&certificate));
+                    try!(ssl_context.set_private_key(&private_key));
+                }
 
                 let request_timeout = self.configuration
                                           .i64_at("transport.request_timeout_ms")

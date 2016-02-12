@@ -33,7 +33,7 @@ pub fn build_node(local_address: &str,
                   request_timeout: Option<i64>)
                   -> (Arc<Node>, Arc<metric::Memory>) {
 
-    let generator = x509::X509Generator::new().set_bitlength(2048);
+    let generator = x509::X509Generator::new().set_bitlength(1024);
     let (certificate, private_key) = generator.generate().unwrap();
 
     let mut ssl_context = ssl::SslContext::new(ssl::SslMethod::Tlsv1_2).unwrap();
