@@ -24,7 +24,7 @@ mod service_map;
 pub mod tracker;
 
 pub use self::balancer::Balancer;
-pub use self::connection::Connection;
+pub use self::connection::{Connection, Handler};
 pub use self::connection_map::ConnectionMap;
 pub use self::connection_map::Error as ConnectionMapError;
 pub use self::direct::Direct;

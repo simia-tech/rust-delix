@@ -91,40 +91,46 @@ impl Relay for HttpStatic {
                     break;
                 }
 
-                let mut stream = stream.unwrap();
+                let node_clone = node_clone.clone();
+                let header_field = header_field.clone();
 
-                let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
-                let mut service_name = String::new();
-                http_reader.read_header(|name, value| {
-                               if name == header_field {
-                                   debug!("service: {}", value);
-                                   service_name = value.to_string();
-                               }
-                           })
-                           .unwrap();
+                thread::spawn(move || {
+                    let mut stream = stream.unwrap();
 
-                let result = node_clone.request(&service_name,
-                                                Box::new(http_reader),
-                                                Box::new(stream.try_clone()
-                                                               .unwrap()));
+                    let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
+                    let mut service_name = String::new();
+                    http_reader.read_header(|name, value| {
+                                   if name == header_field {
+                                       debug!("service: {}", value);
+                                       service_name = value.to_string();
+                                   }
+                               })
+                               .unwrap();
 
-                let response = match result {
-                    Ok(_) => Vec::new(),
-                    Err(request::Error::NoService) => {
-                        build_text_response(StatusCode::BadGateway,
-                                            &format!("service [{}] not found", service_name))
-                    }
-                    Err(request::Error::Service(service::Error::Unavailable)) => {
-                        build_text_response(StatusCode::ServiceUnavailable,
-                                            &format!("service [{}] is unavailable", service_name))
-                    }
-                    Err(error) => {
-                        build_text_response(StatusCode::InternalServerError,
-                                            &format!("error [{:?}]", error))
-                    }
-                };
-                stream.write_all(&response).unwrap();
-                stream.flush().unwrap();
+                    let result = node_clone.request(&service_name,
+                                                    Box::new(http_reader),
+                                                    Box::new(stream.try_clone()
+                                                                   .unwrap()));
+
+                    let response = match result {
+                        Ok(_) => Vec::new(),
+                        Err(request::Error::NoService) => {
+                            build_text_response(StatusCode::BadGateway,
+                                                &format!("service [{}] not found", service_name))
+                        }
+                        Err(request::Error::Service(service::Error::Unavailable)) => {
+                            build_text_response(StatusCode::ServiceUnavailable,
+                                                &format!("service [{}] is unavailable",
+                                                         service_name))
+                        }
+                        Err(error) => {
+                            build_text_response(StatusCode::InternalServerError,
+                                                &format!("error [{:?}]", error))
+                        }
+                    };
+                    stream.write_all(&response).unwrap();
+                    stream.flush().unwrap();
+                });
             }
         }),
                                                    address));

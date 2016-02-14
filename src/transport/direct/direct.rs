@@ -14,7 +14,7 @@
 //
 
 use std::io;
-use std::net::{TcpListener, TcpStream, SocketAddr};
+use std::net::{self, SocketAddr};
 use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 use time::Duration;
@@ -24,7 +24,7 @@ use openssl::ssl;
 use transport::{Result, Transport};
 use metric::Metric;
 use node::{ID, Service, request, response};
-use super::{Balancer, Connection, ConnectionMap, Link, Tracker, ServiceMap};
+use super::{Balancer, Connection, ConnectionMap, Handler, Link, Tracker, ServiceMap};
 use super::tracker::Statistic;
 
 pub struct Direct {
@@ -66,7 +66,7 @@ impl Direct {
         *self.running.write().unwrap() = false;
         if let Some(join_handle) = self.join_handle.write().unwrap().take() {
             // connect to local address to enable the thread to escape the accept loop.
-            try!(TcpStream::connect(self.local_address));
+            try!(net::TcpStream::connect(self.local_address));
             join_handle.join().unwrap();
         }
         Ok(())
@@ -75,7 +75,7 @@ impl Direct {
 
 impl Transport for Direct {
     fn bind(&self, node_id: ID) -> Result<()> {
-        let tcp_listener = try!(TcpListener::bind(self.local_address));
+        let tcp_listener = try!(net::TcpListener::bind(self.local_address));
 
         *self.running.write().unwrap() = true;
 
@@ -91,23 +91,15 @@ impl Transport for Direct {
                     break;
                 }
 
-                let stream = stream.unwrap();
-                let ssl_context = ssl_context_clone.read().unwrap();
-                let peers = &connections_clone.id_public_address_pairs();
-                let mut connection = Connection::new_inbound(stream,
-                                                             &*ssl_context,
-                                                             node_id,
-                                                             public_address,
-                                                             peers)
-                                         .unwrap();
-
-                set_up(&mut connection, &services_clone, &tracker_clone);
-
-                connection.send_add_services(&services_clone.local_service_names())
-                          .unwrap();
-
-                info!("{}: inbound {}", node_id, connection);
-                connections_clone.add(connection).unwrap();
+                if let Err(error) = accept(stream.unwrap(),
+                                           &ssl_context_clone,
+                                           node_id,
+                                           public_address,
+                                           &connections_clone,
+                                           &services_clone,
+                                           &tracker_clone) {
+                    error!("error accepting connection: {:?}", error);
+                }
             }
         }));
 
@@ -130,20 +122,25 @@ impl Transport for Direct {
 
                 pending_peers_count += 1;
 
-                let stream = try!(TcpStream::connect(peer_public_address));
-                let ssl_context = self.ssl_context.read().unwrap();
-                let (mut connection, peers) = try!(Connection::new_outbound(stream,
-                                                                            &*ssl_context,
-                                                                            node_id,
-                                                                            self.public_address));
+                let tcp_stream = try!(net::TcpStream::connect(peer_public_address));
+                let ssl_stream = try!(ssl::SslStream::connect(&*self.ssl_context.read().unwrap(),
+                                                              tcp_stream));
+                let handler = build_handler(&self.services, &self.tracker);
+                let (connection, peers) = try!(Connection::new_outbound(ssl_stream,
+                                                                        node_id,
+                                                                        self.public_address,
+                                                                        handler));
+                let peer_node_id = connection.peer_node_id();
+                info!("{}: outbound {}", node_id, connection);
+                try!(self.connections.add(connection));
+
                 tx.send(peers).unwrap();
 
-                set_up(&mut connection, &self.services, &self.tracker);
-
-                try!(connection.send_add_services(&self.services.local_service_names()));
-
-                info!("{}: outbound {}", node_id, connection);
-                self.connections.add(connection).unwrap();
+                try!(try!(self.connections
+                              .select(&peer_node_id, |connection| -> io::Result<()> {
+                                  Ok(try!(connection.send_add_services(&self.services
+                                                                       .local_service_names())))
+                              })));
             }
 
             pending_peers_count -= 1;
@@ -233,46 +230,76 @@ impl Drop for Direct {
     }
 }
 
-fn set_up(connection: &mut Connection,
+fn accept(tcp_stream: net::TcpStream,
+          ssl_context: &Arc<RwLock<ssl::SslContext>>,
+          node_id: ID,
+          public_address: SocketAddr,
+          connections: &Arc<ConnectionMap>,
           services: &Arc<ServiceMap>,
-          tracker: &Arc<Tracker<Box<response::Writer>, request::Result>>) {
-    let services_clone = services.clone();
-    connection.set_on_add_services(Box::new(move |peer_node_id, services| {
-        services_clone.insert_remotes(&services, peer_node_id);
-    }));
+          tracker: &Arc<Tracker<Box<response::Writer>, request::Result>>)
+          -> Result<()> {
 
-    let services_clone = services.clone();
-    connection.set_on_remove_services(Box::new(move |peer_node_id, services| {
-        services_clone.remove_remotes(&services, &peer_node_id);
-    }));
+    let ssl_stream = try!(ssl::SslStream::accept(&*ssl_context.read().unwrap(), tcp_stream));
 
-    let services_clone = services.clone();
-    connection.set_on_request(Box::new(move |name, reader| {
-        services_clone.select_local(name, |handler| handler(reader))
-    }));
+    let peers = &connections.id_public_address_pairs();
+    let handler = build_handler(services, tracker);
+    let connection = try!(Connection::new_inbound(ssl_stream,
+                                                  node_id,
+                                                  public_address,
+                                                  peers,
+                                                  handler));
+    let peer_node_id = connection.peer_node_id();
+    info!("{}: inbound {}", node_id, connection);
+    try!(connections.add(connection));
 
+    try!(try!(connections.select(&peer_node_id, |connection| -> io::Result<()> {
+        Ok(try!(connection.send_add_services(&services.local_service_names())))
+    })));
+
+    Ok(())
+}
+
+fn build_handler(services: &Arc<ServiceMap>,
+                 tracker: &Arc<Tracker<Box<response::Writer>, request::Result>>)
+                 -> Handler {
+
+    let services_clone_add = services.clone();
+    let services_clone_remove = services.clone();
+    let services_clone_request = services.clone();
+    let services_clone_drop = services.clone();
     let tracker_clone = tracker.clone();
-    connection.set_on_response(Box::new(move |request_id, mut service_result| {
-        let timed_out = !tracker_clone.end(request_id, |mut response_writer| {
-            match service_result {
-                Ok(ref mut reader) => {
-                    try!(io::copy(reader, &mut response_writer));
-                    Ok(response_writer)
+
+    Handler {
+        add_services: Box::new(move |peer_node_id, services| {
+            services_clone_add.insert_remotes(&services, peer_node_id);
+        }),
+        remove_services: Box::new(move |peer_node_id, services| {
+            services_clone_remove.remove_remotes(&services, &peer_node_id);
+        }),
+        request: Box::new(move |name, reader| {
+            services_clone_request.select_local(name, |handler| handler(reader))
+        }),
+        response: Box::new(move |request_id, mut service_result| {
+            let timed_out = !tracker_clone.end(request_id, |mut response_writer| {
+                match service_result {
+                    Ok(ref mut reader) => {
+                        try!(io::copy(reader, &mut response_writer));
+                        Ok(response_writer)
+                    }
+                    Err(ref error) => Err(request::Error::Service(error.clone())),
                 }
-                Err(ref error) => Err(request::Error::Service(error.clone())),
+            });
+
+            if timed_out {
+                debug!("got response for request ({}) that already timed out",
+                       request_id);
             }
-        });
 
-        if timed_out {
-            debug!("got response for request ({}) that already timed out",
-                   request_id);
-        }
-
-        Ok(())
-    }));
-
-    let services_clone = services.clone();
-    connection.set_on_drop(Box::new(move |peer_node_id| {
-        services_clone.remove_all_remotes(&peer_node_id);
-    }));
+            Ok(())
+        }),
+        drop: Box::new(move |peer_node_id| {
+            services_clone_drop.remove_all_remotes(&peer_node_id);
+        }),
+        error: None,
+    }
 }

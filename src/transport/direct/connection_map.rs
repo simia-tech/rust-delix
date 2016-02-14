@@ -34,7 +34,8 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
-    ConnectionAlreadyExists,
+    AlreadyExists,
+    DoesNotExists,
 }
 
 impl ConnectionMap {
@@ -59,10 +60,10 @@ impl ConnectionMap {
         }
     }
 
-    pub fn add(&self, mut connection: Connection) -> Result<()> {
+    pub fn add(&self, connection: Connection) -> Result<()> {
         let mut map = self.map.write().unwrap();
         if map.contains_key(&connection.peer_node_id()) {
-            return Err(Error::ConnectionAlreadyExists);
+            return Err(Error::AlreadyExists);
         }
 
         let sender = self.sender.clone();
@@ -80,6 +81,16 @@ impl ConnectionMap {
 
     pub fn contains_key(&self, peer_node_id: &ID) -> bool {
         self.map.read().unwrap().contains_key(peer_node_id)
+    }
+
+    pub fn select<F, T>(&self, peer_node_id: &ID, f: F) -> Result<T>
+        where F: FnOnce(&Connection) -> T
+    {
+        let map = self.map.read().unwrap();
+        match map.get(peer_node_id) {
+            Some(ref connection) => Ok(f(connection)),
+            None => Err(Error::DoesNotExists),
+        }
     }
 
     pub fn id_public_address_pairs(&self) -> Vec<(ID, SocketAddr)> {
@@ -115,14 +126,14 @@ impl ConnectionMap {
                         name: &str,
                         reader: &mut request::Reader)
                         -> io::Result<()> {
-        let mut map = self.map.write().unwrap();
-        let mut connection = map.get_mut(peer_node_id).unwrap();
+        let map = self.map.read().unwrap();
+        let connection = map.get(peer_node_id).unwrap();
         Ok(try!(connection.send_request(id, name, reader)))
     }
 
     pub fn clear_handlers(&self) {
-        let mut map = self.map.write().unwrap();
-        for (_, connection) in map.iter_mut() {
+        let map = self.map.read().unwrap();
+        for (_, connection) in map.iter() {
             connection.clear_on_error();
         }
     }

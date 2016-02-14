@@ -25,6 +25,7 @@ pub struct ServiceMap {
     balancer: Box<direct::Balancer>,
     entries: RwLock<HashMap<String, Entry>>,
     services_gauge: metric::item::Gauge,
+    endpoints_gauge: metric::item::Gauge,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -42,6 +43,7 @@ impl ServiceMap {
             balancer: balancer,
             entries: RwLock::new(HashMap::new()),
             services_gauge: metric.gauge("services"),
+            endpoints_gauge: metric.gauge("endpoints"),
         }
     }
 
@@ -60,6 +62,7 @@ impl ServiceMap {
 
         entry.local_handler = Some(Arc::new(Mutex::new(f)));
         entry.links.push(Link::Local);
+        self.endpoints_gauge.change(1);
 
         Ok(())
     }
@@ -78,6 +81,7 @@ impl ServiceMap {
         }
 
         entry.links.push(Link::Remote(peer_node_id));
+        self.endpoints_gauge.change(1);
 
         Ok(())
     }
@@ -94,6 +98,7 @@ impl ServiceMap {
 
             if let None = entry.links.iter().find(|&link| Link::is_remote(link, &peer_node_id)) {
                 entry.links.push(Link::Remote(peer_node_id));
+                self.endpoints_gauge.change(1);
             }
         }
     }
@@ -186,6 +191,7 @@ impl ServiceMap {
             entry.local_handler = None;
             entry.links.retain(|link| !Link::is_local(&&link));
             entry.queue.retain(|link| !Link::is_local(&&link));
+            self.endpoints_gauge.change(-1);
             entry.links.len() == 0
         };
         if remove {
@@ -204,6 +210,7 @@ impl ServiceMap {
             };
             entry.links.retain(|link| !Link::is_remote(&&link, peer_node_id));
             entry.queue.retain(|link| !Link::is_remote(&&link, peer_node_id));
+            self.endpoints_gauge.change(-1);
             entry.links.len() == 0
         };
         if remove {
@@ -223,6 +230,7 @@ impl ServiceMap {
                 };
                 entry.links.retain(|link| !Link::is_remote(&&link, peer_node_id));
                 entry.queue.retain(|link| !Link::is_remote(&&link, peer_node_id));
+                self.endpoints_gauge.change(-1);
                 entry.links.len() == 0
             };
             if remove {
@@ -238,6 +246,7 @@ impl ServiceMap {
         for (name, entry) in entries.iter_mut() {
             entry.links.retain(|link| !Link::is_remote(link, peer_node_id));
             entry.queue.retain(|link| !Link::is_remote(link, peer_node_id));
+            self.endpoints_gauge.change(-1);
             if entry.links.len() == 0 {
                 names.push(name.to_string());
             }

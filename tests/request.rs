@@ -19,7 +19,7 @@ mod helper;
 
 use std::io;
 use std::iter;
-use std::sync::mpsc;
+use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
 use delix::node::request;
@@ -42,7 +42,7 @@ fn single_echo_from_local_without_timeout() {
 fn single_large_echo_from_local_without_timeout() {
     helper::set_up();
 
-    let (node, metric) = helper::build_node("localhost:3061", &[], None);
+    let (node, metric) = helper::build_node("localhost:3011", &[], None);
     node.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
@@ -59,7 +59,7 @@ fn single_large_echo_from_local_without_timeout() {
 fn single_echo_from_local_with_timeout() {
     helper::set_up();
 
-    let (node, metric) = helper::build_node("localhost:3011", &[], Some(10));
+    let (node, metric) = helper::build_node("localhost:3021", &[], Some(10));
     node.register("echo", Box::new(|request| {
         thread::sleep(::std::time::Duration::from_millis(20));
         Ok(request)
@@ -74,11 +74,11 @@ fn single_echo_from_local_with_timeout() {
 fn single_echo_from_remote_without_timeout() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("localhost:3021", &[], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3031", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    let (node_two, metric_two) = helper::build_node("localhost:3022", &["localhost:3021"], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3032", &["localhost:3031"], None);
 
     helper::wait_for_joined(&[&metric_one, &metric_two]);
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
@@ -90,13 +90,13 @@ fn single_echo_from_remote_without_timeout() {
 fn single_echo_from_remote_with_timeout() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("localhost:3031", &[], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3041", &[], None);
     node_one.register("echo", Box::new(|request| {
         thread::sleep(::std::time::Duration::from_millis(20));
         Ok(request)
     })).unwrap();
 
-    let (node_two, metric_two) = helper::build_node("localhost:3032", &["localhost:3031"], Some(10));
+    let (node_two, metric_two) = helper::build_node("localhost:3042", &["localhost:3041"], Some(10));
 
     helper::wait_for_joined(&[&metric_one, &metric_two]);
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
@@ -108,11 +108,11 @@ fn single_echo_from_remote_with_timeout() {
 fn multiple_echos_from_remote() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("localhost:3041", &[], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3051", &[], None);
     node_one.register("echo", Box::new(|request| Ok(request)))
             .unwrap();
 
-    let (node_two, metric_two) = helper::build_node("localhost:3042", &["localhost:3041"], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3052", &["localhost:3051"], None);
 
     helper::wait_for_joined(&[&metric_one, &metric_two]);
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
@@ -125,18 +125,18 @@ fn multiple_echos_from_remote() {
 fn balanced_echos_from_two_remotes() {
     helper::set_up();
 
-    let (node_one, metric_one) = helper::build_node("localhost:3051", &[], None);
+    let (node_one, metric_one) = helper::build_node("localhost:3061", &[], None);
 
     let (tx, rx) = mpsc::channel();
 
-    let (node_two, metric_two) = helper::build_node("localhost:3052", &["localhost:3051"], None);
+    let (node_two, metric_two) = helper::build_node("localhost:3062", &["localhost:3061"], None);
     let tx_clone = tx.clone();
     node_two.register("echo", Box::new(move |request| {
         tx_clone.send("two").unwrap();
         Ok(request)
     })).unwrap();
 
-    let (node_three, metric_three) = helper::build_node("localhost:3053", &["localhost:3051"], None);
+    let (node_three, metric_three) = helper::build_node("localhost:3063", &["localhost:3061"], None);
     let tx_clone = tx.clone();
     node_three.register("echo", Box::new(move |request| {
         tx_clone.send("three").unwrap();
@@ -157,4 +157,51 @@ fn balanced_echos_from_two_remotes() {
     assert_eq!("test", String::from_utf8_lossy(&node_one.request_bytes("echo", b"test").unwrap()));
 
     helper::assert_contains_all(&["two", "two"], &helper::recv_all(&rx));
+}
+
+#[test]
+fn parallel_requests_while_a_node_is_joining() {
+    helper::set_up();
+
+    let (node_one, metric_one) = helper::build_node("localhost:3071", &[], None);
+    node_one.register("echo", Box::new(move |request| {
+        Ok(request)
+    })).unwrap();
+
+    let running = Arc::new(RwLock::new(true));
+
+    let node_one_clone = node_one.clone();
+    let running_clone = running.clone();
+    let jh_one = thread::spawn(move || {
+        while *running_clone.read().unwrap() {
+            assert_eq!("test", String::from_utf8_lossy(&node_one_clone.request_bytes("echo", b"test").unwrap()));
+            thread::sleep(::std::time::Duration::from_millis(10));
+        }
+    });
+
+    let node_one_clone = node_one.clone();
+    let running_clone = running.clone();
+    let jh_two = thread::spawn(move || {
+        while *running_clone.read().unwrap() {
+            assert_eq!("test", String::from_utf8_lossy(&node_one_clone.request_bytes("echo", b"test").unwrap()));
+            thread::sleep(::std::time::Duration::from_millis(10));
+        }
+    });
+
+    thread::sleep(::std::time::Duration::from_millis(50));
+
+    let (node_two, metric_two) = helper::build_node("localhost:3072", &["localhost:3071"], None);
+    node_two.register("echo", Box::new(move |request| {
+        Ok(request)
+    })).unwrap();
+
+    helper::wait_for_joined(&[&metric_one, &metric_two]);
+    helper::wait_for_services(&[&metric_one, &metric_two], 1);
+    helper::wait_for_endpoints(&[&metric_one, &metric_two], 2);
+
+    thread::sleep(::std::time::Duration::from_millis(50));
+
+    *running.write().unwrap() = false;
+    jh_one.join().unwrap();
+    jh_two.join().unwrap();
 }
