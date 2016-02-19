@@ -20,6 +20,7 @@ mod connection_map;
 pub mod container;
 mod direct;
 mod link;
+mod packet;
 mod service_map;
 pub mod tracker;
 

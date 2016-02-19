@@ -17,7 +17,7 @@ use std::io;
 
 use byteorder::{self, WriteBytesExt};
 
-pub fn write_size<W>(writer: &mut W, value: usize) -> io::Result<()>
+pub fn write_size<W: ?Sized>(writer: &mut W, value: usize) -> io::Result<()>
     where W: io::Write
 {
     try!(writer.write_u64::<byteorder::BigEndian>(value as u64));

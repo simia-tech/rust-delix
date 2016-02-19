@@ -1,0 +1,29 @@
+package message;
+
+// Packet defines reader packet.
+message Packet {
+  enum Result {
+    Ok = 1;
+    NotFound = 2;
+    PermissionDenied = 3;
+    ConnectionRefused = 4;
+    ConnectionReset = 5;
+    ConnectionAborted = 6;
+    NotConnected = 7;
+    AddrInUse = 8;
+    AddrNotAvailable = 9;
+    BrokenPipe = 10;
+    AlreadyExists = 11;
+    WouldBlock = 12;
+    InvalidInput = 13;
+    InvalidData = 14;
+    TimedOut = 15;
+    WriteZero = 16;
+    Other = 17;
+    UnexpectedEof = 18;
+  }
+
+  optional Result result = 1;
+  optional string message = 2;
+  required bytes payload = 3;
+}

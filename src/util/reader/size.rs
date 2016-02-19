@@ -17,7 +17,7 @@ use std::io;
 
 use byteorder::{self, ReadBytesExt};
 
-pub fn read_size<R>(reader: &mut R) -> io::Result<usize>
+pub fn read_size<R: ?Sized>(reader: &mut R) -> io::Result<usize>
     where R: io::Read
 {
     match reader.read_u64::<byteorder::BigEndian>() {

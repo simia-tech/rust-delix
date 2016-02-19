@@ -25,8 +25,9 @@ use openssl::ssl;
 
 use message;
 use node::{ID, request, service};
-use transport::direct::container::{self, Container};
 use util::{reader, writer};
+use super::packet;
+use super::container::{self, Container};
 
 pub struct Connection {
     tx_stream: Arc<Mutex<ssl::SslStream<net::TcpStream>>>,
@@ -193,7 +194,7 @@ impl Connection {
 
             try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
 
-            try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+            try!(packet::copy(reader, &mut *tx_stream));
 
             Ok(())
         })
@@ -215,13 +216,12 @@ impl Connection {
     {
         match f() {
             Ok(value) => Ok(value),
-            Err(ref error) if is_write_error(error) => {
+            Err(ref error) => {
                 if let Some(ref f) = self.handler.lock().unwrap().error {
                     f(self.peer_node_id, error);
                 }
                 Ok(default)
             }
-            Err(error) => Err(error),
         }
     }
 }
@@ -295,9 +295,17 @@ fn process_inbound_container(node_id: ID,
         message::Kind::RequestMessage => {
             let (request_id, name) = try!(container::unpack_request(container));
 
-            let mut response =
-                    (&*handler.lock().unwrap().request)(&name,
-                      Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.try_clone().unwrap()))));
+            let handler_clone = handler.clone();
+            let reader = packet::Reader::new(rx_stream.try_clone().unwrap(), move |error| {
+                if let Some(ref error_handler) = handler_clone.lock().unwrap().error {
+                    error_handler(peer_node_id, &error);
+                }
+            });
+
+            let mut response = (&*handler.lock()
+                                         .unwrap()
+                                         .request)(&name,
+                                                   Box::new(reader::DrainOnDrop::new(reader)));
 
             {
                 let mut tx_stream = tx_stream.lock().unwrap();
@@ -351,8 +359,4 @@ fn case_eof_to_aborted<T>(result: io::Result<T>) -> io::Result<T> {
         }
         Err(error) => Err(error),
     }
-}
-
-fn is_write_error(error: &io::Error) -> bool {
-    error.kind() != io::ErrorKind::UnexpectedEof
 }

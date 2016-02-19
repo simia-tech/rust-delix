@@ -17,6 +17,7 @@ extern crate delix;
 
 mod helper;
 
+use std::error::Error;
 use std::io;
 use delix::util::{reader, writer};
 
@@ -60,15 +61,20 @@ fn loose_while_transmitting_request() {
 
     let (node_one, metric_one) = helper::build_node("localhost:3021", &[], None);
     let (node_two, metric_two) = helper::build_node("localhost:3022", &["localhost:3021"], None);
-    node_two.register("echo", Box::new(|request| {
-        Ok(request)
+    node_two.register("echo", Box::new(|mut request| {
+        let result = io::copy(&mut request, &mut io::sink()).unwrap_err();
+        assert_eq!(io::ErrorKind::UnexpectedEof, result.kind());
+        assert_eq!("unexpected EOF", result.description());
+        Ok(Box::new(io::Cursor::new(b"test message".to_vec())))
     })).unwrap();
 
     helper::wait_for_joined(&[&metric_one, &metric_two]);
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     let request = Box::new(reader::ErrorAfter::new_unexpected_eof(io::Cursor::new(b"test message".to_vec()), 4));
-    assert!(node_one.request("echo", request, Box::new(Vec::new())).is_err());
+    let response = Box::new(writer::Collector::new());
+    assert!(node_one.request("echo", request, response.clone()).is_ok());
+    assert_eq!("test message", String::from_utf8_lossy(&response.vec().unwrap()));
 }
 
 #[test]
