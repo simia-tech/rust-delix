@@ -23,7 +23,6 @@ use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
 use delix::node::request;
-use delix::util::writer;
 
 #[test]
 fn single_echo_from_local_without_timeout() {
@@ -50,9 +49,9 @@ fn single_large_echo_from_local_without_timeout() {
 
     let request_bytes = iter::repeat(0u8).take(70000).collect::<Vec<_>>();
     let request = Box::new(io::Cursor::new(request_bytes.clone()));
-    let response = Box::new(writer::Collector::new());
-    node.request("echo", request, response.clone()).unwrap();
-    assert_eq!(request_bytes, response.vec().unwrap());
+    node.request("echo", request, Box::new(move |mut reader| {
+        assert_eq!(Some(70000), io::copy(&mut reader, &mut io::sink()).ok());
+    })).unwrap();
 }
 
 #[test]

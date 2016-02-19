@@ -35,7 +35,7 @@ pub struct Direct {
     ssl_context: Arc<RwLock<ssl::SslContext>>,
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
-    tracker: Arc<Tracker<Box<response::Writer>, request::Result>>,
+    tracker: Arc<Tracker<Box<response::Handler>, request::Result<()>>>,
 }
 
 impl Direct {
@@ -168,37 +168,31 @@ impl Transport for Direct {
     fn request(&self,
                name: &str,
                reader: Box<request::Reader>,
-               response_writer: Box<response::Writer>)
-               -> request::Result {
+               response_handler: Box<response::Handler>)
+               -> request::Result<()> {
 
         self.services.select(name,
-                             reader,
-                             response_writer,
-                             |reader, response_writer, handler| {
+                             (reader, response_handler),
+                             |(reader, response_handler), handler| {
                                  let (request_id, response_rx) = self.tracker
                                                                      .begin(name,
                                                                             &Link::Local,
-                                                                            response_writer);
+                                                                            response_handler);
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
                                  thread::spawn(move || {
-                                     let mut service_result = (*handler_clone.lock()
-                                                                             .unwrap())(reader);
+                                     let service_result = (*handler_clone.lock()
+                                                                         .unwrap())(reader);
 
                                      let timed_out =
-                                         !tracker_clone.end(request_id, |mut response_writer| {
+                                         !tracker_clone.end(request_id, |mut response_handler| {
+                                             let service_result = service_result;
                                              match service_result {
-                                                 Ok(ref mut reader) => {
-                                                     if let Err(error) =
-                                                            io::copy(reader, &mut response_writer) {
-                                                         Err(request::Error::from(error))
-                                                     } else {
-                                                         Ok(response_writer)
-                                                     }
+                                                 Ok(reader) => {
+                                                     response_handler(reader);
+                                                     Ok(())
                                                  }
-                                                 Err(ref error) => {
-                                                     Err(request::Error::Service(error.clone()))
-                                                 }
+                                                 Err(error) => Err(request::Error::Service(error)),
                                              }
                                          });
 
@@ -210,10 +204,12 @@ impl Transport for Direct {
                                  });
                                  try!(response_rx.recv().unwrap())
                              },
-                             |mut reader, response_writer, peer_node_id| {
+                             |(mut reader, response_handler), peer_node_id| {
                                  let (request_id, response_rx) =
                                      self.tracker
-                                         .begin(name, &Link::Remote(peer_node_id), response_writer);
+                                         .begin(name,
+                                                &Link::Remote(peer_node_id),
+                                                response_handler);
                                  try!(self.connections
                                           .send_request(&peer_node_id,
                                                         request_id,
@@ -236,7 +232,7 @@ fn accept(tcp_stream: net::TcpStream,
           public_address: SocketAddr,
           connections: &Arc<ConnectionMap>,
           services: &Arc<ServiceMap>,
-          tracker: &Arc<Tracker<Box<response::Writer>, request::Result>>)
+          tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
           -> Result<()> {
 
     let ssl_stream = try!(ssl::SslStream::accept(&*ssl_context.read().unwrap(), tcp_stream));
@@ -260,7 +256,7 @@ fn accept(tcp_stream: net::TcpStream,
 }
 
 fn build_handler(services: &Arc<ServiceMap>,
-                 tracker: &Arc<Tracker<Box<response::Writer>, request::Result>>)
+                 tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
                  -> Handler {
 
     let services_clone_add = services.clone();
@@ -279,14 +275,15 @@ fn build_handler(services: &Arc<ServiceMap>,
         request: Box::new(move |name, reader| {
             services_clone_request.select_local(name, |handler| handler(reader))
         }),
-        response: Box::new(move |request_id, mut service_result| {
-            let timed_out = !tracker_clone.end(request_id, |mut response_writer| {
+        response: Box::new(move |request_id, service_result| {
+            let timed_out = !tracker_clone.end(request_id, |mut response_handler| {
+                let service_result = service_result;
                 match service_result {
-                    Ok(ref mut reader) => {
-                        try!(io::copy(reader, &mut response_writer));
-                        Ok(response_writer)
+                    Ok(reader) => {
+                        response_handler(reader);
+                        Ok(())
                     }
-                    Err(ref error) => Err(request::Error::Service(error.clone())),
+                    Err(error) => Err(request::Error::Service(error)),
                 }
             });
 

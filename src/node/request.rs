@@ -16,11 +16,11 @@
 use std::error::Error as StdError;
 use std::io;
 use std::result;
-use super::{response, service};
+use super::service;
 
 pub type Reader = io::Read + Send;
 
-pub type Result = result::Result<Box<response::Writer>, Error>;
+pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug, PartialEq)]
 pub enum Error {

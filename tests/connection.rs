@@ -19,7 +19,7 @@ mod helper;
 
 use std::error::Error;
 use std::io;
-use delix::util::{reader, writer};
+use delix::util::reader;
 
 #[test]
 #[allow(unused_variables)]
@@ -72,9 +72,11 @@ fn loose_while_transmitting_request() {
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     let request = Box::new(reader::ErrorAfter::new_unexpected_eof(io::Cursor::new(b"test message".to_vec()), 4));
-    let response = Box::new(writer::Collector::new());
-    assert!(node_one.request("echo", request, response.clone()).is_ok());
-    assert_eq!("test message", String::from_utf8_lossy(&response.vec().unwrap()));
+    assert!(node_one.request("echo", request, Box::new(move |mut reader| {
+        let mut response = Vec::new();
+        assert!(io::copy(&mut reader, &mut response).is_ok());
+        assert_eq!("test message", String::from_utf8_lossy(&response));
+    })).is_ok());
 }
 
 #[test]
@@ -91,7 +93,9 @@ fn loose_while_transmitting_response() {
     helper::wait_for_services(&[&metric_one, &metric_two], 1);
 
     let request = Box::new(io::Cursor::new(b"test message".to_vec()));
-    let response = Box::new(writer::Collector::new());
-    assert!(node_one.request("echo", request, response.clone()).is_ok());
-    assert!(String::from_utf8_lossy(&response.vec().unwrap()).starts_with("test"));
+    assert!(node_one.request("echo", request, Box::new(move |mut reader| {
+        let result = io::copy(&mut reader, &mut io::sink()).unwrap_err();
+        assert_eq!(io::ErrorKind::UnexpectedEof, result.kind());
+        assert_eq!("unexpected EOF", result.description());
+    })).is_ok());
 }

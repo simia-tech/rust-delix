@@ -18,7 +18,7 @@ use std::result;
 use std::sync::{Arc, Mutex, RwLock};
 
 use metric::{self, Metric};
-use node::{ID, Service, request, response, service};
+use node::{ID, Service, request, service};
 use transport::direct::{self, Link};
 
 pub struct ServiceMap {
@@ -103,18 +103,14 @@ impl ServiceMap {
         }
     }
 
-    pub fn select<L, R>(&self,
-                        name: &str,
-                        reader: Box<request::Reader>,
-                        response_writer: Box<response::Writer>,
-                        local_handler: L,
-                        remote_handler: R)
-                        -> request::Result
-        where L: FnOnce(Box<request::Reader>,
-                        Box<response::Writer>,
-                        &Arc<Mutex<Box<Service>>>)
-                        -> request::Result,
-              R: FnOnce(Box<request::Reader>, Box<response::Writer>, ID) -> request::Result
+    pub fn select<P, L, R>(&self,
+                           name: &str,
+                           payload: P,
+                           local_handler: L,
+                           remote_handler: R)
+                           -> request::Result<()>
+        where L: FnOnce(P, &Arc<Mutex<Box<Service>>>) -> request::Result<()>,
+              R: FnOnce(P, ID) -> request::Result<()>
     {
         let mut entries = self.entries.write().unwrap();
 
@@ -130,14 +126,8 @@ impl ServiceMap {
         let link = entry.queue.pop().expect("balancer did not build any round");
 
         match link {
-            Link::Local => {
-                local_handler(reader,
-                              response_writer,
-                              entry.local_handler.as_ref().unwrap())
-            }
-            Link::Remote(ref peer_node_id) => {
-                remote_handler(reader, response_writer, *peer_node_id)
-            }
+            Link::Local => local_handler(payload, entry.local_handler.as_ref().unwrap()),
+            Link::Remote(ref peer_node_id) => remote_handler(payload, *peer_node_id),
         }
     }
 

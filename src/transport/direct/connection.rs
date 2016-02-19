@@ -314,18 +314,23 @@ fn process_inbound_container(node_id: ID,
                                      &container::pack_response(request_id, &response)));
 
                 if let Ok(ref mut reader) = response {
-                    try!(io::copy(reader, &mut writer::Chunk::new(&mut *tx_stream)));
+                    try!(packet::copy(reader, &mut *tx_stream));
                 }
                 try!(tx_stream.flush());
             }
         }
         message::Kind::ResponseMessage => {
-            let response_reader =
-                Box::new(reader::DrainOnDrop::new(reader::Chunk::new(rx_stream.try_clone()
-                                                                              .unwrap())));
-            let (request_id, response) = try!(container::unpack_response(container,
-                                                                         response_reader));
-            try!((&*handler.lock().unwrap().response)(request_id, response));
+            let handler_clone = handler.clone();
+            let reader = packet::Reader::new(rx_stream.try_clone().unwrap(), move |error| {
+                if let Some(ref error_handler) = handler_clone.lock().unwrap().error {
+                    error_handler(peer_node_id, &error);
+                }
+            });
+
+            let (request_id, service_result) =
+                try!(container::unpack_response(container,
+                                                Box::new(reader::DrainOnDrop::new(reader))));
+            try!((&*handler.lock().unwrap().response)(request_id, service_result));
         }
         _ => {
             error!("{}: got unexpected container {:?}",

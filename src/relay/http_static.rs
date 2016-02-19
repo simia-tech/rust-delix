@@ -107,10 +107,14 @@ impl Relay for HttpStatic {
                                })
                                .unwrap();
 
+                    let mut stream_clone = stream.try_clone().unwrap();
+                    let response_handler = Box::new(move |mut reader| {
+                        io::copy(&mut reader, &mut stream_clone).unwrap();
+                    });
+
                     let result = node_clone.request(&service_name,
                                                     Box::new(http_reader),
-                                                    Box::new(stream.try_clone()
-                                                                   .unwrap()));
+                                                    response_handler);
 
                     let response = match result {
                         Ok(_) => Vec::new(),

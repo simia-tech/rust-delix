@@ -16,14 +16,13 @@
 use std::fmt;
 use std::io;
 use std::result;
-use std::sync::Arc;
+use std::sync::{Arc, mpsc};
 
 use discovery::Discovery;
 use metric::{self, Metric};
 use node::{ID, Service, request, response};
 use transport;
 use transport::Transport;
-use util::writer;
 
 pub struct Node {
     pub id: ID,
@@ -79,26 +78,27 @@ impl Node {
         Ok(())
     }
 
-    pub fn request_bytes(&self,
-                         name: &str,
-                         request: &[u8])
-                         -> result::Result<Vec<u8>, request::Error> {
-        let response_writer = writer::Collector::new();
+    pub fn request_bytes(&self, name: &str, request: &[u8]) -> request::Result<Vec<u8>> {
+        let (tx, rx) = mpsc::channel();
 
         try!(self.request(name,
                           Box::new(io::Cursor::new(request.to_vec())),
-                          Box::new(response_writer.clone())));
+                          Box::new(move |mut reader| {
+                              let mut response = Vec::new();
+                              io::copy(&mut reader, &mut response).unwrap();
+                              tx.send(response).unwrap();
+                          })));
 
-        Ok(response_writer.vec().unwrap())
+        Ok(rx.recv().unwrap())
     }
 
     pub fn request(&self,
                    name: &str,
                    reader: Box<request::Reader>,
-                   response_writer: Box<response::Writer>)
-                   -> request::Result {
+                   response_handler: Box<response::Handler>)
+                   -> request::Result<()> {
         self.request_counter.increment();
-        Ok(try!(self.transport.request(name, reader, response_writer)))
+        Ok(try!(self.transport.request(name, reader, response_handler)))
     }
 }
 

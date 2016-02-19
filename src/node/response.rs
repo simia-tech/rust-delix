@@ -17,4 +17,4 @@ use std::io;
 
 pub type Reader = io::Read + Send;
 
-pub type Writer = io::Write + Send;
+pub type Handler = FnMut(Box<Reader>) + 'static;

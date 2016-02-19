@@ -14,10 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-mod chunk;
-mod collector;
 mod size;
 
-pub use self::chunk::Chunk;
-pub use self::collector::Collector;
 pub use self::size::write_size;
