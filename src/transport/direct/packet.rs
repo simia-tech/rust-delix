@@ -68,68 +68,17 @@ impl<R, F> io::Read for Reader<R, F>
                 }
             };
 
-            result = match packet.get_result() {
-                message::Packet_Result::Ok => {
-                    let payload = packet.take_payload();
+            result = match unpack(&mut packet) {
+                Ok(payload) => {
                     if payload.len() > 0 {
                         self.buffer = Box::new(io::Cursor::new(payload));
                         self.buffer.read(buffer)
                     } else {
-                        result
+                        Ok(0)
                     }
                 }
-                message::Packet_Result::NotFound => {
-                    Err(io::Error::new(io::ErrorKind::NotFound, packet.take_message()))
-                }
-                message::Packet_Result::PermissionDenied => {
-                    Err(io::Error::new(io::ErrorKind::PermissionDenied, packet.take_message()))
-                }
-                message::Packet_Result::ConnectionRefused => {
-                    Err(io::Error::new(io::ErrorKind::ConnectionRefused, packet.take_message()))
-                }
-                message::Packet_Result::ConnectionReset => {
-                    Err(io::Error::new(io::ErrorKind::ConnectionReset, packet.take_message()))
-                }
-                message::Packet_Result::ConnectionAborted => {
-                    Err(io::Error::new(io::ErrorKind::ConnectionAborted, packet.take_message()))
-                }
-                message::Packet_Result::NotConnected => {
-                    Err(io::Error::new(io::ErrorKind::NotConnected, packet.take_message()))
-                }
-                message::Packet_Result::AddrInUse => {
-                    Err(io::Error::new(io::ErrorKind::AddrInUse, packet.take_message()))
-                }
-                message::Packet_Result::AddrNotAvailable => {
-                    Err(io::Error::new(io::ErrorKind::AddrNotAvailable, packet.take_message()))
-                }
-                message::Packet_Result::BrokenPipe => {
-                    Err(io::Error::new(io::ErrorKind::BrokenPipe, packet.take_message()))
-                }
-                message::Packet_Result::AlreadyExists => {
-                    Err(io::Error::new(io::ErrorKind::AlreadyExists, packet.take_message()))
-                }
-                message::Packet_Result::WouldBlock => {
-                    Err(io::Error::new(io::ErrorKind::WouldBlock, packet.take_message()))
-                }
-                message::Packet_Result::InvalidInput => {
-                    Err(io::Error::new(io::ErrorKind::InvalidInput, packet.take_message()))
-                }
-                message::Packet_Result::InvalidData => {
-                    Err(io::Error::new(io::ErrorKind::InvalidData, packet.take_message()))
-                }
-                message::Packet_Result::TimedOut => {
-                    Err(io::Error::new(io::ErrorKind::TimedOut, packet.take_message()))
-                }
-                message::Packet_Result::WriteZero => {
-                    Err(io::Error::new(io::ErrorKind::WriteZero, packet.take_message()))
-                }
-                message::Packet_Result::Other => {
-                    Err(io::Error::new(io::ErrorKind::Other, packet.take_message()))
-                }
-                message::Packet_Result::UnexpectedEof => {
-                    Err(io::Error::new(io::ErrorKind::UnexpectedEof, packet.take_message()))
-                }
-            }
+                Err(error) => Err(error),
+            };
         }
         result
     }
@@ -143,52 +92,98 @@ pub fn copy<R: ?Sized, W: ?Sized>(reader: &mut R, writer: &mut W) -> io::Result<
     let mut total = 0;
     let mut reading = true;
     while reading {
-        let packet = match reader.read(&mut buffer) {
-            Ok(size) => {
-                if size > 0 {
-                    total += size;
+        let result = reader.read(&mut buffer);
+
+        match result {
+            Ok(ref size) => {
+                if *size > 0 {
+                    total += *size;
                 } else {
                     reading = false;
                 }
-                let mut packet = message::Packet::new();
-                packet.set_result(message::Packet_Result::Ok);
-                packet.set_payload(buffer[..size].to_vec());
-                packet
             }
             Err(ref error) if error.kind() == io::ErrorKind::Interrupted => continue,
-            Err(error) => {
+            Err(_) => {
                 reading = false;
-                let mut packet = message::Packet::new();
-                packet.set_result(match error.kind() {
-                    io::ErrorKind::NotFound => message::Packet_Result::NotFound,
-                    io::ErrorKind::PermissionDenied => message::Packet_Result::PermissionDenied,
-                    io::ErrorKind::ConnectionRefused => message::Packet_Result::ConnectionRefused,
-                    io::ErrorKind::ConnectionReset => message::Packet_Result::ConnectionReset,
-                    io::ErrorKind::ConnectionAborted => message::Packet_Result::ConnectionAborted,
-                    io::ErrorKind::NotConnected => message::Packet_Result::NotConnected,
-                    io::ErrorKind::AddrInUse => message::Packet_Result::AddrInUse,
-                    io::ErrorKind::AddrNotAvailable => message::Packet_Result::AddrNotAvailable,
-                    io::ErrorKind::BrokenPipe => message::Packet_Result::BrokenPipe,
-                    io::ErrorKind::AlreadyExists => message::Packet_Result::AlreadyExists,
-                    io::ErrorKind::WouldBlock => message::Packet_Result::WouldBlock,
-                    io::ErrorKind::InvalidInput => message::Packet_Result::InvalidInput,
-                    io::ErrorKind::InvalidData => message::Packet_Result::InvalidData,
-                    io::ErrorKind::TimedOut => message::Packet_Result::TimedOut,
-                    io::ErrorKind::WriteZero => message::Packet_Result::WriteZero,
-                    io::ErrorKind::Other => message::Packet_Result::Other,
-                    io::ErrorKind::UnexpectedEof => message::Packet_Result::UnexpectedEof,
-                    _ => unreachable!(),
-                });
-                packet.set_message(error.description().to_string());
-                packet.set_payload(Vec::new());
-                packet
             }
-        };
+        }
+
+        let packet = pack(result, &buffer);
+
         let bytes = packet.write_to_bytes().unwrap();
         try!(writer::write_size(writer, bytes.len()));
         try!(writer.write_all(&bytes));
     }
     Ok(total)
+}
+
+fn pack(result: io::Result<usize>, buffer: &[u8]) -> message::Packet {
+    match result {
+        Ok(size) => {
+            let mut packet = message::Packet::new();
+            packet.set_result(message::Packet_Result::Ok);
+            packet.set_payload(buffer[..size].to_vec());
+            packet
+        }
+        Err(error) => {
+            let mut packet = message::Packet::new();
+            packet.set_result(match error.kind() {
+                io::ErrorKind::NotFound => message::Packet_Result::NotFound,
+                io::ErrorKind::PermissionDenied => message::Packet_Result::PermissionDenied,
+                io::ErrorKind::ConnectionRefused => message::Packet_Result::ConnectionRefused,
+                io::ErrorKind::ConnectionReset => message::Packet_Result::ConnectionReset,
+                io::ErrorKind::ConnectionAborted => message::Packet_Result::ConnectionAborted,
+                io::ErrorKind::NotConnected => message::Packet_Result::NotConnected,
+                io::ErrorKind::AddrInUse => message::Packet_Result::AddrInUse,
+                io::ErrorKind::AddrNotAvailable => message::Packet_Result::AddrNotAvailable,
+                io::ErrorKind::BrokenPipe => message::Packet_Result::BrokenPipe,
+                io::ErrorKind::AlreadyExists => message::Packet_Result::AlreadyExists,
+                io::ErrorKind::WouldBlock => message::Packet_Result::WouldBlock,
+                io::ErrorKind::InvalidInput => message::Packet_Result::InvalidInput,
+                io::ErrorKind::InvalidData => message::Packet_Result::InvalidData,
+                io::ErrorKind::TimedOut => message::Packet_Result::TimedOut,
+                io::ErrorKind::WriteZero => message::Packet_Result::WriteZero,
+                io::ErrorKind::Interrupted => message::Packet_Result::Interrupted,
+                io::ErrorKind::Other => message::Packet_Result::Other,
+                io::ErrorKind::UnexpectedEof => message::Packet_Result::UnexpectedEof,
+                _ => unreachable!(),
+            });
+            packet.set_message(error.description().to_string());
+            packet.set_payload(Vec::new());
+            packet
+        }
+    }
+}
+
+fn unpack(packet: &mut message::Packet) -> io::Result<Vec<u8>> {
+    match packet.get_result() {
+        message::Packet_Result::Ok => Ok(packet.take_payload()),
+        _ => {
+            let message = packet.take_message();
+            let kind = match packet.get_result() {
+                message::Packet_Result::NotFound => io::ErrorKind::NotFound,
+                message::Packet_Result::PermissionDenied => io::ErrorKind::PermissionDenied,
+                message::Packet_Result::ConnectionRefused => io::ErrorKind::ConnectionRefused,
+                message::Packet_Result::ConnectionReset => io::ErrorKind::ConnectionReset,
+                message::Packet_Result::ConnectionAborted => io::ErrorKind::ConnectionAborted,
+                message::Packet_Result::NotConnected => io::ErrorKind::NotConnected,
+                message::Packet_Result::AddrInUse => io::ErrorKind::AddrInUse,
+                message::Packet_Result::AddrNotAvailable => io::ErrorKind::AddrNotAvailable,
+                message::Packet_Result::BrokenPipe => io::ErrorKind::BrokenPipe,
+                message::Packet_Result::AlreadyExists => io::ErrorKind::AlreadyExists,
+                message::Packet_Result::WouldBlock => io::ErrorKind::WouldBlock,
+                message::Packet_Result::InvalidInput => io::ErrorKind::InvalidInput,
+                message::Packet_Result::InvalidData => io::ErrorKind::InvalidData,
+                message::Packet_Result::TimedOut => io::ErrorKind::TimedOut,
+                message::Packet_Result::WriteZero => io::ErrorKind::WriteZero,
+                message::Packet_Result::Interrupted => io::ErrorKind::Interrupted,
+                message::Packet_Result::Other => io::ErrorKind::Other,
+                message::Packet_Result::UnexpectedEof => io::ErrorKind::UnexpectedEof,
+                _ => unreachable!(),
+            };
+            Err(io::Error::new(kind, message))
+        }
+    }
 }
 
 #[cfg(test)]

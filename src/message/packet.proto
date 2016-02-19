@@ -19,8 +19,9 @@ message Packet {
     InvalidData = 14;
     TimedOut = 15;
     WriteZero = 16;
-    Other = 17;
-    UnexpectedEof = 18;
+    Interrupted = 17;
+    Other = 18;
+    UnexpectedEof = 19;
   }
 
   optional Result result = 1;
