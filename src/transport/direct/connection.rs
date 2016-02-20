@@ -280,7 +280,7 @@ fn process_inbound_container(node_id: ID,
                              response_handler: &Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>,
                              error_handler: &Arc<Mutex<Option<Box<Fn(ID, &io::Error) + Send>>>>)
                              -> io::Result<()> {
-    let container = try!(case_eof_to_aborted(read_container(rx_stream)));
+    let container = try!(cast_eof_to_aborted(read_container(rx_stream)));
     match container.get_kind() {
         message::Kind::AddServicesMessage => {
             add_services_handler(peer_node_id,
@@ -315,15 +315,11 @@ fn process_inbound_container(node_id: ID,
 
             let mut response = request_handler(&name, Box::new(reader::DrainOnDrop::new(reader)));
 
-            {
-                let mut tx_stream = tx_stream.lock().unwrap();
-
-                try!(write_container(&mut *tx_stream,
-                                     &container::pack_response(request_id, &response)));
-
-                if let Ok(ref mut reader) = response {
-                    try!(packet::copy(reader, &mut *tx_stream));
-                }
+            let mut tx_stream = tx_stream.lock().unwrap();
+            try!(write_container(&mut *tx_stream,
+                                 &container::pack_response(request_id, &response)));
+            if let Ok(ref mut reader) = response {
+                try!(packet::copy(reader, &mut *tx_stream));
             }
         }
         message::Kind::ResponseMessage => {
@@ -362,7 +358,7 @@ fn read_container(mut stream: &mut io::Read) -> io::Result<Container> {
     Ok(try!(Container::parse_from_bytes(&bytes)))
 }
 
-fn case_eof_to_aborted<T>(result: io::Result<T>) -> io::Result<T> {
+fn cast_eof_to_aborted<T>(result: io::Result<T>) -> io::Result<T> {
     match result {
         Ok(value) => Ok(value),
         Err(ref error) if error.kind() == io::ErrorKind::UnexpectedEof => {
