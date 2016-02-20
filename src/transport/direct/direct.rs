@@ -24,7 +24,7 @@ use openssl::ssl;
 use transport::{Result, Transport};
 use metric::Metric;
 use node::{ID, Service, request, response};
-use super::{Balancer, Connection, ConnectionMap, Handler, Link, Tracker, ServiceMap};
+use super::{Balancer, Connection, ConnectionMap, Handlers, Link, Tracker, ServiceMap};
 use super::tracker::Statistic;
 
 pub struct Direct {
@@ -125,11 +125,11 @@ impl Transport for Direct {
                 let tcp_stream = try!(net::TcpStream::connect(peer_public_address));
                 let ssl_stream = try!(ssl::SslStream::connect(&*self.ssl_context.read().unwrap(),
                                                               tcp_stream));
-                let handler = build_handler(&self.services, &self.tracker);
+                let handlers = build_handlers(&self.services, &self.tracker);
                 let (connection, peers) = try!(Connection::new_outbound(ssl_stream,
                                                                         node_id,
                                                                         self.public_address,
-                                                                        handler));
+                                                                        handlers));
                 let peer_node_id = connection.peer_node_id();
                 info!("{}: outbound {}", node_id, connection);
                 try!(self.connections.add(connection));
@@ -238,12 +238,12 @@ fn accept(tcp_stream: net::TcpStream,
     let ssl_stream = try!(ssl::SslStream::accept(&*ssl_context.read().unwrap(), tcp_stream));
 
     let peers = &connections.id_public_address_pairs();
-    let handler = build_handler(services, tracker);
+    let handlers = build_handlers(services, tracker);
     let connection = try!(Connection::new_inbound(ssl_stream,
                                                   node_id,
                                                   public_address,
                                                   peers,
-                                                  handler));
+                                                  handlers));
     let peer_node_id = connection.peer_node_id();
     info!("{}: inbound {}", node_id, connection);
     try!(connections.add(connection));
@@ -255,9 +255,9 @@ fn accept(tcp_stream: net::TcpStream,
     Ok(())
 }
 
-fn build_handler(services: &Arc<ServiceMap>,
-                 tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
-                 -> Handler {
+fn build_handlers(services: &Arc<ServiceMap>,
+                  tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
+                  -> Handlers {
 
     let services_clone_add = services.clone();
     let services_clone_remove = services.clone();
@@ -265,7 +265,7 @@ fn build_handler(services: &Arc<ServiceMap>,
     let services_clone_drop = services.clone();
     let tracker_clone = tracker.clone();
 
-    Handler {
+    Handlers {
         add_services: Box::new(move |peer_node_id, services| {
             services_clone_add.insert_remotes(&services, peer_node_id);
         }),
@@ -297,6 +297,5 @@ fn build_handler(services: &Arc<ServiceMap>,
         drop: Box::new(move |peer_node_id| {
             services_clone_drop.remove_all_remotes(&peer_node_id);
         }),
-        error: None,
     }
 }

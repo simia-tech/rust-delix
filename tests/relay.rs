@@ -21,6 +21,7 @@ mod helper;
 use std::error::Error;
 use std::net;
 use std::io::{self, Read, Write};
+use std::sync::{Arc, Mutex};
 use std::thread;
 
 use delix::util::reader;
@@ -134,7 +135,7 @@ fn http_static_with_unfinished_response() {
         }
         write!(&mut stream, "HTTP/1.1 201 Created\r\n\
                              Content-Length: 1000\r\n\
-                             \r\n
+                             \r\n\
                              test message").unwrap();
     });
 
@@ -149,4 +150,49 @@ fn http_static_with_unfinished_response() {
     assert_eq!("early eof", result.description());
 
     join_handle.join().unwrap();
+}
+
+#[test]
+fn http_static_with_lost_node_connection() {
+    helper::set_up();
+
+    let mut listening = Server::http("localhost:5060").unwrap().handle(|mut request: server::Request, response: server::Response| {
+        let mut body = Vec::new();
+        request.read_to_end(&mut body).unwrap();
+        response.send(&body).unwrap();
+    }).unwrap();
+
+    let (node_one, metric_one) = helper::build_node("localhost:3061", &[], None);
+    let relay_one = helper::build_http_static_relay(&node_one, Some("localhost:4060"));
+    relay_one.add_service("echo", "localhost:5060");
+
+    let running = Arc::new(Mutex::new(true));
+    let running_clone = running.clone();
+    let jh = thread::spawn(move || {
+        while *running_clone.lock().unwrap() {
+            let mut response = Client::new().post("http://localhost:4060").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+            helper::assert_response(StatusCode::Ok, b"test message", &mut response);
+            thread::sleep(::std::time::Duration::from_millis(20));
+        }
+    });
+
+    helper::wait_for_minimal_requests(&[&metric_one], 2);
+
+    {
+        let (node_two, metric_two) = helper::build_node("localhost:3062", &["localhost:3061"], None);
+        let relay_two = helper::build_http_static_relay(&node_two, None);
+        relay_two.add_service("echo", "localhost:5060");
+
+        helper::wait_for_joined(&[&metric_one, &metric_two]);
+        helper::wait_for_services(&[&metric_one, &metric_two], 1);
+        helper::wait_for_endpoints(&[&metric_one, &metric_two], 2);
+
+        helper::wait_for_minimal_requests(&[&metric_one], 4);
+    }
+
+    helper::wait_for_minimal_requests(&[&metric_one], 6);
+
+    *running.lock().unwrap() = false;
+    jh.join().unwrap();
+    listening.close().unwrap();
 }

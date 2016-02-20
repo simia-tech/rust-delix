@@ -39,16 +39,16 @@ pub struct Connection {
 
     aknowledges_tx: Mutex<mpsc::Sender<mpsc::Sender<()>>>,
 
-    handler: Arc<Mutex<Handler>>,
+    error_handler: Arc<Mutex<Option<Box<Fn(ID, &io::Error) + Send>>>>,
+    drop_handler: Box<Fn(ID) + Send + Sync>,
 }
 
-pub struct Handler {
+pub struct Handlers {
     pub add_services: Box<Fn(ID, Vec<String>) + Send>,
     pub remove_services: Box<Fn(ID, Vec<String>) + Send>,
     pub request: Box<Fn(&str, Box<request::Reader>) -> service::Result + Send>,
     pub response: Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>,
-    pub drop: Box<Fn(ID) + Send>,
-    pub error: Option<Box<Fn(ID, &io::Error) + Send>>,
+    pub drop: Box<Fn(ID) + Send + Sync>,
 }
 
 impl Connection {
@@ -56,10 +56,10 @@ impl Connection {
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)],
-                       handler: Handler)
+                       handlers: Handlers)
                        -> io::Result<Connection> {
 
-        let (connection, sender) = try!(Self::new(ssl_stream, node_id, public_address, handler));
+        let (connection, sender) = try!(Self::new(ssl_stream, node_id, public_address, handlers));
 
         try!(connection.send_peers(peers));
         sender.send(true).unwrap();
@@ -70,10 +70,10 @@ impl Connection {
     pub fn new_outbound(ssl_stream: ssl::SslStream<net::TcpStream>,
                         node_id: ID,
                         public_address: SocketAddr,
-                        handler: Handler)
+                        handlers: Handlers)
                         -> io::Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
-        let (connection, sender) = try!(Self::new(ssl_stream, node_id, public_address, handler));
+        let (connection, sender) = try!(Self::new(ssl_stream, node_id, public_address, handlers));
 
         let peers = try!(connection.receive_peers());
         sender.send(true).unwrap();
@@ -84,7 +84,7 @@ impl Connection {
     fn new(ssl_stream: ssl::SslStream<net::TcpStream>,
            node_id: ID,
            public_address: SocketAddr,
-           handler: Handler)
+           handlers: Handlers)
            -> io::Result<(Connection, mpsc::Sender<bool>)> {
 
         let tx_stream = Arc::new(Mutex::new(ssl_stream.try_clone().unwrap()));
@@ -93,8 +93,14 @@ impl Connection {
 
         let (aknowledges_tx, aknowledges_rx) = mpsc::channel();
 
-        let handler = Arc::new(Mutex::new(handler));
-        let handler_clone = handler.clone();
+        let Handlers{ add_services: add_services_handler,
+                      remove_services: remove_services_handler,
+                      request: request_handler,
+                      response: response_handler,
+                      drop: drop_handler } = handlers;
+        let error_handler: Arc<Mutex<Option<Box<Fn(ID, &io::Error) + Send>>>> =
+            Arc::new(Mutex::new(None));
+        let error_handler_clone = error_handler.clone();
 
         let (peer_node_id, peer_public_address) = {
             let mut tx_stream = tx_stream.lock().unwrap();
@@ -112,11 +118,15 @@ impl Connection {
                                                 &mut rx_stream,
                                                 &tx_stream_clone,
                                                 &aknowledges_rx,
-                                                &handler_clone) {
+                                                &add_services_handler,
+                                                &remove_services_handler,
+                                                &request_handler,
+                                                &response_handler,
+                                                &error_handler_clone) {
                     Ok(()) => {}
                     Err(ref error) => {
-                        if let Some(ref f) = handler_clone.lock().unwrap().error {
-                            f(peer_node_id, error);
+                        if let Some(ref error_handler) = *error_handler_clone.lock().unwrap() {
+                            error_handler(peer_node_id, error);
                         }
                         break;
                     }
@@ -131,7 +141,8 @@ impl Connection {
             peer_node_id: peer_node_id,
             peer_public_address: peer_public_address,
             aknowledges_tx: Mutex::new(aknowledges_tx),
-            handler: handler,
+            error_handler: error_handler,
+            drop_handler: drop_handler,
         },
             sender))
     }
@@ -152,12 +163,12 @@ impl Connection {
         self.tx_stream.lock().unwrap().get_ref().local_addr().ok()
     }
 
-    pub fn set_on_error(&self, f: Box<Fn(ID, &io::Error) + Send>) {
-        self.handler.lock().unwrap().error = Some(f);
+    pub fn set_error_handler(&self, f: Box<Fn(ID, &io::Error) + Send>) {
+        *self.error_handler.lock().unwrap() = Some(f);
     }
 
-    pub fn clear_on_error(&self) {
-        self.handler.lock().unwrap().error = None;
+    pub fn clear_error_handler(&self) {
+        *self.error_handler.lock().unwrap() = None;
     }
 
     pub fn send_add_services(&self, service_names: &[String]) -> io::Result<()> {
@@ -217,8 +228,8 @@ impl Connection {
         match f() {
             Ok(value) => Ok(value),
             Err(ref error) => {
-                if let Some(ref f) = self.handler.lock().unwrap().error {
-                    f(self.peer_node_id, error);
+                if let Some(ref error_handler) = *self.error_handler.lock().unwrap() {
+                    error_handler(self.peer_node_id, error);
                 }
                 Ok(default)
             }
@@ -254,7 +265,7 @@ impl Drop for Connection {
         }
         self.thread.take().unwrap().join().unwrap();
 
-        (&*self.handler.lock().unwrap().drop)(self.peer_node_id);
+        (self.drop_handler)(self.peer_node_id);
     }
 }
 
@@ -263,25 +274,25 @@ fn process_inbound_container(node_id: ID,
                              rx_stream: &mut ssl::SslStream<net::TcpStream>,
                              tx_stream: &Arc<Mutex<ssl::SslStream<net::TcpStream>>>,
                              aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
-                             handler: &Arc<Mutex<Handler>>)
+                             add_services_handler: &Box<Fn(ID, Vec<String>) + Send>,
+                             remove_services_handler: &Box<Fn(ID, Vec<String>) + Send>,
+                             request_handler: &Box<Fn(&str, Box<request::Reader>) -> service::Result + Send>,
+                             response_handler: &Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>,
+                             error_handler: &Arc<Mutex<Option<Box<Fn(ID, &io::Error) + Send>>>>)
                              -> io::Result<()> {
     let container = try!(case_eof_to_aborted(read_container(rx_stream)));
     match container.get_kind() {
         message::Kind::AddServicesMessage => {
-            (&*handler.lock()
-                      .unwrap()
-                      .add_services)(peer_node_id,
-                                     try!(container::unpack_add_services(container)));
+            add_services_handler(peer_node_id,
+                                 try!(container::unpack_add_services(container)));
             {
                 let mut tx_stream = tx_stream.lock().unwrap();
                 try!(write_container(&mut *tx_stream, &container::pack_aknowledge()));
             }
         }
         message::Kind::RemoveServicesMessage => {
-            (&*handler.lock()
-                      .unwrap()
-                      .remove_services)(peer_node_id,
-                                        try!(container::unpack_remove_services(container)));
+            remove_services_handler(peer_node_id,
+                                    try!(container::unpack_remove_services(container)));
             {
                 let mut tx_stream = tx_stream.lock().unwrap();
                 try!(write_container(&mut *tx_stream, &container::pack_aknowledge()));
@@ -295,17 +306,14 @@ fn process_inbound_container(node_id: ID,
         message::Kind::RequestMessage => {
             let (request_id, name) = try!(container::unpack_request(container));
 
-            let handler_clone = handler.clone();
+            let error_handler_clone = error_handler.clone();
             let reader = packet::Reader::new(rx_stream.try_clone().unwrap(), move |error| {
-                if let Some(ref error_handler) = handler_clone.lock().unwrap().error {
+                if let Some(ref error_handler) = *error_handler_clone.lock().unwrap() {
                     error_handler(peer_node_id, &error);
                 }
             });
 
-            let mut response = (&*handler.lock()
-                                         .unwrap()
-                                         .request)(&name,
-                                                   Box::new(reader::DrainOnDrop::new(reader)));
+            let mut response = request_handler(&name, Box::new(reader::DrainOnDrop::new(reader)));
 
             {
                 let mut tx_stream = tx_stream.lock().unwrap();
@@ -316,21 +324,19 @@ fn process_inbound_container(node_id: ID,
                 if let Ok(ref mut reader) = response {
                     try!(packet::copy(reader, &mut *tx_stream));
                 }
-                try!(tx_stream.flush());
             }
         }
         message::Kind::ResponseMessage => {
-            let handler_clone = handler.clone();
+            let error_handler_clone = error_handler.clone();
             let reader = packet::Reader::new(rx_stream.try_clone().unwrap(), move |error| {
-                if let Some(ref error_handler) = handler_clone.lock().unwrap().error {
+                if let Some(ref error_handler) = *error_handler_clone.lock().unwrap() {
                     error_handler(peer_node_id, &error);
                 }
             });
 
-            let (request_id, service_result) =
-                try!(container::unpack_response(container,
+            let (request_id, service_result) = try!(container::unpack_response(container,
                                                 Box::new(reader::DrainOnDrop::new(reader))));
-            try!((&*handler.lock().unwrap().response)(request_id, service_result));
+            try!(response_handler(request_id, service_result));
         }
         _ => {
             error!("{}: got unexpected container {:?}",

@@ -95,45 +95,11 @@ impl Relay for HttpStatic {
                 let header_field = header_field.clone();
 
                 thread::spawn(move || {
-                    let mut stream = stream.unwrap();
-
-                    let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
-                    let mut service_name = String::new();
-                    http_reader.read_header(|name, value| {
-                                   if name == header_field {
-                                       debug!("service: {}", value);
-                                       service_name = value.to_string();
-                                   }
-                               })
-                               .unwrap();
-
-                    let mut stream_clone = stream.try_clone().unwrap();
-                    let response_handler = Box::new(move |mut reader| {
-                        io::copy(&mut reader, &mut stream_clone).unwrap();
-                    });
-
-                    let result = node_clone.request(&service_name,
-                                                    Box::new(http_reader),
-                                                    response_handler);
-
-                    let response = match result {
-                        Ok(_) => Vec::new(),
-                        Err(request::Error::NoService) => {
-                            build_text_response(StatusCode::BadGateway,
-                                                &format!("service [{}] not found", service_name))
-                        }
-                        Err(request::Error::Service(service::Error::Unavailable)) => {
-                            build_text_response(StatusCode::ServiceUnavailable,
-                                                &format!("service [{}] is unavailable",
-                                                         service_name))
-                        }
-                        Err(error) => {
-                            build_text_response(StatusCode::InternalServerError,
-                                                &format!("error [{:?}]", error))
-                        }
-                    };
-                    stream.write_all(&response).unwrap();
-                    stream.flush().unwrap();
+                    if let Err(error) = handle_connection(stream.unwrap(),
+                                                          node_clone,
+                                                          &header_field) {
+                        error!("http error: {:?}", error);
+                    }
                 });
             }
         }),
@@ -166,6 +132,48 @@ impl From<io::Error> for service::Error {
             _ => service::Error::Internal(format!("{:?}", error.kind())),
         }
     }
+}
+
+fn handle_connection(mut stream: net::TcpStream,
+                     node: Arc<Node>,
+                     header_field: &str)
+                     -> io::Result<()> {
+    let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
+    let mut service_name = String::new();
+    try!(http_reader.read_header(|name, value| {
+        if name == header_field {
+            service_name = value.to_string();
+        }
+    }));
+
+    let mut stream_clone = stream.try_clone().unwrap();
+    let response_handler = move |mut reader| {
+        if let Err(e) = io::copy(&mut reader, &mut stream_clone) {
+            error!("response error: {:?}", e);
+        }
+    };
+
+    let result = node.request(&service_name,
+                              Box::new(http_reader),
+                              Box::new(response_handler));
+
+    let response = match result {
+        Ok(_) => Vec::new(),
+        Err(request::Error::NoService) => {
+            build_text_response(StatusCode::BadGateway,
+                                &format!("service [{}] not found", service_name))
+        }
+        Err(request::Error::Service(service::Error::Unavailable)) => {
+            build_text_response(StatusCode::ServiceUnavailable,
+                                &format!("service [{}] is unavailable", service_name))
+        }
+        Err(error) => {
+            build_text_response(StatusCode::InternalServerError,
+                                &format!("error [{:?}]", error))
+        }
+    };
+    try!(stream.write_all(&response));
+    Ok(())
 }
 
 fn build_text_response(status_code: StatusCode, message: &str) -> Vec<u8> {

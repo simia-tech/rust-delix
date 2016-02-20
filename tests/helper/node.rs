@@ -91,3 +91,10 @@ pub fn wait_for_endpoints(queries: &[&Arc<metric::Memory>], count: isize) {
                     move |_, value| *value != metric::Value::Gauge(count));
     }
 }
+
+pub fn wait_for_minimal_requests(queries: &[&Arc<metric::Memory>], count: usize) {
+    for &query in queries {
+        query.watch("requests",
+                    move |_, value| *value < metric::Value::Counter(count));
+    }
+}

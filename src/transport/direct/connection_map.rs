@@ -67,7 +67,7 @@ impl ConnectionMap {
         }
 
         let sender = self.sender.clone();
-        connection.set_on_error(Box::new(move |peer_node_id, error| {
+        connection.set_error_handler(Box::new(move |peer_node_id, error| {
             if error.kind() != io::ErrorKind::ConnectionAborted {
                 error!("got connection error: {:?}", error);
             }
@@ -131,10 +131,10 @@ impl ConnectionMap {
         Ok(try!(connection.send_request(id, name, reader)))
     }
 
-    pub fn clear_handlers(&self) {
+    pub fn clear_error_handlers(&self) {
         let map = self.map.read().unwrap();
         for (_, connection) in map.iter() {
-            connection.clear_on_error();
+            connection.clear_error_handler();
         }
     }
 }
@@ -145,6 +145,6 @@ unsafe impl Sync for ConnectionMap {}
 
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
-        self.clear_handlers();
+        self.clear_error_handlers();
     }
 }
