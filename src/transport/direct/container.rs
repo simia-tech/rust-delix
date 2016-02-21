@@ -13,7 +13,8 @@
 // limitations under the License.
 //
 
-use std::io;
+use std::io::{self, Read};
+use std::iter;
 use std::net::{self, SocketAddr};
 use std::result;
 
@@ -21,6 +22,7 @@ use protobuf::{self, Message};
 
 use message;
 use node::{ID, id, response, service};
+use util::{reader, writer};
 
 pub struct Container {
     message: message::Container,
@@ -36,12 +38,37 @@ pub enum Error {
 }
 
 impl Container {
-    pub fn parse_from_bytes(bytes: &[u8]) -> Result<Container> {
-        Ok(Container { message: try!(protobuf::parse_from_bytes::<message::Container>(&bytes)) })
+    pub fn read<R>(reader: &mut R) -> io::Result<Self>
+        where R: io::Read
+    {
+        let size = try!(reader::read_size(reader));
+
+        let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
+        try!(reader.read_exact(&mut bytes));
+
+        let message = match protobuf::parse_from_bytes::<message::Container>(&bytes) {
+            Ok(message) => message,
+            Err(error) => {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", error)))
+            }
+        };
+
+        Ok(Container { message: message })
     }
 
-    pub fn write_to_bytes(&self) -> Result<Vec<u8>> {
-        Ok(try!(self.message.write_to_bytes()))
+    pub fn write<W>(&self, writer: &mut W) -> io::Result<usize>
+        where W: io::Write
+    {
+        let bytes = match self.message.write_to_bytes() {
+            Ok(bytes) => bytes,
+            Err(error) => {
+                return Err(io::Error::new(io::ErrorKind::InvalidData, format!("{:?}", error)))
+            }
+        };
+        let mut total = try!(writer::write_size(writer, bytes.len()));
+        try!(writer.write_all(&bytes));
+        total += bytes.len();
+        Ok(total)
     }
 
     pub fn get_kind(&self) -> message::Kind {

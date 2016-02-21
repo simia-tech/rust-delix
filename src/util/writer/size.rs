@@ -14,12 +14,13 @@
 //
 
 use std::io;
+use std::mem;
 
 use byteorder::{self, WriteBytesExt};
 
-pub fn write_size<W: ?Sized>(writer: &mut W, value: usize) -> io::Result<()>
+pub fn write_size<W: ?Sized>(writer: &mut W, value: usize) -> io::Result<usize>
     where W: io::Write
 {
     try!(writer.write_u64::<byteorder::BigEndian>(value as u64));
-    Ok(())
+    Ok(mem::size_of::<u64>())
 }

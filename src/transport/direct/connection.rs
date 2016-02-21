@@ -15,7 +15,6 @@
 
 use std::fmt;
 use std::io::{self, Read, Write};
-use std::iter;
 use std::net::{self, SocketAddr};
 use std::result;
 use std::sync::{Arc, Mutex, mpsc};
@@ -25,7 +24,7 @@ use openssl::ssl;
 
 use message;
 use node::{ID, request, service};
-use util::{reader, writer};
+use util::reader;
 use super::packet;
 use super::container::{self, Container};
 
@@ -104,9 +103,8 @@ impl Connection {
 
         let (peer_node_id, peer_public_address) = {
             let mut tx_stream = tx_stream.lock().unwrap();
-            try!(write_container(&mut *tx_stream,
-                                 &container::pack_introduction(node_id, public_address)));
-            try!(container::unpack_introduction(try!(read_container(&mut *tx_stream))))
+            try!(container::pack_introduction(node_id, public_address).write(&mut *tx_stream));
+            try!(container::unpack_introduction(try!(Container::read(&mut *tx_stream))))
         };
 
         let (sender, receiver) = mpsc::channel();
@@ -176,8 +174,7 @@ impl Connection {
         self.aknowledges_tx.lock().unwrap().send(tx).unwrap();
         {
             let mut tx_stream = self.tx_stream.lock().unwrap();
-            try!(write_container(&mut *tx_stream,
-                                 &container::pack_add_services(service_names)));
+            try!(container::pack_add_services(service_names).write(&mut *tx_stream));
         }
         rx.recv().unwrap();
         Ok(())
@@ -188,8 +185,7 @@ impl Connection {
         self.aknowledges_tx.lock().unwrap().send(tx).unwrap();
         {
             let mut tx_stream = self.tx_stream.lock().unwrap();
-            try!(write_container(&mut *tx_stream,
-                                 &container::pack_remove_services(service_names)));
+            try!(container::pack_remove_services(service_names).write(&mut *tx_stream));
         }
         rx.recv().unwrap();
         Ok(())
@@ -203,7 +199,7 @@ impl Connection {
         self.catch_error((), || {
             let mut tx_stream = self.tx_stream.lock().unwrap();
 
-            try!(write_container(&mut *tx_stream, &container::pack_request(id, name)));
+            try!(container::pack_request(id, name).write(&mut *tx_stream));
 
             try!(packet::copy(reader, &mut *tx_stream));
 
@@ -213,13 +209,13 @@ impl Connection {
 
     fn send_peers(&self, peers: &[(ID, SocketAddr)]) -> io::Result<()> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
-        try!(write_container(&mut *tx_stream, &container::pack_peers(peers)));
+        try!(container::pack_peers(peers).write(&mut *tx_stream));
         Ok(())
     }
 
     fn receive_peers(&self) -> io::Result<Vec<(ID, SocketAddr)>> {
         let mut tx_stream = self.tx_stream.lock().unwrap();
-        Ok(try!(container::unpack_peers(try!(read_container(&mut *tx_stream)))))
+        Ok(try!(container::unpack_peers(try!(Container::read(&mut *tx_stream)))))
     }
 
     fn catch_error<F, T>(&self, default: T, f: F) -> io::Result<T>
@@ -280,14 +276,14 @@ fn process_inbound_container(node_id: ID,
                              response_handler: &Box<Fn(u32, service::Result) -> result::Result<(), io::Error> + Send>,
                              error_handler: &Arc<Mutex<Option<Box<Fn(ID, &io::Error) + Send>>>>)
                              -> io::Result<()> {
-    let container = try!(cast_eof_to_aborted(read_container(rx_stream)));
+    let container = try!(cast_eof_to_aborted(Container::read(rx_stream)));
     match container.get_kind() {
         message::Kind::AddServicesMessage => {
             add_services_handler(peer_node_id,
                                  try!(container::unpack_add_services(container)));
             {
                 let mut tx_stream = tx_stream.lock().unwrap();
-                try!(write_container(&mut *tx_stream, &container::pack_aknowledge()));
+                try!(container::pack_aknowledge().write(&mut *tx_stream));
             }
         }
         message::Kind::RemoveServicesMessage => {
@@ -295,7 +291,7 @@ fn process_inbound_container(node_id: ID,
                                     try!(container::unpack_remove_services(container)));
             {
                 let mut tx_stream = tx_stream.lock().unwrap();
-                try!(write_container(&mut *tx_stream, &container::pack_aknowledge()));
+                try!(container::pack_aknowledge().write(&mut *tx_stream));
             }
         }
         message::Kind::AknowledgeMessage => {
@@ -316,8 +312,7 @@ fn process_inbound_container(node_id: ID,
             let mut response = request_handler(&name, Box::new(reader::DrainOnDrop::new(reader)));
 
             let mut tx_stream = tx_stream.lock().unwrap();
-            try!(write_container(&mut *tx_stream,
-                                 &container::pack_response(request_id, &response)));
+            try!(container::pack_response(request_id, &response).write(&mut *tx_stream));
             if let Ok(ref mut reader) = response {
                 try!(packet::copy(reader, &mut *tx_stream));
             }
@@ -343,26 +338,11 @@ fn process_inbound_container(node_id: ID,
     Ok(())
 }
 
-fn write_container(mut w: &mut Write, container: &Container) -> io::Result<usize> {
-    let bytes = try!(container.write_to_bytes());
-    try!(writer::write_size(&mut w, bytes.len()));
-    Ok(8 + try!(w.write(&bytes)))
-}
-
-fn read_container(mut stream: &mut io::Read) -> io::Result<Container> {
-    let size = try!(reader::read_size(&mut stream));
-
-    let mut bytes = iter::repeat(0u8).take(size).collect::<Vec<u8>>();
-    try!(stream.read_exact(&mut bytes));
-
-    Ok(try!(Container::parse_from_bytes(&bytes)))
-}
-
 fn cast_eof_to_aborted<T>(result: io::Result<T>) -> io::Result<T> {
     match result {
         Ok(value) => Ok(value),
         Err(ref error) if error.kind() == io::ErrorKind::UnexpectedEof => {
-            Err(io::Error::new(io::ErrorKind::ConnectionAborted, "connection lost"))
+            Err(io::Error::new(io::ErrorKind::ConnectionAborted, "connection aborted"))
         }
         Err(error) => Err(error),
     }
