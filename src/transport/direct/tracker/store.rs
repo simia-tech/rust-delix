@@ -25,7 +25,7 @@ pub struct Store<T> {
     entries: RwLock<HashMap<u32, (Subject, time::Tm, T)>>,
 }
 
-pub trait Query {
+pub trait Query : Send + Sync {
     fn started_ats_with_subject(&self, &Subject) -> Vec<time::Tm>;
 }
 

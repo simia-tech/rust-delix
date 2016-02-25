@@ -14,7 +14,7 @@
 //
 
 use std::result;
-use std::sync::{Arc, atomic, mpsc};
+use std::sync::{Arc, Mutex, atomic, mpsc};
 use std::thread;
 
 use time::{self, Duration};
@@ -32,7 +32,7 @@ pub struct Tracker<P, R>
     store: Arc<Store<(P, mpsc::Sender<Result<R>>)>>,
     statistic: Arc<Statistic>,
     current_id: atomic::AtomicUsize,
-    join_handle_and_running_tx: Option<(thread::JoinHandle<()>, mpsc::Sender<bool>)>,
+    join_handle_and_running_tx: Option<(thread::JoinHandle<()>, Mutex<mpsc::Sender<bool>>)>,
 }
 
 pub type Result<T> = result::Result<T, Error>;
@@ -73,7 +73,7 @@ impl<P, R> Tracker<P, R>
                     }
                 }
             }),
-             running_tx)
+             Mutex::new(running_tx))
         });
 
         Tracker {
@@ -94,7 +94,7 @@ impl<P, R> Tracker<P, R>
                .insert(id, subject, started_at, (payload, result_tx))
                .unwrap() {
             if let Some((_, ref running_tx)) = self.join_handle_and_running_tx {
-                running_tx.send(true).unwrap();
+                running_tx.lock().unwrap().send(true).unwrap();
             }
         }
 
@@ -128,21 +128,11 @@ impl<P, R> Drop for Tracker<P, R>
 {
     fn drop(&mut self) {
         if let Some((join_handle, running_tx)) = self.join_handle_and_running_tx.take() {
-            running_tx.send(false).unwrap();
+            running_tx.lock().unwrap().send(false).unwrap();
             join_handle.join().unwrap();
         }
     }
 }
-
-unsafe impl<P, R> Send for Tracker<P, R>
-    where P: 'static,
-          R: Send + 'static
-{}
-
-unsafe impl<P, R> Sync for Tracker<P, R>
-    where P: 'static,
-          R: Send + 'static
-{}
 
 impl From<Error> for request::Error {
     fn from(error: Error) -> Self {
