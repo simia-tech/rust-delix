@@ -17,7 +17,7 @@ use std::collections::HashMap;
 use std::io;
 use std::net::SocketAddr;
 use std::result;
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 
 use metric::{self, Metric};
@@ -26,7 +26,7 @@ use transport::direct::Connection;
 
 pub struct ConnectionMap {
     map: Arc<RwLock<HashMap<ID, Connection>>>,
-    sender: mpsc::Sender<ID>,
+    tx: Mutex<mpsc::Sender<ID>>,
     connections_gauge: Arc<metric::item::Gauge>,
 }
 
@@ -46,16 +46,16 @@ impl ConnectionMap {
         let connections_gauge = Arc::new(metric.gauge("connections"));
         let connections_gauge_clone = connections_gauge.clone();
 
-        let (sender, receiver) = mpsc::channel::<ID>();
+        let (tx, rx) = mpsc::channel::<ID>();
         thread::spawn(move || {
-            for peer_node_id in receiver {
+            for peer_node_id in rx {
                 map_clone.write().unwrap().remove(&peer_node_id);
                 connections_gauge_clone.change(-1);
             }
         });
         ConnectionMap {
             map: map,
-            sender: sender,
+            tx: Mutex::new(tx),
             connections_gauge: connections_gauge,
         }
     }
@@ -66,12 +66,12 @@ impl ConnectionMap {
             return Err(Error::AlreadyExists);
         }
 
-        let sender = self.sender.clone();
+        let tx = self.tx.lock().unwrap().clone();
         connection.set_error_handler(Box::new(move |peer_node_id, error| {
             if error.kind() != io::ErrorKind::ConnectionAborted {
                 error!("got connection error: {:?}", error);
             }
-            sender.send(peer_node_id).unwrap();
+            tx.send(peer_node_id).unwrap();
         }));
 
         map.insert(connection.peer_node_id(), connection);
@@ -155,9 +155,9 @@ impl ConnectionMap {
     }
 }
 
-unsafe impl Send for ConnectionMap {}
-
-unsafe impl Sync for ConnectionMap {}
+// unsafe impl Send for ConnectionMap {}
+//
+// unsafe impl Sync for ConnectionMap {}
 
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
