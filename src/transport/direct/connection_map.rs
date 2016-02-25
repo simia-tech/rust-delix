@@ -155,10 +155,6 @@ impl ConnectionMap {
     }
 }
 
-// unsafe impl Send for ConnectionMap {}
-//
-// unsafe impl Sync for ConnectionMap {}
-
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
         self.shutdown();

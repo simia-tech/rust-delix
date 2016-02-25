@@ -264,10 +264,6 @@ impl Entry {
     }
 }
 
-unsafe impl Send for ServiceMap {}
-
-unsafe impl Sync for ServiceMap {}
-
 impl From<direct::ConnectionMapError> for Error {
     fn from(error: direct::ConnectionMapError) -> Self {
         Error::ConnectionMap(error)
