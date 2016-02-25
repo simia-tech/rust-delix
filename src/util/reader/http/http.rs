@@ -20,7 +20,7 @@ pub struct Http<R>
     where R: Send
 {
     reader: Option<R>,
-    computed_reader: Option<Box<io::Read>>,
+    computed_reader: Option<Box<io::Read + Send>>,
 }
 
 impl<R> Http<R> where R: Send
@@ -75,11 +75,11 @@ impl<R> Http<R> where R: io::Read + Send + 'static
         self.computed_reader = Some(match content_length {
             Some(size) => {
                 Box::new(io::Cursor::new(buffer.into_bytes())
-                             .chain(buf_reader.take(size))) as Box<io::Read>
+                             .chain(buf_reader.take(size))) as Box<io::Read + Send>
             }
             None => {
                 Box::new(io::Cursor::new(buffer.into_bytes())
-                             .chain(ChunkedBody::new(buf_reader))) as Box<io::Read>
+                             .chain(ChunkedBody::new(buf_reader))) as Box<io::Read + Send>
             }
         });
 
@@ -98,9 +98,6 @@ impl<R> io::Read for Http<R> where R: io::Read + Send + 'static
         self.computed_reader.as_mut().unwrap().read(buffer)
     }
 }
-
-unsafe impl<R> Send for Http<R> where R: Send
-{}
 
 #[cfg(test)]
 mod tests {

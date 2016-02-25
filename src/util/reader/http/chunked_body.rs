@@ -19,7 +19,7 @@ use std::error;
 
 pub struct ChunkedBody<R> {
     reader: Option<R>,
-    chunk_reader: Option<Box<io::BufRead>>,
+    chunk_reader: Option<Box<io::BufRead + Send>>,
     remaining_chunks_size: Option<usize>,
     remaining_chunks: bool,
 }
@@ -27,7 +27,7 @@ pub struct ChunkedBody<R> {
 #[derive(Debug, Copy, Clone)]
 struct Error;
 
-impl<R> ChunkedBody<R> where R: io::Read + 'static
+impl<R> ChunkedBody<R> where R: io::Read + Send + 'static
 {
     pub fn new(reader: R) -> ChunkedBody<R> {
         ChunkedBody {
@@ -74,7 +74,7 @@ impl<R> ChunkedBody<R> where R: io::Read + 'static
     }
 }
 
-impl<R> io::Read for ChunkedBody<R> where R: io::Read + 'static
+impl<R> io::Read for ChunkedBody<R> where R: io::Read + Send + 'static
 {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         let remaining_chunks_size = match self.remaining_chunks_size {
