@@ -7,5 +7,7 @@ enum Kind {
   RemoveServicesMessage = 4;
   AknowledgeMessage = 5;
   RequestMessage = 6;
-  ResponseMessage = 7;
+  RequestPacketMessage = 7;
+  ResponseMessage = 8;
+  ResponsePacketMessage = 9;
 }

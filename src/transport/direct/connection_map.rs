@@ -21,7 +21,7 @@ use std::sync::{Arc, RwLock, mpsc};
 use std::thread;
 
 use metric::{self, Metric};
-use node::{ID, request};
+use node::{ID, request, service};
 use transport::direct::Connection;
 
 pub struct ConnectionMap {
@@ -131,10 +131,26 @@ impl ConnectionMap {
         Ok(try!(connection.send_request(id, name, reader)))
     }
 
-    pub fn clear_error_handlers(&self) {
+    pub fn send_response(&self,
+                         peer_node_id: &ID,
+                         request_id: u32,
+                         service_result: service::Result)
+                         -> io::Result<()> {
+        let map = self.map.read().unwrap();
+        let connection = match map.get(peer_node_id) {
+            Some(connection) => connection,
+            None => {
+                return Err(io::Error::new(io::ErrorKind::ConnectionAborted, "connection aborted"))
+            }
+        };
+        Ok(try!(connection.send_response(request_id, service_result)))
+    }
+
+    pub fn shutdown(&self) {
         let map = self.map.read().unwrap();
         for (_, connection) in map.iter() {
             connection.clear_error_handler();
+            connection.shutdown();
         }
     }
 }
@@ -145,6 +161,6 @@ unsafe impl Sync for ConnectionMap {}
 
 impl Drop for ConnectionMap {
     fn drop(&mut self) {
-        self.clear_error_handlers();
+        self.shutdown();
     }
 }

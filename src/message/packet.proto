@@ -24,7 +24,8 @@ message Packet {
     UnexpectedEof = 19;
   }
 
-  optional Result result = 1;
-  optional string message = 2;
-  required bytes payload = 3;
+  optional uint32 request_id = 1;
+  optional Result result = 2;
+  optional string message = 3;
+  optional bytes payload = 4;
 }

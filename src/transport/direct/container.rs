@@ -13,6 +13,7 @@
 // limitations under the License.
 //
 
+use std::error::Error as StdError;
 use std::io::{self, Read};
 use std::iter;
 use std::net::{self, SocketAddr};
@@ -35,6 +36,12 @@ pub enum Error {
     Id(id::Error),
     Protobuf(protobuf::ProtobufError),
     AddrParse(net::AddrParseError),
+}
+
+#[derive(Clone, Copy, Debug)]
+pub enum PacketType {
+    Request,
+    Response,
 }
 
 impl Container {
@@ -211,6 +218,78 @@ pub fn unpack_response(container: Container,
     Ok((response_packet.get_request_id(), result))
 }
 
+pub fn pack_packet(pt: PacketType,
+                   request_id: u32,
+                   result: io::Result<usize>,
+                   buffer: &[u8])
+                   -> Container {
+    let mut packet = message::Packet::new();
+    packet.set_request_id(request_id);
+    match result {
+        Ok(size) => {
+            packet.set_result(message::Packet_Result::Ok);
+            packet.set_payload(buffer[..size].to_vec());
+        }
+        Err(error) => {
+            packet.set_result(match error.kind() {
+                io::ErrorKind::NotFound => message::Packet_Result::NotFound,
+                io::ErrorKind::PermissionDenied => message::Packet_Result::PermissionDenied,
+                io::ErrorKind::ConnectionRefused => message::Packet_Result::ConnectionRefused,
+                io::ErrorKind::ConnectionReset => message::Packet_Result::ConnectionReset,
+                io::ErrorKind::ConnectionAborted => message::Packet_Result::ConnectionAborted,
+                io::ErrorKind::NotConnected => message::Packet_Result::NotConnected,
+                io::ErrorKind::AddrInUse => message::Packet_Result::AddrInUse,
+                io::ErrorKind::AddrNotAvailable => message::Packet_Result::AddrNotAvailable,
+                io::ErrorKind::BrokenPipe => message::Packet_Result::BrokenPipe,
+                io::ErrorKind::AlreadyExists => message::Packet_Result::AlreadyExists,
+                io::ErrorKind::WouldBlock => message::Packet_Result::WouldBlock,
+                io::ErrorKind::InvalidInput => message::Packet_Result::InvalidInput,
+                io::ErrorKind::InvalidData => message::Packet_Result::InvalidData,
+                io::ErrorKind::TimedOut => message::Packet_Result::TimedOut,
+                io::ErrorKind::WriteZero => message::Packet_Result::WriteZero,
+                io::ErrorKind::Interrupted => message::Packet_Result::Interrupted,
+                io::ErrorKind::Other => message::Packet_Result::Other,
+                io::ErrorKind::UnexpectedEof => message::Packet_Result::UnexpectedEof,
+                _ => unreachable!(),
+            });
+            packet.set_message(error.description().to_string());
+        }
+    }
+    pack(message::Kind::from(pt), packet)
+}
+
+pub fn unpack_packet(container: Container) -> Result<(u32, io::Result<Vec<u8>>)> {
+    let mut packet = try!(unpack::<message::Packet>(&container));
+    match packet.get_result() {
+        message::Packet_Result::Ok => Ok((packet.get_request_id(), Ok(packet.take_payload()))),
+        _ => {
+            let message = packet.take_message();
+            let kind = match packet.get_result() {
+                message::Packet_Result::NotFound => io::ErrorKind::NotFound,
+                message::Packet_Result::PermissionDenied => io::ErrorKind::PermissionDenied,
+                message::Packet_Result::ConnectionRefused => io::ErrorKind::ConnectionRefused,
+                message::Packet_Result::ConnectionReset => io::ErrorKind::ConnectionReset,
+                message::Packet_Result::ConnectionAborted => io::ErrorKind::ConnectionAborted,
+                message::Packet_Result::NotConnected => io::ErrorKind::NotConnected,
+                message::Packet_Result::AddrInUse => io::ErrorKind::AddrInUse,
+                message::Packet_Result::AddrNotAvailable => io::ErrorKind::AddrNotAvailable,
+                message::Packet_Result::BrokenPipe => io::ErrorKind::BrokenPipe,
+                message::Packet_Result::AlreadyExists => io::ErrorKind::AlreadyExists,
+                message::Packet_Result::WouldBlock => io::ErrorKind::WouldBlock,
+                message::Packet_Result::InvalidInput => io::ErrorKind::InvalidInput,
+                message::Packet_Result::InvalidData => io::ErrorKind::InvalidData,
+                message::Packet_Result::TimedOut => io::ErrorKind::TimedOut,
+                message::Packet_Result::WriteZero => io::ErrorKind::WriteZero,
+                message::Packet_Result::Interrupted => io::ErrorKind::Interrupted,
+                message::Packet_Result::Other => io::ErrorKind::Other,
+                message::Packet_Result::UnexpectedEof => io::ErrorKind::UnexpectedEof,
+                _ => unreachable!(),
+            };
+            Ok((packet.get_request_id(), Err(io::Error::new(kind, message))))
+        }
+    }
+}
+
 fn pack<T>(kind: message::Kind, message: T) -> Container
     where T: protobuf::Message + protobuf::MessageStatic
 {
@@ -227,6 +306,15 @@ fn unpack<T>(container: &Container) -> Result<T>
     where T: protobuf::Message + protobuf::MessageStatic
 {
     Ok(try!(protobuf::parse_from_bytes::<T>(container.message.get_payload())))
+}
+
+impl From<PacketType> for message::Kind {
+    fn from(pt: PacketType) -> Self {
+        match pt {
+            PacketType::Request => message::Kind::RequestPacketMessage,
+            PacketType::Response => message::Kind::ResponsePacketMessage,
+        }
+    }
 }
 
 impl From<id::Error> for Error {

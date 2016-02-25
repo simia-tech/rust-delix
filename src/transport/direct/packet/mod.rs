@@ -14,23 +14,8 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-pub mod balancer;
-mod connection;
-mod connection_map;
-pub mod container;
-mod direct;
-mod dispatcher;
-mod link;
-mod packet;
-mod service_map;
-pub mod tracker;
+mod copy;
+mod reader;
 
-pub use self::balancer::Balancer;
-pub use self::connection::{Connection, Handlers};
-pub use self::connection_map::ConnectionMap;
-pub use self::connection_map::Error as ConnectionMapError;
-pub use self::direct::Direct;
-pub use self::link::Link;
-pub use self::service_map::ServiceMap;
-pub use self::service_map::Error as ServiceMapError;
-pub use self::tracker::Tracker;
+pub use self::copy::{request, response};
+pub use self::reader::Reader;

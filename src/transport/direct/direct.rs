@@ -62,13 +62,14 @@ impl Direct {
         }
     }
 
-    fn unbind(&mut self) -> Result<()> {
+    fn unbind(&self) -> Result<()> {
         *self.running.write().unwrap() = false;
         if let Some(join_handle) = self.join_handle.write().unwrap().take() {
             // connect to local address to enable the thread to escape the accept loop.
             try!(net::TcpStream::connect(self.local_address));
             join_handle.join().unwrap();
         }
+        self.connections.shutdown();
         Ok(())
     }
 }
@@ -125,7 +126,7 @@ impl Transport for Direct {
                 let tcp_stream = try!(net::TcpStream::connect(peer_public_address));
                 let ssl_stream = try!(ssl::SslStream::connect(&*self.ssl_context.read().unwrap(),
                                                               tcp_stream));
-                let handlers = build_handlers(&self.services, &self.tracker);
+                let handlers = build_handlers(&self.connections, &self.services, &self.tracker);
                 let (connection, peers) = try!(Connection::new_outbound(ssl_stream,
                                                                         node_id,
                                                                         self.public_address,
@@ -238,7 +239,7 @@ fn accept(tcp_stream: net::TcpStream,
     let ssl_stream = try!(ssl::SslStream::accept(&*ssl_context.read().unwrap(), tcp_stream));
 
     let peers = &connections.id_public_address_pairs();
-    let handlers = build_handlers(services, tracker);
+    let handlers = build_handlers(connections, services, tracker);
     let connection = try!(Connection::new_inbound(ssl_stream,
                                                   node_id,
                                                   public_address,
@@ -255,32 +256,46 @@ fn accept(tcp_stream: net::TcpStream,
     Ok(())
 }
 
-fn build_handlers(services: &Arc<ServiceMap>,
+fn build_handlers(connections: &Arc<ConnectionMap>,
+                  services: &Arc<ServiceMap>,
                   tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
                   -> Handlers {
 
-    let services_clone_add = services.clone();
-    let services_clone_remove = services.clone();
-    let services_clone_request = services.clone();
-    let services_clone_drop = services.clone();
+    let connections_request_clone = connections.clone();
+    let services_add_clone = services.clone();
+    let services_remove_clone = services.clone();
+    let services_request_clone = services.clone();
+    let services_drop_clone = services.clone();
     let tracker_clone = tracker.clone();
 
     Handlers {
         add_services: Box::new(move |peer_node_id, services| {
-            services_clone_add.insert_remotes(&services, peer_node_id);
+            services_add_clone.insert_remotes(&services, peer_node_id);
         }),
         remove_services: Box::new(move |peer_node_id, services| {
-            services_clone_remove.remove_remotes(&services, &peer_node_id);
+            services_remove_clone.remove_remotes(&services, &peer_node_id);
         }),
-        request: Box::new(move |name, reader| {
-            services_clone_request.select_local(name, |handler| handler(reader))
+        request: Box::new(move |peer_node_id, request_id, name, reader| {
+            let connections_clone = connections_request_clone.clone();
+            let services_clone = services_request_clone.clone();
+            let name = name.to_string();
+            thread::spawn(move || {
+                let service_result = services_clone.select_local(&name, |handler| handler(reader));
+                if let Err(error) = connections_clone.send_response(&peer_node_id,
+                                                                    request_id,
+                                                                    service_result) {
+                    error!("error while sending response: {:?}", error);
+                }
+            });
         }),
         response: Box::new(move |request_id, service_result| {
             let timed_out = !tracker_clone.end(request_id, |mut response_handler| {
                 let service_result = service_result;
                 match service_result {
                     Ok(reader) => {
-                        response_handler(reader);
+                        thread::spawn(move || {
+                            response_handler(reader);
+                        });
                         Ok(())
                     }
                     Err(error) => Err(request::Error::Service(error)),
@@ -295,7 +310,7 @@ fn build_handlers(services: &Arc<ServiceMap>,
             Ok(())
         }),
         drop: Box::new(move |peer_node_id| {
-            services_clone_drop.remove_all_remotes(&peer_node_id);
+            services_drop_clone.remove_all_remotes(&peer_node_id);
         }),
     }
 }
