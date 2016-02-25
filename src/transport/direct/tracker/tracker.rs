@@ -25,11 +25,8 @@ use transport::direct::tracker::{Statistic, Store, Subject};
 
 const TIMEOUT_TOLERANCE_MS: i64 = 2;
 
-pub struct Tracker<P, R>
-    where P: 'static,
-          R: Send + 'static
-{
-    store: Arc<Store<(P, mpsc::Sender<Result<R>>)>>,
+pub struct Tracker<P, R> {
+    store: Arc<Store<(P, Mutex<mpsc::Sender<Result<R>>>)>>,
     statistic: Arc<Statistic>,
     current_id: atomic::AtomicUsize,
     join_handle_and_running_tx: Option<(thread::JoinHandle<()>, Mutex<mpsc::Sender<bool>>)>,
@@ -43,11 +40,11 @@ pub enum Error {
 }
 
 impl<P, R> Tracker<P, R>
-    where P: 'static,
+    where P: Send + Sync + 'static,
           R: Send + 'static
 {
     pub fn new(statistic: Arc<Statistic>, timeout: Option<Duration>) -> Self {
-        let store: Arc<Store<(P, mpsc::Sender<Result<R>>)>> = Arc::new(Store::new());
+        let store: Arc<Store<(P, Mutex<mpsc::Sender<Result<R>>>)>> = Arc::new(Store::new());
         statistic.assign_query(store.clone());
 
         let store_clone = store.clone();
@@ -61,7 +58,7 @@ impl<P, R> Tracker<P, R>
                         let (removed, next_at) = store_clone.remove_all_started_before(now -
                                                                                        timeout);
                         for (_, (_, result_tx)) in removed {
-                            result_tx.send(Err(Error::Timeout)).unwrap();
+                            result_tx.lock().unwrap().send(Err(Error::Timeout)).unwrap();
                         }
 
                         if next_at.is_none() {
@@ -91,7 +88,7 @@ impl<P, R> Tracker<P, R>
         let started_at = time::now_utc();
 
         if self.store
-               .insert(id, subject, started_at, (payload, result_tx))
+               .insert(id, subject, started_at, (payload, Mutex::new(result_tx)))
                .unwrap() {
             if let Some((_, ref running_tx)) = self.join_handle_and_running_tx {
                 running_tx.lock().unwrap().send(true).unwrap();
@@ -110,7 +107,7 @@ impl<P, R> Tracker<P, R>
         };
 
         // ignore error cause receiver could gone already (request timed out before)
-        let _ = result_tx.send(Ok(f(payload)));
+        let _ = result_tx.lock().unwrap().send(Ok(f(payload)));
 
         self.statistic.push(subject, time::now_utc() - started_at);
 
@@ -122,10 +119,7 @@ impl<P, R> Tracker<P, R>
     }
 }
 
-impl<P, R> Drop for Tracker<P, R>
-    where P: 'static,
-          R: Send + 'static
-{
+impl<P, R> Drop for Tracker<P, R> {
     fn drop(&mut self) {
         if let Some((join_handle, running_tx)) = self.join_handle_and_running_tx.take() {
             running_tx.lock().unwrap().send(false).unwrap();

@@ -15,7 +15,7 @@
 
 use std::io;
 use std::net::{self, SocketAddr};
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use time::Duration;
 
@@ -35,7 +35,7 @@ pub struct Direct {
     ssl_context: Arc<RwLock<ssl::SslContext>>,
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
-    tracker: Arc<Tracker<Box<response::Handler>, request::Result<()>>>,
+    tracker: Arc<Tracker<Mutex<Box<response::Handler>>, request::Result<()>>>,
 }
 
 impl Direct {
@@ -175,10 +175,9 @@ impl Transport for Direct {
         self.services.select(name,
                              (reader, response_handler),
                              |(reader, response_handler), handler| {
-                                 let (request_id, response_rx) = self.tracker
-                                                                     .begin(name,
-                                                                            &Link::Local,
-                                                                            response_handler);
+                                 let (request_id, response_rx) =
+                                     self.tracker
+                                         .begin(name, &Link::Local, Mutex::new(response_handler));
                                  let handler_clone = handler.clone();
                                  let tracker_clone = self.tracker.clone();
                                  thread::spawn(move || {
@@ -186,11 +185,12 @@ impl Transport for Direct {
                                                                          .unwrap())(reader);
 
                                      let timed_out =
-                                         !tracker_clone.end(request_id, |mut response_handler| {
+                                         !tracker_clone.end(request_id, |response_handler| {
                                              let service_result = service_result;
                                              match service_result {
                                                  Ok(reader) => {
-                                                     response_handler(reader);
+                                                     (&mut **response_handler.lock()
+                                                                             .unwrap())(reader);
                                                      Ok(())
                                                  }
                                                  Err(error) => Err(request::Error::Service(error)),
@@ -210,7 +210,7 @@ impl Transport for Direct {
                                      self.tracker
                                          .begin(name,
                                                 &Link::Remote(peer_node_id),
-                                                response_handler);
+                                                Mutex::new(response_handler));
                                  try!(self.connections
                                           .send_request(&peer_node_id,
                                                         request_id,
@@ -233,7 +233,7 @@ fn accept(tcp_stream: net::TcpStream,
           public_address: SocketAddr,
           connections: &Arc<ConnectionMap>,
           services: &Arc<ServiceMap>,
-          tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
+          tracker: &Arc<Tracker<Mutex<Box<response::Handler>>, request::Result<()>>>)
           -> Result<()> {
 
     let ssl_stream = try!(ssl::SslStream::accept(&*ssl_context.read().unwrap(), tcp_stream));
@@ -258,7 +258,7 @@ fn accept(tcp_stream: net::TcpStream,
 
 fn build_handlers(connections: &Arc<ConnectionMap>,
                   services: &Arc<ServiceMap>,
-                  tracker: &Arc<Tracker<Box<response::Handler>, request::Result<()>>>)
+                  tracker: &Arc<Tracker<Mutex<Box<response::Handler>>, request::Result<()>>>)
                   -> Handlers {
 
     let connections_request_clone = connections.clone();
@@ -289,12 +289,12 @@ fn build_handlers(connections: &Arc<ConnectionMap>,
             });
         }),
         response: Box::new(move |request_id, service_result| {
-            let timed_out = !tracker_clone.end(request_id, |mut response_handler| {
+            let timed_out = !tracker_clone.end(request_id, |response_handler| {
                 let service_result = service_result;
                 match service_result {
                     Ok(reader) => {
                         thread::spawn(move || {
-                            response_handler(reader);
+                            (&mut **response_handler.lock().unwrap())(reader);
                         });
                         Ok(())
                     }

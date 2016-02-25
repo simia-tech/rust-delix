@@ -109,7 +109,8 @@ impl<T> Store<T> {
     }
 }
 
-impl<T> Query for Store<T> {
+impl<T> Query for Store<T> where T: Send + Sync
+{
     fn started_ats_with_subject(&self, subject: &Subject) -> Vec<time::Tm> {
         let entries = self.entries.read().unwrap();
         entries.iter()
@@ -123,10 +124,6 @@ impl<T> Query for Store<T> {
                .collect::<Vec<time::Tm>>()
     }
 }
-
-unsafe impl<T> Send for Store<T> {}
-
-unsafe impl<T> Sync for Store<T> {}
 
 #[cfg(test)]
 mod tests {
