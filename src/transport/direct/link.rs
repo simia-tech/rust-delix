@@ -15,7 +15,7 @@
 
 use node::ID;
 
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 pub enum Link {
     Local,
     Remote(ID),

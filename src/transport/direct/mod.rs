@@ -25,7 +25,6 @@ mod packet;
 mod service_map;
 pub mod tracker;
 
-pub use self::balancer::Balancer;
 pub use self::connection::{Connection, Handlers};
 pub use self::connection_map::ConnectionMap;
 pub use self::connection_map::Error as ConnectionMapError;

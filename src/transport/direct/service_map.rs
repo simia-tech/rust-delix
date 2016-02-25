@@ -20,9 +20,10 @@ use std::sync::{Arc, Mutex, RwLock};
 use metric::{self, Metric};
 use node::{ID, Service, request, service};
 use transport::direct::{self, Link};
+use transport::direct::balancer::{self, Balancer};
 
 pub struct ServiceMap {
-    balancer: Box<direct::Balancer>,
+    balancer_factory: Box<balancer::Factory>,
     entries: RwLock<HashMap<String, Entry>>,
     services_gauge: metric::item::Gauge,
     endpoints_gauge: metric::item::Gauge,
@@ -38,9 +39,9 @@ pub enum Error {
 }
 
 impl ServiceMap {
-    pub fn new(balancer: Box<direct::Balancer>, metric: Arc<Metric>) -> Self {
+    pub fn new(balancer_factory: Box<balancer::Factory>, metric: Arc<Metric>) -> Self {
         ServiceMap {
-            balancer: balancer,
+            balancer_factory: balancer_factory,
             entries: RwLock::new(HashMap::new()),
             services_gauge: metric.gauge("services"),
             endpoints_gauge: metric.gauge("endpoints"),
@@ -51,7 +52,8 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
 
         if !entries.contains_key(name) {
-            entries.insert(name.to_string(), Entry::new());
+            entries.insert(name.to_string(),
+                           Entry::new(self.balancer_factory.build(name)));
             self.services_gauge.change(1);
         }
         let mut entry = entries.get_mut(name).unwrap();
@@ -61,7 +63,7 @@ impl ServiceMap {
         }
 
         entry.local_handler = Some(Arc::new(Mutex::new(f)));
-        entry.links.push(Link::Local);
+        entry.push_link(Link::Local);
         self.endpoints_gauge.change(1);
 
         Ok(())
@@ -71,7 +73,8 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
 
         if !entries.contains_key(name) {
-            entries.insert(name.to_string(), Entry::new());
+            entries.insert(name.to_string(),
+                           Entry::new(self.balancer_factory.build(name)));
             self.services_gauge.change(1);
         }
         let mut entry = entries.get_mut(name).unwrap();
@@ -80,7 +83,7 @@ impl ServiceMap {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        entry.links.push(Link::Remote(peer_node_id));
+        entry.push_link(Link::Remote(peer_node_id));
         self.endpoints_gauge.change(1);
 
         Ok(())
@@ -91,13 +94,14 @@ impl ServiceMap {
 
         for name in names {
             if !entries.contains_key(name) {
-                entries.insert(name.to_string(), Entry::new());
+                entries.insert(name.to_string(),
+                               Entry::new(self.balancer_factory.build(name)));
                 self.services_gauge.change(1);
             }
             let mut entry = entries.get_mut(name).unwrap();
 
             if let None = entry.links.iter().find(|&link| Link::is_remote(link, &peer_node_id)) {
-                entry.links.push(Link::Remote(peer_node_id));
+                entry.push_link(Link::Remote(peer_node_id));
                 self.endpoints_gauge.change(1);
             }
         }
@@ -119,11 +123,7 @@ impl ServiceMap {
             None => return Err(request::Error::NoService),
         };
 
-        if entry.queue.is_empty() {
-            entry.queue.append(&mut self.balancer.build_round(name, &entry.links));
-            entry.queue.reverse();
-        }
-        let link = entry.queue.pop().expect("balancer did not build any round");
+        let link = entry.balancer.next().expect("balancer did not produce any link");
 
         match link {
             Link::Local => local_handler(payload, entry.local_handler.as_ref().unwrap()),
@@ -179,8 +179,7 @@ impl ServiceMap {
                 None => return Err(Error::ServiceDoesNotExists),
             };
             entry.local_handler = None;
-            entry.links.retain(|link| !Link::is_local(&&link));
-            entry.queue.retain(|link| !Link::is_local(&&link));
+            entry.retain_links(|link| !Link::is_local(&&link));
             self.endpoints_gauge.change(-1);
             entry.links.len() == 0
         };
@@ -198,8 +197,7 @@ impl ServiceMap {
                 Some(entry) => entry,
                 None => return Err(Error::ServiceDoesNotExists),
             };
-            entry.links.retain(|link| !Link::is_remote(&&link, peer_node_id));
-            entry.queue.retain(|link| !Link::is_remote(&&link, peer_node_id));
+            entry.retain_links(|link| !Link::is_remote(&&link, peer_node_id));
             self.endpoints_gauge.change(-1);
             entry.links.len() == 0
         };
@@ -218,8 +216,7 @@ impl ServiceMap {
                     Some(entry) => entry,
                     None => continue,
                 };
-                entry.links.retain(|link| !Link::is_remote(&&link, peer_node_id));
-                entry.queue.retain(|link| !Link::is_remote(&&link, peer_node_id));
+                entry.retain_links(|link| !Link::is_remote(&&link, peer_node_id));
                 self.endpoints_gauge.change(-1);
                 entry.links.len() == 0
             };
@@ -234,8 +231,7 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
         let mut names = Vec::new();
         for (name, entry) in entries.iter_mut() {
-            entry.links.retain(|link| !Link::is_remote(link, peer_node_id));
-            entry.queue.retain(|link| !Link::is_remote(link, peer_node_id));
+            entry.retain_links(|link| !Link::is_remote(link, peer_node_id));
             self.endpoints_gauge.change(-1);
             if entry.links.len() == 0 {
                 names.push(name.to_string());
@@ -251,16 +247,28 @@ impl ServiceMap {
 struct Entry {
     local_handler: Option<Arc<Mutex<Box<Service>>>>,
     links: Vec<Link>,
-    queue: Vec<Link>,
+    balancer: Box<Balancer<Item = Link>>,
 }
 
 impl Entry {
-    fn new() -> Entry {
+    fn new(balancer: Box<Balancer<Item = Link>>) -> Entry {
         Entry {
             local_handler: None,
             links: Vec::new(),
-            queue: Vec::new(),
+            balancer: balancer,
         }
+    }
+
+    fn push_link(&mut self, link: Link) {
+        self.links.push(link);
+        self.balancer.set_links(&self.links);
+    }
+
+    fn retain_links<F>(&mut self, f: F)
+        where F: Fn(&Link) -> bool
+    {
+        self.links.retain(f);
+        self.balancer.set_links(&self.links);
     }
 }
 
@@ -277,7 +285,8 @@ mod tests {
     use metric;
     use node::ID;
     use super::ServiceMap;
-    use super::super::balancer;
+    use super::super::balancer::{self, Factory};
+    use super::super::tracker::Statistic;
 
     #[test]
     fn insert_local() {
@@ -373,9 +382,10 @@ mod tests {
     }
 
     fn build_service_map() -> ServiceMap {
-        let balancer = Box::new(balancer::DynamicRoundRobin::new());
+        let mut balancer_factory = Box::new(balancer::DynamicRoundRobinFactory::new());
+        balancer_factory.set_statistic(Arc::new(Statistic::new()));
         let metric = Arc::new(metric::Memory::new());
-        ServiceMap::new(balancer, metric)
+        ServiceMap::new(balancer_factory, metric)
     }
 
 }

@@ -13,12 +13,10 @@
 // limitations under the License.
 //
 
-use std::sync::Arc;
+use std::iter::Iterator;
 
-use transport::direct::Link;
-use transport::direct::tracker::Statistic;
+use super::super::Link;
 
-pub trait Balancer : Send + Sync {
-    fn assign_statistic(&self, Arc<Statistic>);
-    fn build_round(&self, name: &str, &[Link]) -> Vec<Link>;
+pub trait Balancer : Iterator<Item = Link> + Send + Sync {
+    fn set_links(&mut self, &[Link]);
 }

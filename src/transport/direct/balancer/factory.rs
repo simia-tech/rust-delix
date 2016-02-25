@@ -13,10 +13,13 @@
 // limitations under the License.
 //
 
-pub mod balancer;
-pub mod factory;
-mod dynamic_round_robin;
+use std::sync::Arc;
 
-pub use self::balancer::Balancer;
-pub use self::factory::Factory;
-pub use self::dynamic_round_robin::{DynamicRoundRobin, DynamicRoundRobinFactory};
+use super::Balancer;
+use super::super::Link;
+use super::super::tracker::Statistic;
+
+pub trait Factory : Send + Sync {
+    fn set_statistic(&mut self, Arc<Statistic>);
+    fn build(&self, &str) -> Box<Balancer<Item = Link>>;
+}

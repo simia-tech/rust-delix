@@ -40,7 +40,7 @@ pub fn build_node(local_address: &str,
     ssl_context.set_certificate(&certificate).unwrap();
     ssl_context.set_private_key(&private_key).unwrap();
 
-    let balancer = Box::new(balancer::DynamicRoundRobin::new());
+    let balancer_factory = Box::new(balancer::DynamicRoundRobinFactory::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
                                                              .iter()
                                                              .map(|s| {
@@ -53,7 +53,7 @@ pub fn build_node(local_address: &str,
 
     let metric = Arc::new(metric::Memory::new());
     let transport = Box::new(Direct::new(ssl_context,
-                                         balancer,
+                                         balancer_factory,
                                          metric.clone(),
                                          local_address.to_socket_addrs().unwrap().next().unwrap(),
                                          None,

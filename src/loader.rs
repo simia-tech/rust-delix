@@ -28,7 +28,7 @@ use delix::node::{self, Node};
 use delix::discovery::{self, Discovery};
 use delix::relay::{self, Relay};
 use delix::transport::{self, Transport};
-use delix::transport::direct::{Balancer, balancer};
+use delix::transport::direct::balancer;
 use configuration::Configuration;
 
 const DEFAULT_KEY_LENGTH: u32 = 2048;
@@ -175,15 +175,15 @@ impl Loader {
                                              .string_at("transport.balancer.type")
                                              .ok_or(Error::NoBalancerType));
 
-                let balancer: Box<Balancer> = match balancer_type.as_ref() {
-                    "dynamic_round_robin" => Box::new(balancer::DynamicRoundRobin::new()),
+                let balancer_factory = match balancer_type.as_ref() {
+                    "dynamic_round_robin" => Box::new(balancer::DynamicRoundRobinFactory::new()),
                     _ => return Err(Error::UnknownBalancerType(balancer_type)),
                 };
 
                 info!("loaded direct transport - listening at {}", local_address);
 
                 Ok(Box::new(transport::Direct::new(ssl_context,
-                                                   balancer,
+                                                   balancer_factory,
                                                    metric,
                                                    local_address,
                                                    public_address,

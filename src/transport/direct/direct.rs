@@ -24,7 +24,7 @@ use openssl::ssl;
 use transport::{Result, Transport};
 use metric::Metric;
 use node::{ID, Service, request, response};
-use super::{Balancer, Connection, ConnectionMap, Handlers, Link, Tracker, ServiceMap};
+use super::{Connection, ConnectionMap, Handlers, Link, Tracker, ServiceMap, balancer};
 use super::tracker::Statistic;
 
 pub struct Direct {
@@ -40,7 +40,7 @@ pub struct Direct {
 
 impl Direct {
     pub fn new(ssl_context: ssl::SslContext,
-               balancer: Box<Balancer>,
+               mut balancer_factory: Box<balancer::Factory>,
                metric: Arc<Metric>,
                local_address: SocketAddr,
                public_address: Option<SocketAddr>,
@@ -48,7 +48,7 @@ impl Direct {
                -> Self {
 
         let statistic = Arc::new(Statistic::new());
-        balancer.assign_statistic(statistic.clone());
+        balancer_factory.set_statistic(statistic.clone());
 
         Direct {
             join_handle: RwLock::new(None),
@@ -57,7 +57,7 @@ impl Direct {
             public_address: public_address.unwrap_or(local_address),
             ssl_context: Arc::new(RwLock::new(ssl_context)),
             connections: Arc::new(ConnectionMap::new(metric.clone())),
-            services: Arc::new(ServiceMap::new(balancer, metric.clone())),
+            services: Arc::new(ServiceMap::new(balancer_factory, metric.clone())),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
         }
     }
