@@ -266,7 +266,8 @@ fn build_handlers(connections: &Arc<ConnectionMap>,
     let services_remove_clone = services.clone();
     let services_request_clone = services.clone();
     let services_drop_clone = services.clone();
-    let tracker_clone = tracker.clone();
+    let tracker_response_clone = tracker.clone();
+    let tracker_drop_clone = tracker.clone();
 
     Handlers {
         add_services: Box::new(move |peer_node_id, services| {
@@ -289,7 +290,7 @@ fn build_handlers(connections: &Arc<ConnectionMap>,
             });
         }),
         response: Box::new(move |request_id, service_result| {
-            let timed_out = !tracker_clone.end(request_id, |response_handler| {
+            let success = tracker_response_clone.end(request_id, |response_handler| {
                 let service_result = service_result;
                 match service_result {
                     Ok(reader) => {
@@ -302,7 +303,7 @@ fn build_handlers(connections: &Arc<ConnectionMap>,
                 }
             });
 
-            if timed_out {
+            if !success {
                 debug!("got response for request ({}) that already timed out",
                        request_id);
             }
@@ -310,6 +311,7 @@ fn build_handlers(connections: &Arc<ConnectionMap>,
             Ok(())
         }),
         drop: Box::new(move |peer_node_id| {
+            tracker_drop_clone.cancel(&peer_node_id);
             services_drop_clone.remove_all_remotes(&peer_node_id);
         }),
     }

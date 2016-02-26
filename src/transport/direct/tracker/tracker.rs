@@ -13,13 +13,14 @@
 // limitations under the License.
 //
 
+use std::io;
 use std::result;
 use std::sync::{Arc, Mutex, atomic, mpsc};
 use std::thread;
 
 use time::{self, Duration};
 
-use node::request;
+use node::{ID, request};
 use transport::direct::Link;
 use transport::direct::tracker::{Statistic, Store, Subject};
 
@@ -37,6 +38,7 @@ pub type Result<T> = result::Result<T, Error>;
 #[derive(Debug, PartialEq)]
 pub enum Error {
     Timeout,
+    Cancelled,
 }
 
 impl<P, R> Tracker<P, R>
@@ -98,6 +100,16 @@ impl<P, R> Tracker<P, R>
         (id, result_rx)
     }
 
+    pub fn cancel(&self, peer_node_id: &ID) {
+        let entries = self.store.remove_all_from_remote(peer_node_id);
+
+        for (_, result_tx) in entries {
+            // ignore error cause receiver could be gone already, when the request time out
+            // before get cancelled.
+            let _ = result_tx.lock().unwrap().send(Err(Error::Cancelled));
+        }
+    }
+
     pub fn end<F>(&self, id: u32, f: F) -> bool
         where F: FnOnce(P) -> R
     {
@@ -106,7 +118,7 @@ impl<P, R> Tracker<P, R>
             Err(_) => return false,
         };
 
-        // ignore error cause receiver could gone already (request timed out before)
+        // ignore error cause receiver could be gone already (request timed out before)
         let _ = result_tx.lock().unwrap().send(Ok(f(payload)));
 
         self.statistic.push(subject, time::now_utc() - started_at);
@@ -132,6 +144,10 @@ impl From<Error> for request::Error {
     fn from(error: Error) -> Self {
         match error {
             Error::Timeout => request::Error::Timeout,
+            Error::Cancelled => {
+                request::Error::Io(io::ErrorKind::ConnectionAborted,
+                                   "connection aborted".to_string())
+            }
         }
     }
 }
@@ -142,6 +158,7 @@ mod tests {
     use std::thread;
     use std::sync::Arc;
     use time::Duration;
+    use node::ID;
     use super::{Error, Tracker};
     use super::super::Statistic;
     use super::super::super::Link;
@@ -157,6 +174,46 @@ mod tests {
         }));
 
         assert_eq!(Ok("test result"), result_rx.recv().unwrap());
+        assert_eq!(0, tracker.len());
+    }
+
+    #[test]
+    fn concurrent_request_tracking() {
+        let tracker = Arc::new(Tracker::new(Arc::new(Statistic::new()), None));
+
+        let mut threads = Vec::new();
+        for _ in 0..10 {
+            let tracker = tracker.clone();
+            threads.push(thread::spawn(move || {
+                let (id, result_rx) = tracker.begin("test", &Link::Local, "test payload");
+                thread::sleep(::std::time::Duration::from_millis(100));
+                assert!(tracker.end(id, |payload| {
+                    assert_eq!("test payload", payload);
+                    "test result"
+                }));
+                result_rx.recv().unwrap()
+            }));
+        }
+
+        for thread in threads {
+            assert_eq!(Ok("test result"), thread.join().unwrap());
+        }
+
+        assert_eq!(0, tracker.len());
+    }
+
+    #[test]
+    fn request_cancel() {
+        let tracker: Tracker<&'static str, &'static str> = Tracker::new(Arc::new(Statistic::new()),
+                                                                        None);
+
+        let remote_id = ID::new_random();
+        let remote_link = Link::Remote(remote_id);
+        let (_, result_rx) = tracker.begin("test", &remote_link, "test payload");
+
+        tracker.cancel(&remote_id);
+
+        assert_eq!(Err(Error::Cancelled), result_rx.recv().unwrap());
         assert_eq!(0, tracker.len());
     }
 
@@ -199,31 +256,6 @@ mod tests {
             assert_eq!("test payload", payload);
             "test result"
         }));
-    }
-
-    #[test]
-    fn concurrent_request_tracking() {
-        let tracker = Arc::new(Tracker::new(Arc::new(Statistic::new()), None));
-
-        let mut threads = Vec::new();
-        for _ in 0..10 {
-            let tracker = tracker.clone();
-            threads.push(thread::spawn(move || {
-                let (id, result_rx) = tracker.begin("test", &Link::Local, "test payload");
-                thread::sleep(::std::time::Duration::from_millis(100));
-                assert!(tracker.end(id, |payload| {
-                    assert_eq!("test payload", payload);
-                    "test result"
-                }));
-                result_rx.recv().unwrap()
-            }));
-        }
-
-        for thread in threads {
-            assert_eq!(Ok("test result"), thread.join().unwrap());
-        }
-
-        assert_eq!(0, tracker.len());
     }
 
     #[test]

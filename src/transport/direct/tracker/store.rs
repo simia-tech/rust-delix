@@ -17,6 +17,7 @@ use std::collections::HashMap;
 use std::result;
 use std::sync::RwLock;
 
+use node::ID;
 use super::Subject;
 
 use time;
@@ -75,6 +76,26 @@ impl<T> Store<T> {
         Err(Error::IdDoesNotExists)
     }
 
+    pub fn remove_all_from_remote(&self, node_id: &ID) -> Vec<T> {
+        let mut entries = self.entries.write().unwrap();
+
+        let mut to_remove = Vec::new();
+        for (&id, &(ref subject, _, _)) in entries.iter() {
+            if let Subject::Remote(_, ref subject_id) = *subject {
+                if subject_id == node_id {
+                    to_remove.push(id);
+                }
+            }
+        }
+
+        let mut result = Vec::new();
+        for id in to_remove {
+            let (_, _, entry) = entries.remove(&id).unwrap();
+            result.push(entry);
+        }
+        result
+    }
+
     pub fn remove_all_started_before(&self,
                                      threshold: time::Tm)
                                      -> (Vec<(u32, T)>, Option<time::Tm>) {
@@ -100,7 +121,6 @@ impl<T> Store<T> {
             let (_, _, entry) = entries.remove(&id).unwrap();
             result.push((id, entry));
         }
-
         (result, next_at)
     }
 
@@ -129,6 +149,7 @@ impl<T> Query for Store<T> where T: Send + Sync
 mod tests {
 
     use time;
+    use node::ID;
     use super::{Error, Store};
     use super::super::Subject;
     use super::super::store::Query;
@@ -160,6 +181,23 @@ mod tests {
         assert_eq!("test entry", removed_entry);
         assert_eq!(0, store.len());
         assert_eq!(Some(Error::IdDoesNotExists), store.remove(&0).err());
+    }
+
+    #[test]
+    fn remove_all_from_remote() {
+        let store = Store::new();
+        let id = ID::new_random();
+        store.insert(0, Subject::remote("one", id), build_time(100), "test entry")
+             .unwrap();
+        store.insert(1, Subject::remote("two", id), build_time(100), "test entry")
+             .unwrap();
+
+        let removed_entries = store.remove_all_from_remote(&id);
+
+        assert_eq!(2, removed_entries.len());
+        assert_eq!("test entry", removed_entries[0]);
+        assert_eq!("test entry", removed_entries[1]);
+        assert_eq!(0, store.len());
     }
 
     #[test]
