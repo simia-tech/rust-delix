@@ -40,7 +40,7 @@ impl io::Read for Reader {
                 Ok(result) => result,
                 Err(mpsc::RecvError) => {
                     return Err(io::Error::new(io::ErrorKind::ConnectionAborted,
-                                              "connection aborted"))
+                                              "connection aborted"));
                 }
             };
             result = match received {

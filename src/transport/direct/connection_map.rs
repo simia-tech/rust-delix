@@ -154,9 +154,3 @@ impl ConnectionMap {
         }
     }
 }
-
-impl Drop for ConnectionMap {
-    fn drop(&mut self) {
-        self.shutdown();
-    }
-}

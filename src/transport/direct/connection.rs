@@ -292,14 +292,11 @@ impl fmt::Display for Connection {
 
 impl Drop for Connection {
     fn drop(&mut self) {
-        match self.tx_stream.lock().unwrap().get_ref().shutdown(net::Shutdown::Both) {
-            Ok(()) => {}
-            Err(ref error) if error.kind() == io::ErrorKind::NotConnected => {}
-            Err(ref error) => panic!(format!("{:?}", error)),
+        if let Some(join_handle) = self.thread.take() {
+            self.shutdown();
+            join_handle.join().unwrap();
+            (self.drop_handler)(self.peer_node_id);
         }
-        self.thread.take().unwrap().join().unwrap();
-
-        (self.drop_handler)(self.peer_node_id);
     }
 }
 

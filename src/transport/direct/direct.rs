@@ -69,7 +69,6 @@ impl Direct {
             try!(net::TcpStream::connect(self.local_address));
             join_handle.join().unwrap();
         }
-        self.connections.shutdown();
         Ok(())
     }
 }
@@ -224,6 +223,7 @@ impl Transport for Direct {
 impl Drop for Direct {
     fn drop(&mut self) {
         self.unbind().unwrap();
+        self.connections.shutdown();
     }
 }
 
