@@ -38,9 +38,6 @@ mod configuration;
 mod loader;
 
 #[cfg(not(test))]
-use delix::metric::Query;
-
-#[cfg(not(test))]
 #[allow(unused_variables)]
 fn main() {
     let arguments = match ::arguments::Arguments::parse() {
@@ -61,11 +58,6 @@ fn main() {
 
     let loader = ::loader::Loader::new(configuration);
 
-    if let Err(error) = loader.load_log() {
-        error!("error while loading log: {:?}", error);
-        return;
-    }
-
     let metric = match loader.load_metric() {
         Ok(metric) => metric,
         Err(error) => {
@@ -73,6 +65,11 @@ fn main() {
             return;
         }
     };
+
+    if let Err(error) = loader.load_log(&metric) {
+        error!("error while loading log: {:?}", error);
+        return;
+    }
 
     let node = match loader.load_node(&metric) {
         Ok(node) => node,

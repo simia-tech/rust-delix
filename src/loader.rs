@@ -69,7 +69,7 @@ impl Loader {
         Loader { configuration: configuration }
     }
 
-    pub fn load_log(&self) -> Result<()> {
+    pub fn load_log(&self, metric: &Arc<Metric>) -> Result<()> {
         let log_type = try!(self.configuration.string_at("log.type").ok_or(Error::NoLogType));
 
         let log_level_filter = match self.configuration
@@ -87,7 +87,7 @@ impl Loader {
 
         match log_type.as_ref() {
             "console" => {
-                logger::Console::init(log_level_filter, "delix").unwrap();
+                logger::Console::init(log_level_filter, "delix", metric).unwrap();
                 info!("loaded console log");
             }
             _ => return Err(Error::UnknownLogType(log_type)),
@@ -108,7 +108,10 @@ impl Loader {
             }
             "terminal" => {
                 info!("loaded terminal metric");
-                Ok(Arc::new(metric::Terminal::new()))
+                let refresh_interval_ms = self.configuration
+                                              .i64_at("metric.refresh_interval_ms")
+                                              .unwrap_or(100);
+                Ok(Arc::new(metric::Terminal::new(refresh_interval_ms as u32)))
             }
             _ => return Err(Error::UnknownMetricType(metric_type)),
         }

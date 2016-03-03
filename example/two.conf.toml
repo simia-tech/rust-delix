@@ -4,7 +4,8 @@ type = "console"
 level = "debug"
 
 [metric]
-type = "console"
+type = "terminal"
+refresh_interval_ms = 100
 
 [discovery]
 type = "constant"

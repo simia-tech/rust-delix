@@ -16,6 +16,7 @@
 use super::item;
 
 pub trait Metric : Sync + Send {
+    fn log(&self, &str, &str, &str);
     fn counter(&self, &str) -> item::Counter;
     fn gauge(&self, &str) -> item::Gauge;
     fn display(&self);

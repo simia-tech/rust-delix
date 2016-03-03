@@ -13,6 +13,6 @@
 // limitations under the License.
 //
 
-mod console;
+pub mod console;
 
 pub use logger::console::Console;

@@ -49,6 +49,10 @@ impl Memory {
 }
 
 impl Metric for Memory {
+    fn log(&self, tag: &str, target: &str, text: &str) {
+        println!("[{}] [{}] {}", tag, target, text);
+    }
+
     fn counter(&self, key: &str) -> item::Counter {
         let entry = self.get_or_insert(key, Entry::Counter(atomic::AtomicUsize::new(0)));
         let key = key.to_string();

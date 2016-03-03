@@ -13,29 +13,38 @@
 // limitations under the License.
 //
 
-use ansi_term::{Colour, Style};
+use std::sync::Arc;
+
 use log;
 
+use metric::Metric;
+
 pub struct Console {
+    metric: Arc<Metric>,
     level_filter: log::LogLevelFilter,
     target_prefix: String,
 }
 
 impl Console {
     pub fn init(level_filter: log::LogLevelFilter,
-                target_prefix: &str)
+                target_prefix: &str,
+                metric: &Arc<Metric>)
                 -> Result<(), log::SetLoggerError> {
         let result = log::set_logger(|maximal_log_level| {
             maximal_log_level.set(level_filter);
-            Box::new(Console::new(level_filter, target_prefix))
+            Box::new(Console::new(level_filter, target_prefix, metric))
         });
         result
     }
 }
 
 impl Console {
-    pub fn new(level_filter: log::LogLevelFilter, target_prefix: &str) -> Console {
+    pub fn new(level_filter: log::LogLevelFilter,
+               target_prefix: &str,
+               metric: &Arc<Metric>)
+               -> Console {
         Console {
+            metric: metric.clone(),
             level_filter: level_filter,
             target_prefix: target_prefix.to_string(),
         }
@@ -58,18 +67,15 @@ impl log::Log for Console {
             return;
         }
 
-        let (tag, bold) = match record.level() {
-            log::LogLevel::Error => (Colour::Red.paint("ERROR"), true),
-            log::LogLevel::Warn => (Colour::Yellow.paint(" WARN"), false),
-            log::LogLevel::Info => (Colour::Cyan.paint(" INFO"), false),
-            log::LogLevel::Debug => (Colour::Blue.paint("DEBUG"), false),
-            log::LogLevel::Trace => (Colour::White.paint("TRACE"), false),
+        let tag = match record.level() {
+            log::LogLevel::Error => "ERROR",
+            log::LogLevel::Warn => " WARN",
+            log::LogLevel::Info => " INFO",
+            log::LogLevel::Debug => "DEBUG",
+            log::LogLevel::Trace => "TRACE",
         };
+        let text = format!("{}", record.args());
 
-        let mut text = format!("{}", record.args());
-        if bold {
-            text = Style::new().bold().paint(text).to_string();
-        }
-        println!("[{}] [{}] {}", tag, target, text);
+        self.metric.log(&tag.to_string(), &target, &text);
     }
 }

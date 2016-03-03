@@ -10,7 +10,6 @@ keywords = [ "http", "proxy", "decentral" ]
 license = "Apache-2.0"
 
 [dependencies]
-ansi_term = "0.7"
 byteorder = "0.4"
 clap = "2.0"
 getopts = "0.2"
@@ -20,6 +19,7 @@ protobuf = "1.0"
 rand = "0.3"
 rust-crypto = "0.2"
 rustc-serialize = "0.3"
+rustty = { git = "https://github.com/cpjreynolds/rustty" }
 time = "0.1"
 toml = "0.1"
 

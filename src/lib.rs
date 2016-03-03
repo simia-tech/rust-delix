@@ -14,7 +14,6 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-extern crate ansi_term;
 extern crate byteorder;
 extern crate crypto;
 #[macro_use] extern crate log;

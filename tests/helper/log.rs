@@ -15,13 +15,16 @@
 
 extern crate log;
 
-use std::sync;
+use std::sync::{self, Arc};
+
 use delix::logger;
+use delix::metric;
 
 static START: sync::Once = sync::ONCE_INIT;
 
 pub fn set_up() {
     START.call_once(|| {
-        logger::Console::init(log::LogLevelFilter::Trace, "delix").unwrap();
+        let metric: Arc<metric::Metric> = Arc::new(metric::Memory::new());
+        logger::Console::init(log::LogLevelFilter::Trace, "delix", &metric).unwrap();
     });
 }
