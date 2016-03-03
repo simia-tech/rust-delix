@@ -3,6 +3,9 @@
 type = "console"
 level = "debug"
 
+[metric]
+type = "terminal"
+
 [discovery]
 type = "constant"
 addresses = [ ]

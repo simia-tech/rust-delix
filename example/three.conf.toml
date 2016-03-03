@@ -3,6 +3,9 @@
 type = "console"
 level = "debug"
 
+[metric]
+type = "console"
+
 [discovery]
 type = "constant"
 addresses = [ "localhost:4001" ]

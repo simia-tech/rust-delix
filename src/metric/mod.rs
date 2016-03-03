@@ -18,9 +18,11 @@ pub mod item;
 mod memory;
 pub mod metric;
 mod query;
+mod terminal;
 mod value;
 
 pub use self::memory::Memory;
 pub use self::metric::Metric;
 pub use self::query::Query;
+pub use self::terminal::Terminal;
 pub use self::value::Value;

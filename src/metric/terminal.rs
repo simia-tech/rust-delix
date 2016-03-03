@@ -13,10 +13,28 @@
 // limitations under the License.
 //
 
-use super::item;
+use super::{Metric, item};
 
-pub trait Metric : Sync + Send {
-    fn counter(&self, &str) -> item::Counter;
-    fn gauge(&self, &str) -> item::Gauge;
-    fn display(&self);
+pub struct Terminal;
+
+impl Terminal {
+    pub fn new() -> Self {
+        Terminal
+    }
+}
+
+impl Metric for Terminal {
+    fn counter(&self, key: &str) -> item::Counter {
+        item::Counter::new(Box::new(move |delta_value| {
+        }))
+    }
+
+    fn gauge(&self, key: &str) -> item::Gauge {
+        item::Gauge::new(Box::new(move |new_value| {
+                         }),
+                         Box::new(move |delta_value| {
+                         }))
+    }
+
+    fn display(&self) {}
 }

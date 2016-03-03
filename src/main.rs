@@ -66,7 +66,15 @@ fn main() {
         return;
     }
 
-    let (node, metric) = match loader.load_node() {
+    let metric = match loader.load_metric() {
+        Ok(metric) => metric,
+        Err(error) => {
+            error!("error while loading metric: {:?}", error);
+            return;
+        }
+    };
+
+    let node = match loader.load_node(&metric) {
         Ok(node) => node,
         Err(error) => {
             error!("error while loading node: {:?}", error);
@@ -84,10 +92,5 @@ fn main() {
         }
     };
 
-    metric.watch("", |key, value| {
-        if key != "" {
-            info!("{} = {:?}", key, value);
-        }
-        true
-    });
+    metric.display();
 }

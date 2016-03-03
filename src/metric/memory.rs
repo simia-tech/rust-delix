@@ -83,6 +83,15 @@ impl Metric for Memory {
                              }
                          }))
     }
+
+    fn display(&self) {
+        self.watch("", |key, value| {
+            if key != "" {
+                info!("{} = {:?}", key, value);
+            }
+            true
+        });
+    }
 }
 
 impl Query for Memory {

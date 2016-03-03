@@ -44,6 +44,8 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     NoLogType,
     UnknownLogType(String),
+    NoMetricType,
+    UnknownMetricType(String),
     NoDiscoveryType,
     UnknownDiscoveryType(String),
     NoTransportType,
@@ -94,15 +96,30 @@ impl Loader {
         Ok(())
     }
 
-    pub fn load_node(&self) -> Result<(Arc<Node>, Arc<metric::Memory>)> {
-        let discovery = try!(self.load_discovery());
+    pub fn load_metric(&self) -> Result<Arc<metric::Metric>> {
+        let metric_type = try!(self.configuration
+                                   .string_at("metric.type")
+                                   .ok_or(Error::NoMetricType));
 
-        let metric = Arc::new(metric::Memory::new());
+        match metric_type.as_ref() {
+            "console" => {
+                info!("loaded console metric");
+                Ok(Arc::new(metric::Memory::new()))
+            }
+            "terminal" => {
+                info!("loaded terminal metric");
+                Ok(Arc::new(metric::Terminal::new()))
+            }
+            _ => return Err(Error::UnknownMetricType(metric_type)),
+        }
+    }
+
+    pub fn load_node(&self, metric: &Arc<metric::Metric>) -> Result<Arc<Node>> {
+        let discovery = try!(self.load_discovery());
 
         let transport = try!(self.load_transport(metric.clone()));
 
-        Ok((Arc::new(try!(Node::new(discovery, transport, metric.clone()))),
-            metric))
+        Ok(Arc::new(try!(Node::new(discovery, transport, metric.clone()))))
     }
 
     fn load_discovery(&self) -> Result<Box<Discovery>> {
