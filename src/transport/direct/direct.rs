@@ -167,56 +167,51 @@ impl Transport for Direct {
 
     fn request(&self,
                name: &str,
-               reader: Box<request::Reader>,
+               mut reader: Box<request::Reader>,
                response_handler: Box<response::Handler>)
                -> request::Result<()> {
 
-        self.services.select(name,
-                             (reader, response_handler),
-                             |(reader, response_handler), handler| {
-                                 let (request_id, response_rx) =
-                                     self.tracker
-                                         .begin(name, &Link::Local, Mutex::new(response_handler));
-                                 let handler_clone = handler.clone();
-                                 let tracker_clone = self.tracker.clone();
-                                 thread::spawn(move || {
-                                     let service_result = (*handler_clone.lock()
-                                                                         .unwrap())(reader);
+        let (link, local_handler) = try!(self.services.get(name));
 
-                                     let timed_out =
-                                         !tracker_clone.end(request_id, |response_handler| {
-                                             let service_result = service_result;
-                                             match service_result {
-                                                 Ok(reader) => {
-                                                     (&mut **response_handler.lock()
-                                                                             .unwrap())(reader);
-                                                     Ok(())
-                                                 }
-                                                 Err(error) => Err(request::Error::Service(error)),
-                                             }
-                                         });
+        match link {
+            Link::Local => {
+                let (request_id, response_rx) = self.tracker
+                                                    .begin(name,
+                                                           &Link::Local,
+                                                           Mutex::new(response_handler));
+                let tracker_clone = self.tracker.clone();
+                thread::spawn(move || {
+                    let service_result = local_handler.unwrap()(reader);
 
-                                     if timed_out {
-                                         debug!("got response for request ({}) that already \
-                                                 timed out",
-                                                request_id);
-                                     }
-                                 });
-                                 try!(response_rx.recv().unwrap())
-                             },
-                             |(mut reader, response_handler), peer_node_id| {
-                                 let (request_id, response_rx) =
-                                     self.tracker
-                                         .begin(name,
-                                                &Link::Remote(peer_node_id),
-                                                Mutex::new(response_handler));
-                                 try!(self.connections
-                                          .send_request(&peer_node_id,
-                                                        request_id,
-                                                        name,
-                                                        &mut reader));
-                                 try!(response_rx.recv().unwrap())
-                             })
+                    let timed_out = !tracker_clone.end(request_id, |response_handler| {
+                        let service_result = service_result;
+                        match service_result {
+                            Ok(reader) => {
+                                (&mut **response_handler.lock()
+                                                        .unwrap())(reader);
+                                Ok(())
+                            }
+                            Err(error) => Err(request::Error::Service(error)),
+                        }
+                    });
+
+                    if timed_out {
+                        debug!("got response for request ({}) that already timed out",
+                               request_id);
+                    }
+                });
+                try!(response_rx.recv().unwrap())
+            }
+            Link::Remote(peer_node_id) => {
+                let (request_id, response_rx) = self.tracker
+                                                    .begin(name,
+                                                           &Link::Remote(peer_node_id),
+                                                           Mutex::new(response_handler));
+                try!(self.connections
+                         .send_request(&peer_node_id, request_id, name, &mut reader));
+                try!(response_rx.recv().unwrap())
+            }
+        }
     }
 }
 
@@ -281,7 +276,8 @@ fn build_handlers(connections: &Arc<ConnectionMap>,
             let services_clone = services_request_clone.clone();
             let name = name.to_string();
             thread::spawn(move || {
-                let service_result = services_clone.select_local(&name, |handler| handler(reader));
+                let handler = services_clone.get_local(&name).unwrap();
+                let service_result = handler(reader);
                 if let Err(error) = connections_clone.send_response(&peer_node_id,
                                                                     request_id,
                                                                     service_result) {

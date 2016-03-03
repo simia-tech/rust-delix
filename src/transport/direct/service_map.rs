@@ -15,10 +15,10 @@
 
 use std::collections::HashMap;
 use std::result;
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, RwLock};
 
 use metric::{self, Metric};
-use node::{ID, Service, request, service};
+use node::{ID, Service, request};
 use transport::direct::{self, Link};
 use transport::direct::balancer::{self, Balancer};
 
@@ -62,7 +62,7 @@ impl ServiceMap {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        entry.local_handler = Some(Arc::new(Mutex::new(f)));
+        entry.local_handler = Some(Arc::new(f));
         entry.push_link(Link::Local);
         self.endpoints_gauge.change(1);
 
@@ -107,13 +107,27 @@ impl ServiceMap {
         }
     }
 
+    pub fn get(&self, name: &str) -> request::Result<(Link, Option<Arc<Box<Service>>>)> {
+        let mut entries = self.entries.write().unwrap();
+
+        let mut entry = match entries.get_mut(name) {
+            Some(entry) => entry,
+            None => return Err(request::Error::NoService),
+        };
+
+        let link = entry.balancer.next().expect("balancer did not produce any link");
+
+        Ok((link,
+            entry.local_handler.as_ref().map(|handler| handler.clone())))
+    }
+
     pub fn select<P, L, R>(&self,
                            name: &str,
                            payload: P,
                            local_handler: L,
                            remote_handler: R)
                            -> request::Result<()>
-        where L: FnOnce(P, &Arc<Mutex<Box<Service>>>) -> request::Result<()>,
+        where L: FnOnce(P, &Arc<Box<Service>>) -> request::Result<()>,
               R: FnOnce(P, ID) -> request::Result<()>
     {
         let mut entries = self.entries.write().unwrap();
@@ -131,29 +145,10 @@ impl ServiceMap {
         }
     }
 
-    pub fn select_local<L>(&self, name: &str, local_handler: L) -> service::Result
-        where L: FnOnce(&Box<Service>) -> service::Result
-    {
+    pub fn get_local(&self, name: &str) -> Option<Arc<Box<Service>>> {
         let entries = self.entries.read().unwrap();
-
-        let no_service_error = service::Error::Internal("no service on delix target node"
-                                                            .to_string());
-
-        let entry = match entries.get(name) {
-            Some(entry) => entry,
-            None => return Err(no_service_error),
-        };
-
-        let link = match entry.links.iter().find(|link| Link::is_local(link)) {
-            Some(link) => link,
-            None => return Err(no_service_error),
-        };
-
-        if let Link::Local = *link {
-            local_handler(&*entry.local_handler.as_ref().unwrap().lock().unwrap())
-        } else {
-            unreachable!();
-        }
+        entries.get(name)
+               .and_then(|entry| entry.local_handler.as_ref().map(|handler| handler.clone()))
     }
 
     pub fn local_service_names(&self) -> Vec<String> {
@@ -245,7 +240,7 @@ impl ServiceMap {
 }
 
 struct Entry {
-    local_handler: Option<Arc<Mutex<Box<Service>>>>,
+    local_handler: Option<Arc<Box<Service>>>,
     links: Vec<Link>,
     balancer: Box<Balancer<Item = Link>>,
 }

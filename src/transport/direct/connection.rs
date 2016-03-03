@@ -126,7 +126,7 @@ impl Connection {
                                                 &response_handler) {
                     Ok(()) => {}
                     Err(ref error) => {
-                        if let Some(ref error_handler) = *error_handler_clone.lock().unwrap() {
+                        if let Some(error_handler) = error_handler_clone.lock().unwrap().take() {
                             error_handler(peer_node_id, error);
                         }
                         break;
@@ -207,7 +207,7 @@ impl Connection {
 
             try!(packet::request::copy(id, reader, |buffer| {
                 let mut tx_stream = self.tx_stream.lock().unwrap();
-                try!(tx_stream.write_all(buffer));
+                try!(tx_stream.write(buffer));
                 Ok(buffer.len())
             }));
 
@@ -262,8 +262,10 @@ impl Connection {
         match f() {
             Ok(value) => Ok(value),
             Err(ref error) => {
-                if let Some(ref error_handler) = *self.error_handler.lock().unwrap() {
+                if let Some(error_handler) = self.error_handler.lock().unwrap().take() {
                     error_handler(self.peer_node_id, error);
+                } else {
+                    error!("got error but no handler: {:?}", error);
                 }
                 Ok(default)
             }

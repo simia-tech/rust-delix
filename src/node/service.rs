@@ -16,7 +16,7 @@
 use std::result;
 use super::{request, response};
 
-pub type Service = Fn(Box<request::Reader>) -> Result + Send;
+pub type Service = Fn(Box<request::Reader>) -> Result + Send + Sync;
 
 pub type Result = result::Result<Box<response::Reader>, Error>;
 

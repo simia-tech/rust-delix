@@ -19,7 +19,7 @@ mod helper;
 
 use std::io;
 use std::iter;
-use std::sync::{Arc, RwLock, mpsc};
+use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 
 use delix::node::request;
@@ -129,16 +129,16 @@ fn balanced_echos_from_two_remotes() {
     let (tx, rx) = mpsc::channel();
 
     let (node_two, metric_two) = helper::build_node("localhost:3062", &["localhost:3061"], None);
-    let tx_clone = tx.clone();
+    let tx_clone = Mutex::new(tx.clone());
     node_two.register("echo", Box::new(move |request| {
-        tx_clone.send("two").unwrap();
+        tx_clone.lock().unwrap().send("two").unwrap();
         Ok(request)
     })).unwrap();
 
     let (node_three, metric_three) = helper::build_node("localhost:3063", &["localhost:3061"], None);
-    let tx_clone = tx.clone();
+    let tx_clone = Mutex::new(tx.clone());
     node_three.register("echo", Box::new(move |request| {
-        tx_clone.send("three").unwrap();
+        tx_clone.lock().unwrap().send("three").unwrap();
         Ok(request)
     })).unwrap();
 
@@ -159,7 +159,7 @@ fn balanced_echos_from_two_remotes() {
 }
 
 #[test]
-fn parallel_requests_while_a_node_is_joining() {
+fn parallel_requests_while_a_node_joins_and_leaves() {
     helper::set_up();
 
     let (node_one, metric_one) = helper::build_node("localhost:3071", &[], None);
@@ -173,7 +173,10 @@ fn parallel_requests_while_a_node_is_joining() {
     let running_clone = running.clone();
     let jh_one = thread::spawn(move || {
         while *running_clone.read().unwrap() {
-            assert_eq!("test", String::from_utf8_lossy(&node_one_clone.request_bytes("echo", b"test").unwrap()));
+            match node_one_clone.request_bytes("echo", b"test") {
+                Ok(response) => assert_eq!("test", String::from_utf8_lossy(&response)),
+                Err(error) => println!("got error: {:?}", error),
+            }
             thread::sleep(::std::time::Duration::from_millis(10));
         }
     });
@@ -182,23 +185,30 @@ fn parallel_requests_while_a_node_is_joining() {
     let running_clone = running.clone();
     let jh_two = thread::spawn(move || {
         while *running_clone.read().unwrap() {
-            assert_eq!("test", String::from_utf8_lossy(&node_one_clone.request_bytes("echo", b"test").unwrap()));
+            match node_one_clone.request_bytes("echo", b"test") {
+                Ok(response) => assert_eq!("test", String::from_utf8_lossy(&response)),
+                Err(error) => println!("got error: {:?}", error),
+            }
             thread::sleep(::std::time::Duration::from_millis(10));
         }
     });
 
-    thread::sleep(::std::time::Duration::from_millis(50));
+    helper::wait_for_requests(&[&metric_one], 10);
 
-    let (node_two, metric_two) = helper::build_node("localhost:3072", &["localhost:3071"], None);
-    node_two.register("echo", Box::new(move |request| {
-        Ok(request)
-    })).unwrap();
+    {
+        let (node_two, metric_two) = helper::build_node("localhost:3072", &["localhost:3071"], None);
+        node_two.register("echo", Box::new(move |request| {
+            Ok(request)
+        })).unwrap();
 
-    helper::wait_for_joined(&[&metric_one, &metric_two]);
-    helper::wait_for_services(&[&metric_one, &metric_two], 1);
-    helper::wait_for_endpoints(&[&metric_one, &metric_two], 2);
+        helper::wait_for_joined(&[&metric_one, &metric_two]);
+        helper::wait_for_services(&[&metric_one, &metric_two], 1);
+        helper::wait_for_endpoints(&[&metric_one, &metric_two], 2);
 
-    thread::sleep(::std::time::Duration::from_millis(50));
+        helper::wait_for_requests(&[&metric_one], 100);
+    }
+
+    helper::wait_for_requests(&[&metric_one], 200);
 
     *running.write().unwrap() = false;
     jh_one.join().unwrap();
