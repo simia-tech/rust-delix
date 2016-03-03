@@ -60,7 +60,7 @@ fn single_echo_from_local_with_timeout() {
 
     let (node, metric) = helper::build_node("localhost:3021", &[], Some(10));
     node.register("echo", Box::new(|request| {
-        thread::sleep(::std::time::Duration::from_millis(20));
+        thread::sleep(::std::time::Duration::from_millis(100));
         Ok(request)
     })).unwrap();
 
