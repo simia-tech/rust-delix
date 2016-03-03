@@ -29,36 +29,32 @@ Let's dive into the config file of node one.
 type = "console"
 level = "debug"
 
+[metric]
+type = "terminal"
+refresh_interval_ms = 100
+
 [discovery]
 type = "constant"
 addresses = [ ]
 
-[cipher]
-type = "symmetric"
-key = "000102030405060708090a0b0c0d0e0f"
-
 [transport]
 type = "direct"
-local_address = "127.0.0.1:4001"
+local_address = "localhost:4001"
 request_timeout_ms = 5000
 balancer = { type = "dynamic_round_robin" }
 
 [[relay]]
 type = "http_static"
-address = "127.0.0.1:4200"
+address = "localhost:4200"
 header_field = "X-Delix-Service"
 
 [[relay.service]]
 name = "slashdot"
-address = "216.34.181.45:80"
+address = "slashdot.org:80"
 ```
 
 The `discovery` section contains the field `addresses` which holds a list of IPs (with ports) that is used during
 the node's boot up to search for other nodes. Since node `one` is the first, the list is empty here.
-
-In the `cipher` section is the `key` defined for the encryption and authentication of the traffic between nodes.
-The key can be 16, 24 or 32 bytes (hex encoded) long and will issue a AES-{128, 192 or 256}-GCM encryption. All nodes
-in the network must share the same key.
 
 In order to bind a node to an interface, `local_address` in the `transport` section must be set. If the interface
 differs from the interface visible to other nodes, the field `public_address` can be set.
