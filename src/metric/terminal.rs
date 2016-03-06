@@ -13,24 +13,25 @@
 // limitations under the License.
 //
 
-extern crate rustty;
+extern crate rustbox;
 
 use std::collections::VecDeque;
+use std::default::Default;
 use std::sync::RwLock;
+use std::time::Duration;
 
-use self::rustty::{Attr, Cell, CellAccessor, Color, HasSize};
-use self::rustty::ui::{self, Alignable, Painter};
+use self::rustbox::{Color, Key, RustBox};
 
 use super::{Memory, Metric, Query, Value, item};
 
 pub struct Terminal {
-    refresh_interval_ms: u32,
+    refresh_interval_ms: u64,
     memory: Memory,
     buffer: RwLock<VecDeque<String>>,
 }
 
 impl Terminal {
-    pub fn new(refresh_interval_ms: u32) -> Self {
+    pub fn new(refresh_interval_ms: u64) -> Self {
         Terminal {
             refresh_interval_ms: refresh_interval_ms,
             memory: Memory::new(),
@@ -38,31 +39,33 @@ impl Terminal {
         }
     }
 
-    fn draw_head(&self, widget: &mut ui::Widget) {
-        let style = Cell::with_style(Color::White, Color::Black, Attr::Bold);
-        widget.clear(style);
+    fn draw_head(&self, rustbox: &RustBox) {
+        let mut line = String::new();
+        line.push_str(" Delix");
+        pad(&mut line, rustbox.width());
 
-        let title = "Delix";
-        let x = widget.halign_line(title, ui::HorizontalAlign::Middle, 0);
-        widget.printline_with_cell(x, 0, title, style);
+        rustbox.print(0, 0, rustbox::RB_BOLD, Color::White, Color::Black, &line);
     }
 
-    fn draw_main(&self, widget: &mut ui::Widget) {
-        let style = Cell::with_style(Color::White, Color::Default, Attr::Default);
-        widget.clear(style);
-
+    fn draw_main(&self, rustbox: &RustBox) {
         let buffer = self.buffer.read().unwrap();
-        let mut row = 0;
-        for line in buffer.iter() {
-            widget.printline_with_cell(0, row, &line, style);
+        let mut row = 1;
+        for log_line in buffer.iter() {
+            let mut line = String::new();
+            line.push_str(log_line);
+            pad(&mut line, rustbox.width());
+
+            rustbox.print(0,
+                          row,
+                          rustbox::RB_NORMAL,
+                          Color::White,
+                          Color::Default,
+                          &line);
             row += 1;
         }
     }
 
-    fn draw_foot(&self, widget: &mut ui::Widget) {
-        let style = Cell::with_style(Color::White, Color::Black, Attr::Bold);
-        widget.clear(style);
-
+    fn draw_foot(&self, rustbox: &RustBox) {
         let connections = match self.memory.get("connections") {
             Some(Value::Gauge(value)) => value,
             _ => 0,
@@ -83,14 +86,21 @@ impl Terminal {
             _ => 0,
         };
 
-        let status = format!("{} connection(s) / {} service(s) / {} endpoint(s) / {} request(s)",
-                             connections,
-                             services,
-                             endpoints,
-                             requests);
+        let mut line = format!(" {} connection(s) / {} service(s) / {} endpoint(s) / {} \
+                                request(s)",
+                               connections,
+                               services,
+                               endpoints,
+                               requests);
 
-        let x = widget.halign_line(&status, ui::HorizontalAlign::Middle, 0);
-        widget.printline_with_cell(x, 0, &status, style);
+        pad(&mut line, rustbox.width());
+
+        rustbox.print(0,
+                      rustbox.height() - 1,
+                      rustbox::RB_BOLD,
+                      Color::White,
+                      Color::Black,
+                      &line);
     }
 }
 
@@ -113,53 +123,43 @@ impl Metric for Terminal {
     }
 
     fn display(&self) {
-        let mut terminal = rustty::Terminal::new().unwrap();
-        let (cols, rows) = terminal.size();
-
-        let mut head = ui::Widget::new(cols, 1);
-        head.align(&terminal,
-                   ui::HorizontalAlign::Left,
-                   ui::VerticalAlign::Top,
-                   0);
-
-        let mut main = ui::Widget::new(cols, rows - 2);
-        main.align(&terminal,
-                   ui::HorizontalAlign::Left,
-                   ui::VerticalAlign::Middle,
-                   0);
-
-        let mut foot = ui::Widget::new(cols, 1);
-        foot.align(&terminal,
-                   ui::HorizontalAlign::Left,
-                   ui::VerticalAlign::Bottom,
-                   0);
+        let rustbox = RustBox::init(Default::default()).unwrap();
 
         {
             let mut buffer = self.buffer.write().unwrap();
-            let mut new_buffer = VecDeque::with_capacity(rows - 2);
+            let mut new_buffer = VecDeque::with_capacity(rustbox.height() - 2);
             new_buffer.append(&mut *buffer);
             *buffer = new_buffer;
         }
 
+        self.draw_head(&rustbox);
+        self.draw_main(&rustbox);
+        self.draw_foot(&rustbox);
+        rustbox.present();
+
         loop {
-            if let Some(rustty::Event::Key(key)) =
-                   terminal.get_event(self.refresh_interval_ms as isize)
-                           .unwrap() {
-                match key {
-                    'q' => break,
-                    _ => {}
+            match rustbox.peek_event(Duration::from_millis(self.refresh_interval_ms), false)
+                         .unwrap() {
+                rustbox::Event::KeyEvent(key) => {
+                    match key {
+                        Key::Char('q') => {
+                            break;
+                        }
+                        _ => {}
+                    }
                 }
+                _ => {}
             }
 
-            self.draw_head(&mut head);
-            self.draw_main(&mut main);
-            self.draw_foot(&mut foot);
-
-            head.draw_into(&mut terminal);
-            main.draw_into(&mut terminal);
-            foot.draw_into(&mut terminal);
-            terminal.swap_buffers().unwrap();
+            self.draw_main(&rustbox);
+            self.draw_foot(&rustbox);
+            rustbox.present();
         }
+    }
+}
 
+fn pad(s: &mut String, size: usize) {
+    while s.len() < size {
+        s.push_str(" ");
     }
 }

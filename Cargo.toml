@@ -18,8 +18,8 @@ openssl = { version = "0.7", features = [ "tlsv1_2" ] }
 protobuf = "1.0"
 rand = "0.3"
 rust-crypto = "0.2"
+rustbox = "0.8"
 rustc-serialize = "0.3"
-rustty = { git = "https://github.com/cpjreynolds/rustty" }
 time = "0.1"
 toml = "0.1"
 

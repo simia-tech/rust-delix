@@ -70,7 +70,7 @@ impl Loader {
                 let refresh_interval_ms = self.configuration
                                               .i64_at("metric.refresh_interval_ms")
                                               .unwrap_or(100);
-                Ok(Arc::new(metric::Terminal::new(refresh_interval_ms as u32)))
+                Ok(Arc::new(metric::Terminal::new(refresh_interval_ms as u64)))
             }
             _ => {
                 Err(Error::InvalidValue("metric.type",
