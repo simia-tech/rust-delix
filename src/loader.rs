@@ -42,25 +42,11 @@ pub type Result<T> = result::Result<T, Error>;
 
 #[derive(Debug)]
 pub enum Error {
-    NoLogType,
-    UnknownLogType(String),
-    NoMetricType,
-    UnknownMetricType(String),
-    NoDiscoveryType,
-    UnknownDiscoveryType(String),
-    NoTransportType,
-    UnknownTransportType(String),
-    NoBalancerType,
-    UnknownBalancerType(String),
-    NoRelayType,
-    UnknownRelayType(String),
-    NoAddress,
-    NoAddresses,
-    NoName,
-    NoLocalAddress,
+    MissingField(&'static str),
+    InvalidValue(&'static str, String, Vec<&'static str>),
     NodeError(node::Error),
     Relay(relay::Error),
-    Io(io::Error),
+    Resolve(io::Error),
     Ssl(ssl::error::SslError),
 }
 
@@ -69,8 +55,35 @@ impl Loader {
         Loader { configuration: configuration }
     }
 
+    pub fn load_metric(&self) -> Result<Arc<metric::Metric>> {
+        let metric_type = try!(self.configuration
+                                   .string_at("metric.type")
+                                   .ok_or(Error::MissingField("metric.type")));
+
+        match metric_type.as_ref() {
+            "console" => {
+                info!("loaded console metric");
+                Ok(Arc::new(metric::Memory::new()))
+            }
+            "terminal" => {
+                info!("loaded terminal metric");
+                let refresh_interval_ms = self.configuration
+                                              .i64_at("metric.refresh_interval_ms")
+                                              .unwrap_or(100);
+                Ok(Arc::new(metric::Terminal::new(refresh_interval_ms as u32)))
+            }
+            _ => {
+                Err(Error::InvalidValue("metric.type",
+                                        metric_type.to_string(),
+                                        vec!["console", "terminal"]))
+            }
+        }
+    }
+
     pub fn load_log(&self, metric: &Arc<Metric>) -> Result<()> {
-        let log_type = try!(self.configuration.string_at("log.type").ok_or(Error::NoLogType));
+        let log_type = try!(self.configuration
+                                .string_at("log.type")
+                                .ok_or(Error::MissingField("log.type")));
 
         let log_level_filter = match self.configuration
                                          .string_at("log.level")
@@ -89,31 +102,9 @@ impl Loader {
             "console" => {
                 logger::Console::init(log_level_filter, "delix", metric).unwrap();
                 info!("loaded console log");
+                Ok(())
             }
-            _ => return Err(Error::UnknownLogType(log_type)),
-        }
-
-        Ok(())
-    }
-
-    pub fn load_metric(&self) -> Result<Arc<metric::Metric>> {
-        let metric_type = try!(self.configuration
-                                   .string_at("metric.type")
-                                   .ok_or(Error::NoMetricType));
-
-        match metric_type.as_ref() {
-            "console" => {
-                info!("loaded console metric");
-                Ok(Arc::new(metric::Memory::new()))
-            }
-            "terminal" => {
-                info!("loaded terminal metric");
-                let refresh_interval_ms = self.configuration
-                                              .i64_at("metric.refresh_interval_ms")
-                                              .unwrap_or(100);
-                Ok(Arc::new(metric::Terminal::new(refresh_interval_ms as u32)))
-            }
-            _ => return Err(Error::UnknownMetricType(metric_type)),
+            _ => Err(Error::InvalidValue("log.type", log_type.to_string(), vec!["console"])),
         }
     }
 
@@ -128,32 +119,37 @@ impl Loader {
     fn load_discovery(&self) -> Result<Box<Discovery>> {
         let discovery_type = try!(self.configuration
                                       .string_at("discovery.type")
-                                      .ok_or(Error::NoDiscoveryType));
+                                      .ok_or(Error::MissingField("discovery.type")));
 
         match discovery_type.as_ref() {
             "constant" => {
                 let addresses = try!(self.configuration
                                          .strings_at("discovery.addresses")
-                                         .ok_or(Error::NoAddresses));
+                                         .ok_or(Error::MissingField("discovery.addresses")));
                 let addresses = try!(resolve_socket_addresses(&addresses));
                 let constant = discovery::Constant::new(addresses);
                 info!("loaded constant discovery");
                 Ok(Box::new(constant))
             }
-            _ => Err(Error::UnknownDiscoveryType(discovery_type)),
+            _ => {
+                Err(Error::InvalidValue("discovery.type",
+                                        discovery_type.to_string(),
+                                        vec!["constant"]))
+            }
         }
     }
 
     fn load_transport(&self, metric: Arc<Metric>) -> Result<Box<Transport>> {
         let transport_type = try!(self.configuration
                                       .string_at("transport.type")
-                                      .ok_or(Error::NoTransportType));
+                                      .ok_or(Error::MissingField("transport.type")));
 
         match transport_type.as_ref() {
             "direct" => {
                 let local_address = try!(self.configuration
                                              .string_at("transport.local_address")
-                                             .ok_or(Error::NoLocalAddress));
+                                             .ok_or(Error::MissingField("transport.\
+                                                                         local_address")));
                 let local_address = try!(resolve_socket_address(&local_address));
 
                 let public_address = match self.configuration
@@ -193,11 +189,16 @@ impl Loader {
 
                 let balancer_type = try!(self.configuration
                                              .string_at("transport.balancer.type")
-                                             .ok_or(Error::NoBalancerType));
+                                             .ok_or(Error::MissingField("transport.balancer.\
+                                                                         type")));
 
                 let balancer_factory = match balancer_type.as_ref() {
                     "dynamic_round_robin" => Box::new(balancer::DynamicRoundRobinFactory::new()),
-                    _ => return Err(Error::UnknownBalancerType(balancer_type)),
+                    _ => {
+                        return Err(Error::InvalidValue("transport.balancer.type",
+                                                       balancer_type.to_string(),
+                                                       vec!["dynamic_round_robin"]))
+                    }
                 };
 
                 info!("loaded direct transport - listening at {}", local_address);
@@ -209,7 +210,11 @@ impl Loader {
                                                    public_address,
                                                    request_timeout)))
             }
-            _ => Err(Error::UnknownTransportType(transport_type)),
+            _ => {
+                Err(Error::InvalidValue("transport.type",
+                                        transport_type.to_string(),
+                                        vec!["direct"]))
+            }
         }
     }
 
@@ -217,50 +222,8 @@ impl Loader {
         let mut relays = Vec::new();
         if let Some(configurations) = self.configuration.configurations_at("relay") {
             for configuration in configurations {
-                let relay_type = try!(configuration.string_at("type").ok_or(Error::NoRelayType));
-
-                let relay: Box<Relay> = match relay_type.as_ref() {
-                    "http_static" => {
-                        let address = configuration.string_at("address");
-                        let header_field = configuration.string_at("header_field")
-                                                        .unwrap_or("X-Delix-Service".to_string());
-                        let read_timeout = configuration.i64_at("read_timeout_ms")
-                                                        .map(|value| Duration::milliseconds(value));
-                        let write_timeout = configuration.i64_at("write_timeout_ms")
-                                                         .map(|value| {
-                                                             Duration::milliseconds(value)
-                                                         });
-
-                        let http_static = relay::HttpStatic::new(node.clone(),
-                                                                 &header_field,
-                                                                 read_timeout,
-                                                                 write_timeout);
-
-                        if let Some(configurations) = configuration.configurations_at("service") {
-                            for configuration in configurations {
-                                let name = try!(configuration.string_at("name")
-                                                             .ok_or(Error::NoName));
-                                let address = try!(configuration.string_at("address")
-                                                                .ok_or(Error::NoAddress));
-                                http_static.add_service(&name, &address);
-                            }
-                        }
-
-                        if let Some(ref address) = address {
-                            try!(http_static.bind(try!(resolve_socket_address(address))));
-                            info!("loaded http static relay - listening at {}", address);
-                        } else {
-                            info!("loaded http static relay");
-                        }
-
-                        Box::new(http_static)
-                    }
-                    _ => return Err(Error::UnknownRelayType(relay_type)),
-                };
-
-                relays.push(relay);
+                relays.push(try!(load_relay(&configuration, node)));
             }
-
         }
         Ok(relays)
     }
@@ -280,7 +243,7 @@ impl From<relay::Error> for Error {
 
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
-        Error::Io(error)
+        Error::Resolve(error)
     }
 }
 
@@ -289,6 +252,50 @@ impl From<ssl::error::SslError> for Error {
         Error::Ssl(error)
     }
 }
+
+fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Relay>> {
+    let relay_type = try!(configuration.string_at("type")
+                                       .ok_or(Error::MissingField("relay.type")));
+
+    match relay_type.as_ref() {
+        "http_static" => {
+            let address = configuration.string_at("address");
+            let header_field = configuration.string_at("header_field")
+                                            .unwrap_or("X-Delix-Service".to_string());
+            let read_timeout = configuration.i64_at("read_timeout_ms")
+                                            .map(|value| Duration::milliseconds(value));
+            let write_timeout = configuration.i64_at("write_timeout_ms")
+                                             .map(|value| Duration::milliseconds(value));
+
+            let http_static = relay::HttpStatic::new(node.clone(),
+                                                     &header_field,
+                                                     read_timeout,
+                                                     write_timeout);
+
+            if let Some(configurations) = configuration.configurations_at("service") {
+                for configuration in configurations {
+                    let name = try!(configuration.string_at("name")
+                                                 .ok_or(Error::MissingField("relay.service.name")));
+                    let address = try!(configuration.string_at("address")
+                                                    .ok_or(Error::MissingField("relay.service.\
+                                                                                address")));
+                    http_static.add_service(&name, &address);
+                }
+            }
+
+            if let Some(ref address) = address {
+                try!(http_static.bind(try!(resolve_socket_address(address))));
+                info!("loaded http static relay - listening at {}", address);
+            } else {
+                info!("loaded http static relay");
+            }
+
+            Ok(Box::new(http_static))
+        }
+        _ => Err(Error::InvalidValue("relay.type", relay_type.to_string(), vec!["http_static"])),
+    }
+}
+
 
 fn resolve_socket_address(address: &str) -> io::Result<SocketAddr> {
     Ok(try!(try!(address.to_socket_addrs())
