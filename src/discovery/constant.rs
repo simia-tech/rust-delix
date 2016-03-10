@@ -33,7 +33,7 @@ impl Constant {
 }
 
 impl Discovery for Constant {
-    fn discover(&self) -> Option<SocketAddr> {
+    fn next(&self) -> Option<SocketAddr> {
         let addresses = self.addresses.read().unwrap();
         let mut current_index = self.current_index.write().unwrap();
 
