@@ -16,6 +16,8 @@ limitations under the License.
 
 pub mod discovery;
 mod constant;
+mod multicast;
 
-pub use discovery::discovery::Discovery;
-pub use discovery::constant::Constant;
+pub use self::discovery::Discovery;
+pub use self::constant::Constant;
+pub use self::multicast::Multicast;

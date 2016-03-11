@@ -14,6 +14,7 @@ byteorder = "0.4"
 clap = "2.0"
 getopts = "0.2"
 log = "0.3"
+net2 = "0.2"
 openssl = { version = "0.7", features = [ "tlsv1_2" ] }
 protobuf = "1.0"
 rand = "0.3"

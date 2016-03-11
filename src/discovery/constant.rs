@@ -16,7 +16,7 @@
 use std::net::SocketAddr;
 use std::sync::RwLock;
 
-use discovery::Discovery;
+use super::Discovery;
 
 pub struct Constant {
     addresses: RwLock<Vec<SocketAddr>>,
