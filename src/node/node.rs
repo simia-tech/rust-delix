@@ -59,6 +59,7 @@ impl Node {
 
     pub fn join(&self) {
         while let Some(address) = self.discovery.next() {
+            info!("discovered node at {}", address);
             match self.transport.join(address, self.id) {
                 Ok(()) => break,
                 Err(error) => {

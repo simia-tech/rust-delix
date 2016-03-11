@@ -23,6 +23,7 @@ use node::{ID, Service, request, response};
 use transport::direct;
 
 pub trait Transport : Send + Sync {
+    fn public_address(&self) -> SocketAddr;
     fn bind(&self, ID) -> Result<()>;
     fn join(&self, SocketAddr, ID) -> Result<()>;
 

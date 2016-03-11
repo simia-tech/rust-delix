@@ -20,6 +20,8 @@ use std::io;
 use std::thread;
 use std::sync::{Mutex, mpsc};
 
+use time::Duration;
+
 use self::net2::UdpSocketExt;
 
 use super::Discovery;
@@ -38,13 +40,15 @@ pub struct Multicast {
     udp_socket: net::UdpSocket,
     multicast_address: SocketAddr,
     public_address: SocketAddr,
+    reply_timeout: Duration,
     tx: Mutex<mpsc::Sender<mpsc::Sender<SocketAddr>>>,
 }
 
 impl Multicast {
     pub fn new(interface_address: SocketAddr,
                multicast_address: SocketAddr,
-               public_address: SocketAddr)
+               public_address: SocketAddr,
+               reply_timeout: Duration)
                -> io::Result<Self> {
         let any_ip = Ipv4Addr::new(0, 0, 0, 0);
 
@@ -100,6 +104,7 @@ impl Multicast {
             udp_socket: udp_socket,
             multicast_address: multicast_address,
             public_address: public_address,
+            reply_timeout: reply_timeout,
             tx: Mutex::new(tx),
         })
     }
@@ -116,7 +121,12 @@ impl Discovery for Multicast {
                     self.public_address)
             .unwrap();
 
-        Some(rx.recv().unwrap())
+        thread::sleep(::std::time::Duration::from_millis(self.reply_timeout.num_milliseconds() as u64));
+        match rx.try_recv() {
+            Ok(address) => Some(address),
+            Err(mpsc::TryRecvError::Empty) => None,
+            Err(error) => panic!(error),
+        }
     }
 }
 
@@ -175,21 +185,36 @@ fn unpack(p: &Packet) -> (Kind, SocketAddr) {
 mod tests {
 
     use std::net::SocketAddr;
+    use time::Duration;
     use super::Multicast;
     use super::super::Discovery;
 
     #[test]
+    fn discovery_with_one_nodes() {
+        let address = "127.0.0.1:3001".parse::<SocketAddr>().unwrap();
+        let discovery = Multicast::new("0.0.0.0:4001".parse::<SocketAddr>().unwrap(),
+                                       "224.0.0.1:4002".parse::<SocketAddr>().unwrap(),
+                                       address,
+                                       Duration::milliseconds(500))
+                            .unwrap();
+
+        assert_eq!(None, discovery.next());
+    }
+
+    #[test]
     fn discovery_with_two_nodes() {
-        let address_one = "127.0.0.1:3001".parse::<SocketAddr>().unwrap();
-        let discovery_one = Multicast::new("0.0.0.0:4001".parse::<SocketAddr>().unwrap(),
-                                           "224.0.0.1:4002".parse::<SocketAddr>().unwrap(),
-                                           address_one)
+        let address_one = "127.0.0.1:3011".parse::<SocketAddr>().unwrap();
+        let discovery_one = Multicast::new("0.0.0.0:4011".parse::<SocketAddr>().unwrap(),
+                                           "224.0.0.1:4012".parse::<SocketAddr>().unwrap(),
+                                           address_one,
+                                           Duration::milliseconds(500))
                                 .unwrap();
 
-        let address_two = "127.0.0.1:3002".parse::<SocketAddr>().unwrap();
-        let discovery_two = Multicast::new("0.0.0.0:4002".parse::<SocketAddr>().unwrap(),
-                                           "224.0.0.1:4001".parse::<SocketAddr>().unwrap(),
-                                           address_two)
+        let address_two = "127.0.0.1:3012".parse::<SocketAddr>().unwrap();
+        let discovery_two = Multicast::new("0.0.0.0:4012".parse::<SocketAddr>().unwrap(),
+                                           "224.0.0.1:4011".parse::<SocketAddr>().unwrap(),
+                                           address_two,
+                                           Duration::milliseconds(500))
                                 .unwrap();
 
         assert_eq!(Some(address_two), discovery_one.next());
@@ -198,22 +223,25 @@ mod tests {
 
     #[test]
     fn discovery_with_three_nodes() {
-        let address_one = "127.0.0.1:3011".parse::<SocketAddr>().unwrap();
-        let discovery_one = Multicast::new("0.0.0.0:4011".parse::<SocketAddr>().unwrap(),
-                                           "224.0.0.2:4012".parse::<SocketAddr>().unwrap(),
-                                           address_one)
+        let address_one = "127.0.0.1:3021".parse::<SocketAddr>().unwrap();
+        let discovery_one = Multicast::new("0.0.0.0:4021".parse::<SocketAddr>().unwrap(),
+                                           "224.0.0.2:4022".parse::<SocketAddr>().unwrap(),
+                                           address_one,
+                                           Duration::milliseconds(500))
                                 .unwrap();
 
-        let address_two = "127.0.0.1:3012".parse::<SocketAddr>().unwrap();
-        let discovery_two = Multicast::new("0.0.0.0:4012".parse::<SocketAddr>().unwrap(),
-                                           "224.0.0.2:4011".parse::<SocketAddr>().unwrap(),
-                                           address_two)
+        let address_two = "127.0.0.1:3022".parse::<SocketAddr>().unwrap();
+        let discovery_two = Multicast::new("0.0.0.0:4022".parse::<SocketAddr>().unwrap(),
+                                           "224.0.0.2:4021".parse::<SocketAddr>().unwrap(),
+                                           address_two,
+                                           Duration::milliseconds(500))
                                 .unwrap();
 
-        let address_three = "127.0.0.1:3013".parse::<SocketAddr>().unwrap();
-        let discovery_three = Multicast::new("0.0.0.0:4013".parse::<SocketAddr>().unwrap(),
-                                             "224.0.0.2:4011".parse::<SocketAddr>().unwrap(),
-                                             address_three)
+        let address_three = "127.0.0.1:3023".parse::<SocketAddr>().unwrap();
+        let discovery_three = Multicast::new("0.0.0.0:4023".parse::<SocketAddr>().unwrap(),
+                                             "224.0.0.2:4021".parse::<SocketAddr>().unwrap(),
+                                             address_three,
+                                             Duration::milliseconds(500))
                                   .unwrap();
 
         assert_eq!(Some(address_two), discovery_one.next());

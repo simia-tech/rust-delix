@@ -8,8 +8,9 @@ type = "terminal"
 refresh_interval_ms = 100
 
 [discovery]
-type = "constant"
-addresses = [ ]
+type = "multicast"
+interface_address = "0.0.0.0:3001"
+multicast_address = "224.0.0.1:3002"
 
 [transport]
 type = "direct"

@@ -109,14 +109,13 @@ impl Loader {
     }
 
     pub fn load_node(&self, metric: &Arc<metric::Metric>) -> Result<Arc<Node>> {
-        let discovery = try!(self.load_discovery());
-
         let transport = try!(self.load_transport(metric.clone()));
+        let discovery = try!(self.load_discovery(transport.public_address()));
 
         Ok(Arc::new(try!(Node::new(discovery, transport, metric.clone()))))
     }
 
-    fn load_discovery(&self) -> Result<Box<Discovery>> {
+    fn load_discovery(&self, public_address: SocketAddr) -> Result<Box<Discovery>> {
         let discovery_type = try!(self.configuration
                                       .string_at("discovery.type")
                                       .ok_or(Error::MissingField("discovery.type")));
@@ -127,9 +126,34 @@ impl Loader {
                                          .strings_at("discovery.addresses")
                                          .ok_or(Error::MissingField("discovery.addresses")));
                 let addresses = try!(resolve_socket_addresses(&addresses));
-                let constant = discovery::Constant::new(addresses);
+                let discovery = discovery::Constant::new(addresses);
                 info!("loaded constant discovery");
-                Ok(Box::new(constant))
+                Ok(Box::new(discovery))
+            }
+            "multicast" => {
+                let interface_address = try!(self.configuration
+                                                 .string_at("discovery.interface_address")
+                                                 .ok_or(Error::MissingField("discovery.\
+                                                                             interface_address")));
+                let interface_address = try!(resolve_socket_address(&interface_address));
+                let multicast_address = try!(self.configuration
+                                                 .string_at("discovery.multicast_address")
+                                                 .ok_or(Error::MissingField("discovery.\
+                                                                             multicast_address")));
+                let multicast_address = try!(resolve_socket_address(&multicast_address));
+
+                let reply_timeout = Duration::milliseconds(self.configuration
+                                                               .i64_at("transport.\
+                                                                        reply_timeout_ms")
+                                                               .unwrap_or(500));
+
+                let discovery = try!(discovery::Multicast::new(interface_address,
+                                                               multicast_address,
+                                                               public_address,
+                                                               reply_timeout));
+                info!("loaded multicast discovery");
+                Ok(Box::new(discovery))
+
             }
             _ => {
                 Err(Error::InvalidValue("discovery.type",

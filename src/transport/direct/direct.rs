@@ -74,6 +74,10 @@ impl Direct {
 }
 
 impl Transport for Direct {
+    fn public_address(&self) -> SocketAddr {
+        self.public_address
+    }
+
     fn bind(&self, node_id: ID) -> Result<()> {
         let tcp_listener = try!(net::TcpListener::bind(self.local_address));
 
