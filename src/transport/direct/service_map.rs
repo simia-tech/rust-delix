@@ -227,7 +227,9 @@ struct Entry {
     metric: Arc<Metric>,
     local_handler: Option<Arc<Box<Service>>>,
     links: Vec<Link>,
-    counters: HashMap<Link, metric::item::Counter>,
+    local_inbound_counter: Option<metric::item::Counter>,
+    local_outbound_counter: Option<metric::item::Counter>,
+    remote_outbound_counters: HashMap<ID, metric::item::Counter>,
 }
 
 impl Entry {
@@ -238,50 +240,71 @@ impl Entry {
             metric: metric,
             local_handler: None,
             links: Vec::new(),
-            counters: HashMap::default(),
+            local_inbound_counter: None,
+            local_outbound_counter: None,
+            remote_outbound_counters: HashMap::default(),
         }
     }
 
     fn add_local_link(&mut self, local_handler: Arc<Box<Service>>) {
         self.local_handler = Some(local_handler);
+        self.local_inbound_counter = Some(self.metric.counter(&format!("service.{}.inbound.\
+                                                                        local.selected",
+                                                                       self.name)));
+        self.local_outbound_counter = Some(self.metric
+                                               .counter(&format!("service.{}.outbound.local.\
+                                                                  selected",
+                                                                 self.name)));
+
         self.links.push(Link::Local);
-        self.counters.insert(Link::Local,
-                             self.metric.counter(&format!("service.{}.endpoint.local.selected",
-                                                          self.name)));
         self.balancer.set_links(&self.links);
     }
 
     fn remove_local_link(&mut self) {
         self.local_handler = None;
+        self.local_inbound_counter = None;
+        self.local_outbound_counter = None;
+
         self.links.retain(|link| !Link::is_local(link));
-        self.counters.remove(&Link::Local);
         self.balancer.set_links(&self.links);
     }
 
     fn add_remote_link(&mut self, peer_node_id: ID) {
+        self.remote_outbound_counters.insert(peer_node_id,
+                                             self.metric
+                                                 .counter(&format!("service.{}.outbound.{}.\
+                                                                    selected",
+                                                                   self.name,
+                                                                   peer_node_id)));
+
         self.links.push(Link::Remote(peer_node_id));
-        self.counters.insert(Link::Remote(peer_node_id),
-                             self.metric.counter(&format!("service.{}.endpoint.{}.selected",
-                                                          self.name,
-                                                          peer_node_id)));
         self.balancer.set_links(&self.links);
     }
 
     fn remove_remote_link(&mut self, peer_node_id: &ID) {
+        self.remote_outbound_counters.remove(peer_node_id);
+
         self.links.retain(|link| !Link::is_remote(link, peer_node_id));
-        self.counters.remove(&Link::Remote(*peer_node_id));
         self.balancer.set_links(&self.links);
     }
 
     fn select_link(&mut self) -> Link {
         let link = self.balancer.next().expect("balancer did not produce any link");
-        self.counters.get(&link).unwrap().increment();
+        match link {
+            Link::Local => self.local_outbound_counter.as_ref().unwrap().increment(),
+            Link::Remote(ref peer_node_id) => {
+                self.remote_outbound_counters.get(peer_node_id).unwrap().increment()
+            }
+        }
         link
     }
 
     fn select_local_link(&self) -> Option<Arc<Box<Service>>> {
         match self.local_handler {
-            Some(ref local_handler) => Some(local_handler.clone()),
+            Some(ref local_handler) => {
+                self.local_inbound_counter.as_ref().unwrap().increment();
+                Some(local_handler.clone())
+            }
             None => None,
         }
     }

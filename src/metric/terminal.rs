@@ -57,76 +57,98 @@ impl Terminal {
 
     fn draw_main(&self, rustbox: &RustBox) {
         match *self.screen.read().unwrap() {
-            Screen::Services => {
-                let map = self.memory.get_all_with_prefix("service.");
-                let mut keys = map.keys().collect::<Vec<_>>();
-                keys.sort();
+            Screen::Services => self.draw_main_services(rustbox),
+            Screen::Log => self.draw_main_log(rustbox),
+        }
+    }
 
-                let mut row = 1;
-                let mut current_service = "";
-                for key in keys {
-                    let parts = key.split('.').collect::<Vec<&str>>();
-                    let service = parts[1];
-                    let endpoint = parts[3];
+    fn draw_main_services(&self, rustbox: &RustBox) {
+        let map = self.memory.get_all_with_prefix("service.");
+        let mut keys = map.keys().collect::<Vec<_>>();
+        keys.sort();
 
-                    if current_service != service {
-                        current_service = service;
-                        let mut line = format!("  {}", service);
-                        pad(&mut line, rustbox.width());
-                        rustbox.print(0,
-                                      row,
-                                      rustbox::RB_NORMAL,
-                                      Color::White,
-                                      Color::Default,
-                                      &line);
-                        row += 1;
-                    }
+        let mut row = 1;
+        let mut current_service = "";
+        let mut current_direction = "";
+        for key in keys {
+            let parts = key.split('.').collect::<Vec<&str>>();
+            let service = parts[1];
+            let direction = parts[2];
+            let endpoint = parts[3];
 
-                    let value = map.get(key).unwrap();
+            if current_service != service {
+                current_service = service;
+                current_direction = "";
 
-                    let mut line = match *value {
-                        Value::Counter(v) => format!("    {:<12} {:>6?}", endpoint, v),
-                        Value::Gauge(v) => format!("    {:<12} {:>6?}", endpoint, v),
-                    };
-                    pad(&mut line, rustbox.width());
-                    rustbox.print(0,
-                                  row,
-                                  rustbox::RB_NORMAL,
-                                  Color::White,
-                                  Color::Default,
-                                  &line);
-                    row += 1;
-                }
-
-                let mut blank_line = String::new();
-                pad(&mut blank_line, rustbox.width());
-                while row < (rustbox.height() - 1) {
-                    rustbox.print(0,
-                                  row,
-                                  rustbox::RB_NORMAL,
-                                  Color::White,
-                                  Color::Default,
-                                  &blank_line);
-                    row += 1;
-                }
+                let mut line = format!("{}", service);
+                pad(&mut line, rustbox.width());
+                rustbox.print(0,
+                              row,
+                              rustbox::RB_BOLD,
+                              Color::White,
+                              Color::Default,
+                              &line);
+                row += 1;
             }
-            Screen::Log => {
-                let log_buffer = self.log_buffer.read().unwrap();
-                let mut row = 1;
-                for log_line in log_buffer.iter() {
-                    let mut line = String::new();
-                    line.push_str(log_line);
-                    pad(&mut line, rustbox.width());
 
-                    rustbox.print(0,
-                                  row,
-                                  rustbox::RB_NORMAL,
-                                  Color::White,
-                                  Color::Default,
-                                  &line);
-                    row += 1;
-                }
+            if current_direction != direction {
+                current_direction = direction;
+
+                let mut line = format!("  {}", direction);
+                pad(&mut line, rustbox.width());
+                rustbox.print(0,
+                              row,
+                              rustbox::RB_NORMAL,
+                              Color::White,
+                              Color::Default,
+                              &line);
+                row += 1;
             }
+
+            let value = map.get(key).unwrap();
+
+            let mut line = match *value {
+                Value::Counter(v) => format!("    {:<12} {:>6?}", endpoint, v),
+                Value::Gauge(v) => format!("    {:<12} {:>6?}", endpoint, v),
+            };
+            pad(&mut line, rustbox.width());
+            rustbox.print(0,
+                          row,
+                          rustbox::RB_NORMAL,
+                          Color::White,
+                          Color::Default,
+                          &line);
+            row += 1;
+        }
+
+        let mut blank_line = String::new();
+        pad(&mut blank_line, rustbox.width());
+        while row < (rustbox.height() - 1) {
+            rustbox.print(0,
+                          row,
+                          rustbox::RB_NORMAL,
+                          Color::White,
+                          Color::Default,
+                          &blank_line);
+            row += 1;
+        }
+    }
+
+    fn draw_main_log(&self, rustbox: &RustBox) {
+        let log_buffer = self.log_buffer.read().unwrap();
+        let mut row = 1;
+        for log_line in log_buffer.iter() {
+            let mut line = String::new();
+            line.push_str(log_line);
+            pad(&mut line, rustbox.width());
+
+            rustbox.print(0,
+                          row,
+                          rustbox::RB_NORMAL,
+                          Color::White,
+                          Color::Default,
+                          &line);
+            row += 1;
         }
     }
 
