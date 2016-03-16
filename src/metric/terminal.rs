@@ -27,7 +27,14 @@ use super::{Memory, Metric, Query, Value, item};
 pub struct Terminal {
     refresh_interval_ms: u64,
     memory: Memory,
-    buffer: RwLock<VecDeque<String>>,
+
+    screen: RwLock<Screen>,
+    log_buffer: RwLock<VecDeque<String>>,
+}
+
+enum Screen {
+    Services,
+    Log,
 }
 
 impl Terminal {
@@ -35,7 +42,8 @@ impl Terminal {
         Terminal {
             refresh_interval_ms: refresh_interval_ms,
             memory: Memory::new(),
-            buffer: RwLock::new(VecDeque::new()),
+            screen: RwLock::new(Screen::Services),
+            log_buffer: RwLock::new(VecDeque::new()),
         }
     }
 
@@ -48,20 +56,77 @@ impl Terminal {
     }
 
     fn draw_main(&self, rustbox: &RustBox) {
-        let buffer = self.buffer.read().unwrap();
-        let mut row = 1;
-        for log_line in buffer.iter() {
-            let mut line = String::new();
-            line.push_str(log_line);
-            pad(&mut line, rustbox.width());
+        match *self.screen.read().unwrap() {
+            Screen::Services => {
+                let map = self.memory.get_all_with_prefix("service.");
+                let mut keys = map.keys().collect::<Vec<_>>();
+                keys.sort();
 
-            rustbox.print(0,
-                          row,
-                          rustbox::RB_NORMAL,
-                          Color::White,
-                          Color::Default,
-                          &line);
-            row += 1;
+                let mut row = 1;
+                let mut current_service = "";
+                for key in keys {
+                    let parts = key.split('.').collect::<Vec<&str>>();
+                    let service = parts[1];
+                    let endpoint = parts[3];
+
+                    if current_service != service {
+                        current_service = service;
+                        let mut line = format!("  {}", service);
+                        pad(&mut line, rustbox.width());
+                        rustbox.print(0,
+                                      row,
+                                      rustbox::RB_NORMAL,
+                                      Color::White,
+                                      Color::Default,
+                                      &line);
+                        row += 1;
+                    }
+
+                    let value = map.get(key).unwrap();
+
+                    let mut line = match *value {
+                        Value::Counter(v) => format!("    {:<12} {:>6?}", endpoint, v),
+                        Value::Gauge(v) => format!("    {:<12} {:>6?}", endpoint, v),
+                    };
+                    pad(&mut line, rustbox.width());
+                    rustbox.print(0,
+                                  row,
+                                  rustbox::RB_NORMAL,
+                                  Color::White,
+                                  Color::Default,
+                                  &line);
+                    row += 1;
+                }
+
+                let mut blank_line = String::new();
+                pad(&mut blank_line, rustbox.width());
+                while row < (rustbox.height() - 1) {
+                    rustbox.print(0,
+                                  row,
+                                  rustbox::RB_NORMAL,
+                                  Color::White,
+                                  Color::Default,
+                                  &blank_line);
+                    row += 1;
+                }
+            }
+            Screen::Log => {
+                let log_buffer = self.log_buffer.read().unwrap();
+                let mut row = 1;
+                for log_line in log_buffer.iter() {
+                    let mut line = String::new();
+                    line.push_str(log_line);
+                    pad(&mut line, rustbox.width());
+
+                    rustbox.print(0,
+                                  row,
+                                  rustbox::RB_NORMAL,
+                                  Color::White,
+                                  Color::Default,
+                                  &line);
+                    row += 1;
+                }
+            }
         }
     }
 
@@ -106,12 +171,12 @@ impl Terminal {
 
 impl Metric for Terminal {
     fn log(&self, tag: &str, target: &str, text: &str) {
-        let mut buffer = self.buffer.write().unwrap();
+        let mut log_buffer = self.log_buffer.write().unwrap();
 
-        while buffer.len() >= buffer.capacity() {
-            buffer.pop_front();
+        while log_buffer.len() >= log_buffer.capacity() {
+            log_buffer.pop_front();
         }
-        buffer.push_back(format!("[{}] [{}] {}", tag, target, text));
+        log_buffer.push_back(format!("[{}] [{}] {}", tag, target, text));
     }
 
     fn counter(&self, key: &str) -> item::Counter {
@@ -126,10 +191,10 @@ impl Metric for Terminal {
         let rustbox = RustBox::init(Default::default()).unwrap();
 
         {
-            let mut buffer = self.buffer.write().unwrap();
+            let mut log_buffer = self.log_buffer.write().unwrap();
             let mut new_buffer = VecDeque::with_capacity(rustbox.height() - 2);
-            new_buffer.append(&mut *buffer);
-            *buffer = new_buffer;
+            new_buffer.append(&mut *log_buffer);
+            *log_buffer = new_buffer;
         }
 
         self.draw_head(&rustbox);
@@ -142,6 +207,12 @@ impl Metric for Terminal {
                          .unwrap() {
                 rustbox::Event::KeyEvent(key) => {
                     match key {
+                        Key::Char('1') => {
+                            *self.screen.write().unwrap() = Screen::Services;
+                        }
+                        Key::Char('2') => {
+                            *self.screen.write().unwrap() = Screen::Log;
+                        }
                         Key::Char('q') => {
                             break;
                         }

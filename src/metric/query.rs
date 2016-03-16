@@ -13,9 +13,12 @@
 // limitations under the License.
 //
 
+use std::collections::HashMap;
+
 use super::Value;
 
 pub trait Query {
     fn get(&self, &str) -> Option<Value>;
+    fn get_all_with_prefix(&self, &str) -> HashMap<String, Value>;
     fn watch<P>(&self, &str, P) where P: Fn(&str, &Value) -> bool + Send + Sync + 'static;
 }

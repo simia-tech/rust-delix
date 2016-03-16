@@ -14,11 +14,11 @@
 //
 
 use std::collections::{HashMap, hash_map};
-use std::sync::{Arc, Condvar, RwLock, Mutex, atomic};
+use std::sync::{Arc, Condvar, RwLock, Mutex, Weak, atomic};
 use super::{Metric, Query, Value, item};
 
 pub struct Memory {
-    entries: RwLock<HashMap<String, Arc<Entry>>>,
+    entries: RwLock<HashMap<String, Weak<Entry>>>,
     watches: Arc<RwLock<HashMap<u16,
                                 (String,
                                  Box<Fn(&str, &Value) -> bool + Send + Sync>,
@@ -40,10 +40,38 @@ impl Memory {
         match entries.entry(key.to_string()) {
             hash_map::Entry::Vacant(ve) => {
                 let entry = Arc::new(default);
-                ve.insert(entry.clone());
+                ve.insert(Arc::downgrade(&entry));
                 entry
             }
-            hash_map::Entry::Occupied(ref mut oe) => oe.get().clone(),
+            hash_map::Entry::Occupied(ref mut oe) => {
+                match oe.get().upgrade() {
+                    Some(entry) => entry,
+                    None => {
+                        let entry = Arc::new(default);
+                        oe.insert(Arc::downgrade(&entry));
+                        entry
+                    }
+                }
+            }
+        }
+    }
+
+    fn for_each<F>(&self, mut f: F)
+        where F: FnMut(&str, &Arc<Entry>)
+    {
+        let mut entries = self.entries.write().unwrap();
+        let mut to_remove = Vec::new();
+        for (key, entry) in entries.iter() {
+            match entry.upgrade() {
+                Some(e) => f(key, &e),
+                None => {
+                    to_remove.push(key.to_string());
+                }
+            }
+        }
+
+        for key in to_remove {
+            entries.remove(&key);
         }
     }
 }
@@ -100,8 +128,29 @@ impl Metric for Memory {
 
 impl Query for Memory {
     fn get(&self, key: &str) -> Option<Value> {
-        let entries = self.entries.read().unwrap();
-        entries.get(key).map(|entry| Value::from(&**entry))
+        let mut entries = self.entries.write().unwrap();
+        match entries.entry(key.to_string()) {
+            hash_map::Entry::Vacant(_) => None,
+            hash_map::Entry::Occupied(oe) => {
+                match oe.get().upgrade() {
+                    Some(entry) => Some(Value::from(&*entry)),
+                    None => {
+                        oe.remove();
+                        None
+                    }
+                }
+            }
+        }
+    }
+
+    fn get_all_with_prefix(&self, prefix: &str) -> HashMap<String, Value> {
+        let mut result = HashMap::default();
+        self.for_each(|key, entry| {
+            if key.starts_with(prefix) {
+                result.insert(key.to_string(), Value::from(&**entry));
+            }
+        });
+        result
     }
 
     fn watch<P>(&self, prefix: &str, predicate: P)
@@ -118,11 +167,14 @@ impl Query for Memory {
         {
             let mut watches = self.watches.write().unwrap();
 
-            let entries = self.entries.read().unwrap();
-            for (key, entry) in entries.iter() {
+            let mut exit = false;
+            self.for_each(|key, entry| {
                 if key.starts_with(prefix) && !predicate(key, &Value::from(&**entry)) {
-                    return;
+                    exit = true;
                 }
+            });
+            if exit {
+                return;
             }
 
             watches.insert(id, (prefix.to_string(), Box::new(predicate), tuple.clone()));
@@ -189,8 +241,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_variables)]
     fn concurrent_counter() {
         let metric = Memory::new();
+
+        let c = metric.counter("test");
 
         let counter = metric.counter("test");
         let jh1 = thread::spawn(move || {
@@ -239,8 +294,11 @@ mod tests {
     }
 
     #[test]
+    #[allow(unused_variables)]
     fn concurrent_gauge() {
         let metric = Memory::new();
+
+        let g = metric.gauge("test");
 
         let gauge = metric.gauge("test");
         let jh1 = thread::spawn(move || {

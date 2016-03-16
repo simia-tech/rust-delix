@@ -40,7 +40,7 @@ pub enum Error {
 
 impl ConnectionMap {
     pub fn new(metric: Arc<Metric>) -> Self {
-        let map = Arc::new(RwLock::new(HashMap::new()));
+        let map = Arc::new(RwLock::new(HashMap::default()));
         let map_clone = map.clone();
 
         let connections_gauge = Arc::new(metric.gauge("connections"));

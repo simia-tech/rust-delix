@@ -25,6 +25,7 @@ use transport::direct::balancer::{self, Balancer};
 pub struct ServiceMap {
     balancer_factory: Box<balancer::Factory>,
     entries: RwLock<HashMap<String, Entry>>,
+    metric: Arc<Metric>,
     services_gauge: metric::item::Gauge,
     endpoints_gauge: metric::item::Gauge,
 }
@@ -42,7 +43,8 @@ impl ServiceMap {
     pub fn new(balancer_factory: Box<balancer::Factory>, metric: Arc<Metric>) -> Self {
         ServiceMap {
             balancer_factory: balancer_factory,
-            entries: RwLock::new(HashMap::new()),
+            entries: RwLock::new(HashMap::default()),
+            metric: metric.clone(),
             services_gauge: metric.gauge("services"),
             endpoints_gauge: metric.gauge("endpoints"),
         }
@@ -53,7 +55,9 @@ impl ServiceMap {
 
         if !entries.contains_key(name) {
             entries.insert(name.to_string(),
-                           Entry::new(self.balancer_factory.build(name)));
+                           Entry::new(name,
+                                      self.balancer_factory.build(name),
+                                      self.metric.clone()));
             self.services_gauge.change(1);
         }
         let mut entry = entries.get_mut(name).unwrap();
@@ -62,8 +66,7 @@ impl ServiceMap {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        entry.local_handler = Some(Arc::new(f));
-        entry.push_link(Link::Local);
+        entry.add_local_link(Arc::new(f));
         self.endpoints_gauge.change(1);
 
         Ok(())
@@ -74,7 +77,9 @@ impl ServiceMap {
 
         if !entries.contains_key(name) {
             entries.insert(name.to_string(),
-                           Entry::new(self.balancer_factory.build(name)));
+                           Entry::new(name,
+                                      self.balancer_factory.build(name),
+                                      self.metric.clone()));
             self.services_gauge.change(1);
         }
         let mut entry = entries.get_mut(name).unwrap();
@@ -83,7 +88,7 @@ impl ServiceMap {
             return Err(Error::ServiceAlreadyExists);
         }
 
-        entry.push_link(Link::Remote(peer_node_id));
+        entry.add_remote_link(peer_node_id);
         self.endpoints_gauge.change(1);
 
         Ok(())
@@ -95,13 +100,15 @@ impl ServiceMap {
         for name in names {
             if !entries.contains_key(name) {
                 entries.insert(name.to_string(),
-                               Entry::new(self.balancer_factory.build(name)));
+                               Entry::new(name,
+                                          self.balancer_factory.build(name),
+                                          self.metric.clone()));
                 self.services_gauge.change(1);
             }
             let mut entry = entries.get_mut(name).unwrap();
 
             if let None = entry.links.iter().find(|&link| Link::is_remote(link, &peer_node_id)) {
-                entry.push_link(Link::Remote(peer_node_id));
+                entry.add_remote_link(peer_node_id);
                 self.endpoints_gauge.change(1);
             }
         }
@@ -115,40 +122,16 @@ impl ServiceMap {
             None => return Err(request::Error::NoService),
         };
 
-        let link = entry.balancer.next().expect("balancer did not produce any link");
+        let link = entry.select_link();
 
         Ok((link,
             entry.local_handler.as_ref().map(|handler| handler.clone())))
     }
 
-    pub fn select<P, L, R>(&self,
-                           name: &str,
-                           payload: P,
-                           local_handler: L,
-                           remote_handler: R)
-                           -> request::Result<()>
-        where L: FnOnce(P, &Arc<Box<Service>>) -> request::Result<()>,
-              R: FnOnce(P, ID) -> request::Result<()>
-    {
-        let mut entries = self.entries.write().unwrap();
-
-        let mut entry = match entries.get_mut(name) {
-            Some(entry) => entry,
-            None => return Err(request::Error::NoService),
-        };
-
-        let link = entry.balancer.next().expect("balancer did not produce any link");
-
-        match link {
-            Link::Local => local_handler(payload, entry.local_handler.as_ref().unwrap()),
-            Link::Remote(ref peer_node_id) => remote_handler(payload, *peer_node_id),
-        }
-    }
-
     pub fn get_local(&self, name: &str) -> Option<Arc<Box<Service>>> {
         let entries = self.entries.read().unwrap();
         entries.get(name)
-               .and_then(|entry| entry.local_handler.as_ref().map(|handler| handler.clone()))
+               .and_then(|entry| entry.select_local_link())
     }
 
     pub fn local_service_names(&self) -> Vec<String> {
@@ -173,10 +156,9 @@ impl ServiceMap {
                 Some(entry) => entry,
                 None => return Err(Error::ServiceDoesNotExists),
             };
-            entry.local_handler = None;
-            entry.retain_links(|link| !Link::is_local(&&link));
+            entry.remove_local_link();
             self.endpoints_gauge.change(-1);
-            entry.links.len() == 0
+            !entry.has_links()
         };
         if remove {
             entries.remove(name);
@@ -192,9 +174,9 @@ impl ServiceMap {
                 Some(entry) => entry,
                 None => return Err(Error::ServiceDoesNotExists),
             };
-            entry.retain_links(|link| !Link::is_remote(&&link, peer_node_id));
+            entry.remove_remote_link(peer_node_id);
             self.endpoints_gauge.change(-1);
-            entry.links.len() == 0
+            !entry.has_links()
         };
         if remove {
             entries.remove(name);
@@ -211,9 +193,9 @@ impl ServiceMap {
                     Some(entry) => entry,
                     None => continue,
                 };
-                entry.retain_links(|link| !Link::is_remote(&&link, peer_node_id));
+                entry.remove_remote_link(peer_node_id);
                 self.endpoints_gauge.change(-1);
-                entry.links.len() == 0
+                !entry.has_links()
             };
             if remove {
                 entries.remove(name);
@@ -226,9 +208,9 @@ impl ServiceMap {
         let mut entries = self.entries.write().unwrap();
         let mut names = Vec::new();
         for (name, entry) in entries.iter_mut() {
-            entry.retain_links(|link| !Link::is_remote(link, peer_node_id));
+            entry.remove_remote_link(peer_node_id);
             self.endpoints_gauge.change(-1);
-            if entry.links.len() == 0 {
+            if !entry.has_links() {
                 names.push(name.to_string());
             }
         }
@@ -240,30 +222,72 @@ impl ServiceMap {
 }
 
 struct Entry {
+    name: String,
+    balancer: Box<Balancer<Item = Link>>,
+    metric: Arc<Metric>,
     local_handler: Option<Arc<Box<Service>>>,
     links: Vec<Link>,
-    balancer: Box<Balancer<Item = Link>>,
+    counters: HashMap<Link, metric::item::Counter>,
 }
 
 impl Entry {
-    fn new(balancer: Box<Balancer<Item = Link>>) -> Entry {
+    fn new(name: &str, balancer: Box<Balancer<Item = Link>>, metric: Arc<Metric>) -> Entry {
         Entry {
+            name: name.to_string(),
+            balancer: balancer,
+            metric: metric,
             local_handler: None,
             links: Vec::new(),
-            balancer: balancer,
+            counters: HashMap::default(),
         }
     }
 
-    fn push_link(&mut self, link: Link) {
-        self.links.push(link);
+    fn add_local_link(&mut self, local_handler: Arc<Box<Service>>) {
+        self.local_handler = Some(local_handler);
+        self.links.push(Link::Local);
+        self.counters.insert(Link::Local,
+                             self.metric.counter(&format!("service.{}.endpoint.local.selected",
+                                                          self.name)));
         self.balancer.set_links(&self.links);
     }
 
-    fn retain_links<F>(&mut self, f: F)
-        where F: Fn(&Link) -> bool
-    {
-        self.links.retain(f);
+    fn remove_local_link(&mut self) {
+        self.local_handler = None;
+        self.links.retain(|link| !Link::is_local(link));
+        self.counters.remove(&Link::Local);
         self.balancer.set_links(&self.links);
+    }
+
+    fn add_remote_link(&mut self, peer_node_id: ID) {
+        self.links.push(Link::Remote(peer_node_id));
+        self.counters.insert(Link::Remote(peer_node_id),
+                             self.metric.counter(&format!("service.{}.endpoint.{}.selected",
+                                                          self.name,
+                                                          peer_node_id)));
+        self.balancer.set_links(&self.links);
+    }
+
+    fn remove_remote_link(&mut self, peer_node_id: &ID) {
+        self.links.retain(|link| !Link::is_remote(link, peer_node_id));
+        self.counters.remove(&Link::Remote(*peer_node_id));
+        self.balancer.set_links(&self.links);
+    }
+
+    fn select_link(&mut self) -> Link {
+        let link = self.balancer.next().expect("balancer did not produce any link");
+        self.counters.get(&link).unwrap().increment();
+        link
+    }
+
+    fn select_local_link(&self) -> Option<Arc<Box<Service>>> {
+        match self.local_handler {
+            Some(ref local_handler) => Some(local_handler.clone()),
+            None => None,
+        }
+    }
+
+    fn has_links(&self) -> bool {
+        !self.links.is_empty()
     }
 }
 
