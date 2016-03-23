@@ -11,10 +11,22 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
 
-pub mod cipher;
-pub mod transport;
-pub mod direct;
+use std::result;
 
-pub use self::transport::*;
-pub use self::direct::Direct;
+pub trait Cipher : Send + Sync {
+    fn box_clone(&self) -> Box<Cipher>;
+    fn encrypt(&self, &[u8]) -> Result<Vec<u8>>;
+    fn decrypt(&self, &[u8]) -> Result<Vec<u8>>;
+}
+
+pub type Result<T> = result::Result<T, Error>;
+
+#[derive(Debug, PartialEq)]
+pub enum Error {
+    InvalidKeyLength(usize),
+    Write,
+    Read,
+    DecryptionFailed,
+}

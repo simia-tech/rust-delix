@@ -19,8 +19,7 @@ use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use time::Duration;
 
-use openssl::ssl;
-
+use transport::cipher::Cipher;
 use transport::{Result, Transport};
 use metric::Metric;
 use node::{ID, Service, request, response};
@@ -32,14 +31,14 @@ pub struct Direct {
     running: Arc<RwLock<bool>>,
     local_address: SocketAddr,
     public_address: SocketAddr,
-    ssl_context: Arc<RwLock<ssl::SslContext>>,
+    cipher: Arc<Box<Cipher>>,
     connections: Arc<ConnectionMap>,
     services: Arc<ServiceMap>,
     tracker: Arc<Tracker<Mutex<Box<response::Handler>>, request::Result<()>>>,
 }
 
 impl Direct {
-    pub fn new(ssl_context: ssl::SslContext,
+    pub fn new(cipher: Box<Cipher>,
                mut balancer_factory: Box<balancer::Factory>,
                metric: Arc<Metric>,
                local_address: SocketAddr,
@@ -55,7 +54,7 @@ impl Direct {
             running: Arc::new(RwLock::new(false)),
             local_address: local_address,
             public_address: public_address.unwrap_or(local_address),
-            ssl_context: Arc::new(RwLock::new(ssl_context)),
+            cipher: Arc::new(cipher),
             connections: Arc::new(ConnectionMap::new(metric.clone())),
             services: Arc::new(ServiceMap::new(balancer_factory, metric.clone())),
             tracker: Arc::new(Tracker::new(statistic.clone(), request_timeout)),
@@ -85,18 +84,20 @@ impl Transport for Direct {
 
         let public_address = self.public_address;
         let running_clone = self.running.clone();
-        let ssl_context_clone = self.ssl_context.clone();
+        let cipher_clone = self.cipher.clone();
         let connections_clone = self.connections.clone();
         let services_clone = self.services.clone();
         let tracker_clone = self.tracker.clone();
         *self.join_handle.write().unwrap() = Some(thread::spawn(move || {
-            for stream in tcp_listener.incoming() {
+            for tcp_stream in tcp_listener.incoming() {
                 if !*running_clone.read().unwrap() {
                     break;
                 }
 
-                if let Err(error) = accept(stream.unwrap(),
-                                           &ssl_context_clone,
+                let tcp_stream = tcp_stream.unwrap();
+                let stream = cipher::Stream::new(tcp_stream, cipher_clone);
+
+                if let Err(error) = accept(stream,
                                            node_id,
                                            public_address,
                                            &connections_clone,
@@ -127,10 +128,9 @@ impl Transport for Direct {
                 pending_peers_count += 1;
 
                 let tcp_stream = try!(net::TcpStream::connect(peer_public_address));
-                let ssl_stream = try!(ssl::SslStream::connect(&*self.ssl_context.read().unwrap(),
-                                                              tcp_stream));
+                let stream = cipher::Stream::new(tcp_stream, self.cipher.clone());
                 let handlers = build_handlers(&self.connections, &self.services, &self.tracker);
-                let (connection, peers) = try!(Connection::new_outbound(ssl_stream,
+                let (connection, peers) = try!(Connection::new_outbound(stream,
                                                                         node_id,
                                                                         self.public_address,
                                                                         handlers));
@@ -226,8 +226,8 @@ impl Drop for Direct {
     }
 }
 
-fn accept(tcp_stream: net::TcpStream,
-          ssl_context: &Arc<RwLock<ssl::SslContext>>,
+fn accept(stream: cipher::Stream<net::TcpStream>,
+          cipher: &Arc<Box<Cipher>>,
           node_id: ID,
           public_address: SocketAddr,
           connections: &Arc<ConnectionMap>,
@@ -235,11 +235,9 @@ fn accept(tcp_stream: net::TcpStream,
           tracker: &Arc<Tracker<Mutex<Box<response::Handler>>, request::Result<()>>>)
           -> Result<()> {
 
-    let ssl_stream = try!(ssl::SslStream::accept(&*ssl_context.read().unwrap(), tcp_stream));
-
     let peers = &connections.id_public_address_pairs();
     let handlers = build_handlers(connections, services, tracker);
-    let connection = try!(Connection::new_inbound(ssl_stream,
+    let connection = try!(Connection::new_inbound(stream,
                                                   node_id,
                                                   public_address,
                                                   peers,

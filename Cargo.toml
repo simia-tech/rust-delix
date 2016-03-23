@@ -1,6 +1,6 @@
 [package]
 name = "delix"
-version = "0.2.3"
+version = "0.2.4"
 authors = ["Philipp Brüll <bruell@simia.tech>"]
 description = "Decentral HTTP proxy / load balancer"
 homepage = "https://github.com/simia-tech/rust-delix"
@@ -15,7 +15,6 @@ clap = "2.0"
 getopts = "0.2"
 log = "0.3"
 net2 = "0.2"
-openssl = { version = "0.7", features = [ "tlsv1_2" ] }
 protobuf = "1.0"
 rand = "0.3"
 rust-crypto = "0.2"
@@ -30,11 +29,6 @@ hyper = "0.7"
 [[bin]]
 name = "delix"
 path = "src/main.rs"
-doc = false
-
-[[bin]]
-name = "delix-ca"
-path = "src/ca/main.rs"
 doc = false
 
 [lib]

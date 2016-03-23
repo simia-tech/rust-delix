@@ -20,14 +20,13 @@ use std::sync::Arc;
 use time::Duration;
 use log;
 
-use openssl::{ssl, x509};
-
 use delix::logger;
 use delix::metric::{self, Metric};
 use delix::node::{self, Node};
 use delix::discovery::{self, Discovery};
 use delix::relay::{self, Relay};
 use delix::transport::{self, Transport};
+use delix::transport::cipher::{self, Cipher};
 use delix::transport::direct::balancer;
 use configuration::Configuration;
 
@@ -45,9 +44,9 @@ pub enum Error {
     MissingField(&'static str),
     InvalidValue(&'static str, String, Vec<&'static str>),
     NodeError(node::Error),
+    Cipher(cipher::Error),
     Relay(relay::Error),
     Resolve(io::Error),
-    Ssl(ssl::error::SslError),
 }
 
 impl Loader {
@@ -109,10 +108,31 @@ impl Loader {
     }
 
     pub fn load_node(&self, metric: &Arc<metric::Metric>) -> Result<Arc<Node>> {
-        let transport = try!(self.load_transport(metric.clone()));
+        let cipher = try!(self.load_cipher());
+        let transport = try!(self.load_transport(cipher, metric.clone()));
         let discovery = try!(self.load_discovery(transport.public_address()));
 
         Ok(Arc::new(try!(Node::new(discovery, transport, metric.clone()))))
+    }
+
+    fn load_cipher(&self) -> Result<Box<Cipher>> {
+        let cipher_type = try!(self.configuration
+                                   .string_at("cipher.type")
+                                   .ok_or(Error::MissingField("cipher.type")));
+
+        match cipher_type.as_ref() {
+            "symmetric" => {
+                let key = try!(self.configuration
+                                   .bytes_at("cipher.key")
+                                   .ok_or(Error::MissingField("cipher.key")));
+                let cipher = try!(cipher::Symmetric::new(&key, None));
+                info!("loaded symmetric cipher");
+                Ok(Box::new(cipher))
+            }
+            _ => {
+                Err(Error::InvalidValue("cipher.type", cipher_type.to_string(), vec!["symmetric"]))
+            }
+        }
     }
 
     fn load_discovery(&self, public_address: SocketAddr) -> Result<Box<Discovery>> {
@@ -163,7 +183,7 @@ impl Loader {
         }
     }
 
-    fn load_transport(&self, metric: Arc<Metric>) -> Result<Box<Transport>> {
+    fn load_transport(&self, cipher: Box<Cipher>, metric: Arc<Metric>) -> Result<Box<Transport>> {
         let transport_type = try!(self.configuration
                                       .string_at("transport.type")
                                       .ok_or(Error::MissingField("transport.type")));
@@ -181,31 +201,6 @@ impl Loader {
                     Some(ref value) => Some(try!(resolve_socket_address(value))),
                     None => None,
                 };
-
-                let ca_file_name = self.configuration.string_at("transport.ca_file");
-                let cert_file_name = self.configuration.string_at("transport.cert_file");
-                let key_file_name = self.configuration.string_at("transport.key_file");
-
-                let mut ssl_context = try!(ssl::SslContext::new(ssl::SslMethod::Tlsv1_2));
-                if let (Some(ca_file_name),
-                        Some(cert_file_name),
-                        Some(key_file_name)) = (ca_file_name, cert_file_name, key_file_name) {
-
-                    try!(ssl_context.set_CA_file(&ca_file_name));
-                    try!(ssl_context.set_certificate_file(&cert_file_name,
-                                                          x509::X509FileType::PEM));
-                    try!(ssl_context.set_private_key_file(&key_file_name, x509::X509FileType::PEM));
-                    ssl_context.set_verify(ssl::SSL_VERIFY_PEER, None);
-                    try!(ssl_context.check_private_key());
-                } else {
-                    info!("generating default certificate with a key length of {} ...",
-                          DEFAULT_KEY_LENGTH);
-                    let generator = x509::X509Generator::new().set_bitlength(DEFAULT_KEY_LENGTH);
-                    let (certificate, private_key) = generator.generate().unwrap();
-
-                    try!(ssl_context.set_certificate(&certificate));
-                    try!(ssl_context.set_private_key(&private_key));
-                }
 
                 let request_timeout = self.configuration
                                           .i64_at("transport.request_timeout_ms")
@@ -227,7 +222,7 @@ impl Loader {
 
                 info!("loaded direct transport - listening at {}", local_address);
 
-                Ok(Box::new(transport::Direct::new(ssl_context,
+                Ok(Box::new(transport::Direct::new(cipher,
                                                    balancer_factory,
                                                    metric,
                                                    local_address,
@@ -259,6 +254,12 @@ impl From<node::Error> for Error {
     }
 }
 
+impl From<cipher::Error> for Error {
+    fn from(error: cipher::Error) -> Self {
+        Error::Cipher(error)
+    }
+}
+
 impl From<relay::Error> for Error {
     fn from(error: relay::Error) -> Self {
         Error::Relay(error)
@@ -268,12 +269,6 @@ impl From<relay::Error> for Error {
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::Resolve(error)
-    }
-}
-
-impl From<ssl::error::SslError> for Error {
-    fn from(error: ssl::error::SslError) -> Self {
-        Error::Ssl(error)
     }
 }
 

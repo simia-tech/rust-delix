@@ -17,8 +17,6 @@ use std::net::SocketAddr;
 use std::io;
 use std::result;
 
-use openssl::ssl;
-
 use node::{ID, Service, request, response};
 use transport::direct;
 
@@ -39,7 +37,6 @@ pub type Result<T> = result::Result<T, Error>;
 pub enum Error {
     ServiceDoesNotExists,
     Io(io::Error),
-    Ssl(ssl::error::SslError),
     ConnectionMap(direct::ConnectionMapError),
     ServiceMap(direct::ServiceMapError),
 }
@@ -47,12 +44,6 @@ pub enum Error {
 impl From<io::Error> for Error {
     fn from(error: io::Error) -> Self {
         Error::Io(error)
-    }
-}
-
-impl From<ssl::error::SslError> for Error {
-    fn from(error: ssl::error::SslError) -> Self {
-        Error::Ssl(error)
     }
 }
 

@@ -11,10 +11,12 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
+//
 
 pub mod cipher;
-pub mod transport;
-pub mod direct;
+pub mod stream;
+pub mod symmetric;
 
-pub use self::transport::*;
-pub use self::direct::Direct;
+pub use self::cipher::{Cipher, Error, Result};
+pub use self::stream::Stream;
+pub use self::symmetric::Symmetric;

@@ -27,9 +27,10 @@ use node::{ID, request, service};
 use super::packet;
 use super::dispatcher::Dispatcher;
 use super::container::{self, Container};
+use super::super::cipher::{self, Cipher};
 
 pub struct Connection {
-    tx_stream: Arc<Mutex<ssl::SslStream<net::TcpStream>>>,
+    tx_stream: Arc<Mutex<cipher::Stream<net::TcpStream>>>,
     thread: Option<thread::JoinHandle<()>>,
 
     node_id: ID,
