@@ -26,7 +26,3 @@ balancer = { type = "dynamic_round_robin" }
 type = "http"
 address = "localhost:4200"
 header_field = "X-Delix-Service"
-
-[[relay.service]]
-name = "test"
-address = "localhost:5000"

@@ -25,7 +25,4 @@ balancer = { type = "dynamic_round_robin" }
 [[relay]]
 type = "http"
 header_field = "X-Delix-Service"
-
-[[relay.service]]
-name = "slashdot"
-address = "slashdot.org:80"
+services_path = "example/services"

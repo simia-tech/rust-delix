@@ -13,10 +13,16 @@
 // limitations under the License.
 //
 
+extern crate rustc_serialize;
+
+use std::fs;
 use std::io::{self, Read, Write};
 use std::net::{self, SocketAddr};
+use std::path::Path;
 use std::sync::{Arc, RwLock};
 use std::thread;
+
+use rustc_serialize::json;
 use time::Duration;
 
 use node::{Node, request, service};
@@ -37,6 +43,11 @@ enum StatusCode {
     InternalServerError,
     BadGateway,
     ServiceUnavailable,
+}
+
+#[derive(Debug, RustcDecodable, RustcEncodable)]
+struct Service {
+    address: String,
 }
 
 impl Http {
@@ -77,6 +88,23 @@ impl Http {
 }
 
 impl Relay for Http {
+    fn load(&self, services_path: &str) -> Result<()> {
+        let services_path = Path::new(services_path);
+        for entry in try!(fs::read_dir(services_path)) {
+            let entry = try!(entry);
+            if let Some(name) = entry.path().file_stem().and_then(|name| name.to_str()) {
+                let mut file = try!(fs::File::open(entry.path()));
+                let mut content = String::new();
+                try!(file.read_to_string(&mut content));
+
+                let service = json::decode::<Service>(&content).unwrap();
+
+                self.add_service(name, &service.address)
+            }
+        }
+        Ok(())
+    }
+
     fn bind(&self, address: SocketAddr) -> Result<()> {
         let tcp_listener = try!(net::TcpListener::bind(address));
 

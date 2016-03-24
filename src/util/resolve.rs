@@ -11,27 +11,21 @@
 // WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
 // See the License for the specific language governing permissions and
 // limitations under the License.
-//
 
 use std::io;
-use std::net::SocketAddr;
-use std::result;
+use std::net::{SocketAddr, ToSocketAddrs};
 
-pub trait Relay {
-    fn load(&self, &str) -> Result<()>;
-    fn bind(&self, SocketAddr) -> Result<()>;
-    fn unbind(&self) -> Result<()>;
+pub fn socket_address(address: &str) -> io::Result<SocketAddr> {
+    Ok(try!(try!(address.to_socket_addrs())
+                .next()
+                .ok_or(io::Error::new(io::ErrorKind::Other,
+                                      format!("could not resolve address [{}]", address)))))
 }
 
-pub type Result<T> = result::Result<T, Error>;
-
-#[derive(Debug)]
-pub enum Error {
-    Io(io::Error),
-}
-
-impl From<io::Error> for Error {
-    fn from(error: io::Error) -> Self {
-        Error::Io(error)
+pub fn socket_addresses(addresses: &[String]) -> io::Result<Vec<SocketAddr>> {
+    let mut result = Vec::new();
+    for address in addresses {
+        result.append(&mut try!(address.to_socket_addrs()).collect::<Vec<SocketAddr>>());
     }
+    Ok(result)
 }

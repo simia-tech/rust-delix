@@ -13,7 +13,7 @@
 // limitations under the License.
 //
 
-use std::net::{SocketAddr, ToSocketAddrs};
+use std::net::SocketAddr;
 use std::io;
 use std::result;
 use std::sync::Arc;
@@ -28,6 +28,7 @@ use delix::relay::{self, Relay};
 use delix::transport::{self, Transport};
 use delix::transport::cipher::{self, Cipher};
 use delix::transport::direct::balancer;
+use delix::util::resolve;
 use configuration::Configuration;
 
 #[derive(Debug)]
@@ -143,7 +144,7 @@ impl Loader {
                 let addresses = try!(self.configuration
                                          .strings_at("discovery.addresses")
                                          .ok_or(Error::MissingField("discovery.addresses")));
-                let addresses = try!(resolve_socket_addresses(&addresses));
+                let addresses = try!(resolve::socket_addresses(&addresses));
                 let discovery = discovery::Constant::new(addresses);
                 info!("loaded constant discovery");
                 Ok(Box::new(discovery))
@@ -153,12 +154,12 @@ impl Loader {
                                                  .string_at("discovery.interface_address")
                                                  .ok_or(Error::MissingField("discovery.\
                                                                              interface_address")));
-                let interface_address = try!(resolve_socket_address(&interface_address));
+                let interface_address = try!(resolve::socket_address(&interface_address));
                 let multicast_address = try!(self.configuration
                                                  .string_at("discovery.multicast_address")
                                                  .ok_or(Error::MissingField("discovery.\
                                                                              multicast_address")));
-                let multicast_address = try!(resolve_socket_address(&multicast_address));
+                let multicast_address = try!(resolve::socket_address(&multicast_address));
 
                 let reply_timeout = Duration::milliseconds(self.configuration
                                                                .i64_at("transport.\
@@ -192,11 +193,11 @@ impl Loader {
                                              .string_at("transport.local_address")
                                              .ok_or(Error::MissingField("transport.\
                                                                          local_address")));
-                let local_address = try!(resolve_socket_address(&local_address));
+                let local_address = try!(resolve::socket_address(&local_address));
 
                 let public_address = match self.configuration
                                                .string_at("transport.public_address") {
-                    Some(ref value) => Some(try!(resolve_socket_address(value))),
+                    Some(ref value) => Some(try!(resolve::socket_address(value))),
                     None => None,
                 };
 
@@ -283,22 +284,16 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
                                             .map(|value| Duration::milliseconds(value));
             let write_timeout = configuration.i64_at("write_timeout_ms")
                                              .map(|value| Duration::milliseconds(value));
+            let services_path = configuration.string_at("services_path");
 
             let http = relay::Http::new(node.clone(), &header_field, read_timeout, write_timeout);
 
-            if let Some(configurations) = configuration.configurations_at("service") {
-                for configuration in configurations {
-                    let name = try!(configuration.string_at("name")
-                                                 .ok_or(Error::MissingField("relay.service.name")));
-                    let address = try!(configuration.string_at("address")
-                                                    .ok_or(Error::MissingField("relay.service.\
-                                                                                address")));
-                    http.add_service(&name, &address);
-                }
+            if let Some(ref services_path) = services_path {
+                try!(http.load(services_path));
             }
 
             if let Some(ref address) = address {
-                try!(http.bind(try!(resolve_socket_address(address))));
+                try!(http.bind(try!(resolve::socket_address(address))));
                 info!("loaded http relay - listening at {}", address);
             } else {
                 info!("loaded http relay");
@@ -308,20 +303,4 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
         }
         _ => Err(Error::InvalidValue("relay.type", relay_type.to_string(), vec!["http"])),
     }
-}
-
-
-fn resolve_socket_address(address: &str) -> io::Result<SocketAddr> {
-    Ok(try!(try!(address.to_socket_addrs())
-                .next()
-                .ok_or(io::Error::new(io::ErrorKind::Other,
-                                      format!("could not resolve address [{}]", address)))))
-}
-
-fn resolve_socket_addresses(addresses: &[String]) -> io::Result<Vec<SocketAddr>> {
-    let mut result = Vec::new();
-    for address in addresses {
-        result.append(&mut try!(address.to_socket_addrs()).collect::<Vec<SocketAddr>>());
-    }
-    Ok(result)
 }
