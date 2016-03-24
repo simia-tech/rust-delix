@@ -30,8 +30,6 @@ use delix::transport::cipher::{self, Cipher};
 use delix::transport::direct::balancer;
 use configuration::Configuration;
 
-const DEFAULT_KEY_LENGTH: u32 = 2048;
-
 #[derive(Debug)]
 pub struct Loader {
     configuration: Configuration,

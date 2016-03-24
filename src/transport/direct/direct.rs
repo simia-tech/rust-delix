@@ -19,7 +19,7 @@ use std::sync::{Arc, Mutex, RwLock, mpsc};
 use std::thread;
 use time::Duration;
 
-use transport::cipher::Cipher;
+use transport::cipher::{self, Cipher};
 use transport::{Result, Transport};
 use metric::Metric;
 use node::{ID, Service, request, response};
@@ -95,7 +95,7 @@ impl Transport for Direct {
                 }
 
                 let tcp_stream = tcp_stream.unwrap();
-                let stream = cipher::Stream::new(tcp_stream, cipher_clone);
+                let stream = cipher::Stream::new(tcp_stream, cipher_clone.box_clone());
 
                 if let Err(error) = accept(stream,
                                            node_id,
@@ -128,7 +128,7 @@ impl Transport for Direct {
                 pending_peers_count += 1;
 
                 let tcp_stream = try!(net::TcpStream::connect(peer_public_address));
-                let stream = cipher::Stream::new(tcp_stream, self.cipher.clone());
+                let stream = cipher::Stream::new(tcp_stream, self.cipher.box_clone());
                 let handlers = build_handlers(&self.connections, &self.services, &self.tracker);
                 let (connection, peers) = try!(Connection::new_outbound(stream,
                                                                         node_id,
@@ -227,7 +227,6 @@ impl Drop for Direct {
 }
 
 fn accept(stream: cipher::Stream<net::TcpStream>,
-          cipher: &Arc<Box<Cipher>>,
           node_id: ID,
           public_address: SocketAddr,
           connections: &Arc<ConnectionMap>,

@@ -20,8 +20,6 @@ use std::result;
 use std::sync::{Arc, Mutex, mpsc};
 use std::thread;
 
-use openssl::ssl;
-
 use message;
 use node::{ID, request, service};
 use super::packet;
@@ -52,14 +50,14 @@ pub struct Handlers {
 }
 
 impl Connection {
-    pub fn new_inbound(ssl_stream: ssl::SslStream<net::TcpStream>,
+    pub fn new_inbound(stream: cipher::Stream<net::TcpStream>,
                        node_id: ID,
                        public_address: SocketAddr,
                        peers: &[(ID, SocketAddr)],
                        handlers: Handlers)
                        -> io::Result<Connection> {
 
-        let (connection, sender) = try!(Self::new(ssl_stream, node_id, public_address, handlers));
+        let (connection, sender) = try!(Self::new(stream, node_id, public_address, handlers));
 
         try!(connection.send_peers(peers));
         sender.send(true).unwrap();
@@ -67,13 +65,13 @@ impl Connection {
         Ok(connection)
     }
 
-    pub fn new_outbound(ssl_stream: ssl::SslStream<net::TcpStream>,
+    pub fn new_outbound(stream: cipher::Stream<net::TcpStream>,
                         node_id: ID,
                         public_address: SocketAddr,
                         handlers: Handlers)
                         -> io::Result<(Connection, Vec<(ID, SocketAddr)>)> {
 
-        let (connection, sender) = try!(Self::new(ssl_stream, node_id, public_address, handlers));
+        let (connection, sender) = try!(Self::new(stream, node_id, public_address, handlers));
 
         let peers = try!(connection.receive_peers());
         sender.send(true).unwrap();
@@ -81,15 +79,15 @@ impl Connection {
         Ok((connection, peers))
     }
 
-    fn new(ssl_stream: ssl::SslStream<net::TcpStream>,
+    fn new(stream: cipher::Stream<net::TcpStream>,
            node_id: ID,
            public_address: SocketAddr,
            handlers: Handlers)
            -> io::Result<(Connection, mpsc::Sender<bool>)> {
 
-        let tx_stream = Arc::new(Mutex::new(ssl_stream.try_clone().unwrap()));
+        let tx_stream = Arc::new(Mutex::new(stream.try_clone().unwrap()));
         let tx_stream_clone = tx_stream.clone();
-        let mut rx_stream = ssl_stream;
+        let mut rx_stream = stream;
 
         let (aknowledges_tx, aknowledges_rx) = mpsc::channel();
 
@@ -305,8 +303,8 @@ impl Drop for Connection {
 
 fn process_inbound_container(node_id: ID,
                              peer_node_id: ID,
-                             rx_stream: &mut ssl::SslStream<net::TcpStream>,
-                             tx_stream: &Arc<Mutex<ssl::SslStream<net::TcpStream>>>,
+                             rx_stream: &mut cipher::Stream<net::TcpStream>,
+                             tx_stream: &Arc<Mutex<cipher::Stream<net::TcpStream>>>,
                              aknowledges_rx: &mpsc::Receiver<mpsc::Sender<()>>,
                              request_dispatcher: &Dispatcher,
                              response_dispatcher: &Dispatcher,

@@ -40,6 +40,12 @@ impl<T> Stream<T> {
     }
 }
 
+impl Stream<net::TcpStream> {
+    pub fn try_clone(&self) -> io::Result<Self> {
+        Ok(Self::new(try!(self.parent.try_clone()), self.cipher.box_clone()))
+    }
+}
+
 impl<T> io::Write for Stream<T>
     where T: io::Write
 {

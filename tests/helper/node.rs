@@ -13,19 +13,18 @@
 // limitations under the License.
 //
 
-extern crate openssl;
 extern crate time;
 
 use std::net::ToSocketAddrs;
 use std::sync::Arc;
 
-use self::openssl::{ssl, x509};
 use self::time::Duration;
 
 use delix::discovery::Constant;
 use delix::metric::{self, Query};
 use delix::node::Node;
 use delix::transport::Direct;
+use delix::transport::cipher;
 use delix::transport::direct::balancer;
 
 pub fn build_node(local_address: &str,
@@ -33,12 +32,8 @@ pub fn build_node(local_address: &str,
                   request_timeout: Option<i64>)
                   -> (Arc<Node>, Arc<metric::Memory>) {
 
-    let generator = x509::X509Generator::new().set_bitlength(1024);
-    let (certificate, private_key) = generator.generate().unwrap();
-
-    let mut ssl_context = ssl::SslContext::new(ssl::SslMethod::Tlsv1_2).unwrap();
-    ssl_context.set_certificate(&certificate).unwrap();
-    ssl_context.set_private_key(&private_key).unwrap();
+    let cipher = Box::new(cipher::Symmetric::new(b"000102030405060708090a0b0c0d0e0f", None)
+                              .unwrap());
 
     let balancer_factory = Box::new(balancer::DynamicRoundRobinFactory::new());
     let discovery = Box::new(Constant::new(discover_addresses.to_vec()
@@ -52,7 +47,7 @@ pub fn build_node(local_address: &str,
                                                              .collect()));
 
     let metric = Arc::new(metric::Memory::new());
-    let transport = Box::new(Direct::new(ssl_context,
+    let transport = Box::new(Direct::new(cipher,
                                          balancer_factory,
                                          metric.clone(),
                                          local_address.to_socket_addrs().unwrap().next().unwrap(),
