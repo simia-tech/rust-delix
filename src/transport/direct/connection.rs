@@ -25,7 +25,7 @@ use node::{ID, request, service};
 use super::packet;
 use super::dispatcher::Dispatcher;
 use super::container::{self, Container};
-use super::super::cipher::{self, Cipher};
+use super::super::cipher;
 
 pub struct Connection {
     tx_stream: Arc<Mutex<cipher::Stream<net::TcpStream>>>,

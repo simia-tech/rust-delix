@@ -23,7 +23,7 @@ request_timeout_ms = 500
 balancer = { type = "dynamic_round_robin" }
 
 [[relay]]
-type = "http_static"
+type = "http"
 address = "localhost:4200"
 header_field = "X-Delix-Service"
 

@@ -24,7 +24,7 @@ use relay::{Relay, Result};
 use util::reader;
 use util::time::to_std_duration;
 
-pub struct HttpStatic {
+pub struct Http {
     node: Arc<Node>,
     header_field: String,
     read_timeout: Option<Duration>,
@@ -39,13 +39,13 @@ enum StatusCode {
     ServiceUnavailable,
 }
 
-impl HttpStatic {
+impl Http {
     pub fn new(node: Arc<Node>,
                header_field: &str,
                read_timeout: Option<Duration>,
                write_timeout: Option<Duration>)
                -> Self {
-        HttpStatic {
+        Http {
             node: node,
             header_field: header_field.to_string(),
             read_timeout: read_timeout,
@@ -76,7 +76,7 @@ impl HttpStatic {
     }
 }
 
-impl Relay for HttpStatic {
+impl Relay for Http {
     fn bind(&self, address: SocketAddr) -> Result<()> {
         let tcp_listener = try!(net::TcpListener::bind(address));
 
@@ -119,7 +119,7 @@ impl Relay for HttpStatic {
     }
 }
 
-impl Drop for HttpStatic {
+impl Drop for Http {
     fn drop(&mut self) {
         self.unbind().unwrap();
     }
