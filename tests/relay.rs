@@ -32,7 +32,7 @@ use hyper::status::StatusCode;
 header! { (XDelixService, "X-Delix-Service") => [String] }
 
 #[test]
-fn http_static_with_sized_response() {
+fn http_with_sized_response() {
     helper::set_up();
 
     let mut listening = Server::http("localhost:5000").unwrap().handle(|mut request: server::Request, response: server::Response| {
@@ -42,7 +42,7 @@ fn http_static_with_sized_response() {
     }).unwrap();
 
     let (node, _) = helper::build_node("localhost:3001", &[], None);
-    let relay = helper::build_http_static_relay(&node, Some("localhost:4000"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4000"));
     relay.add_service("echo", "localhost:5000");
 
     let mut response = Client::new().post("http://localhost:4000").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
@@ -52,7 +52,7 @@ fn http_static_with_sized_response() {
 }
 
 #[test]
-fn http_static_with_chunked_response() {
+fn http_with_chunked_response() {
     helper::set_up();
 
     let mut listening = Server::http("localhost:5010").unwrap().handle(|mut request: server::Request, response: server::Response| {
@@ -60,7 +60,7 @@ fn http_static_with_chunked_response() {
     }).unwrap();
 
     let (node, _) = helper::build_node("localhost:3011", &[], None);
-    let relay = helper::build_http_static_relay(&node, Some("localhost:4010"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4010"));
     relay.add_service("echo", "localhost:5010");
 
     let mut response = Client::new().post("http://localhost:4010").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
@@ -70,11 +70,11 @@ fn http_static_with_chunked_response() {
 }
 
 #[test]
-fn http_static_with_missing_service() {
+fn http_with_missing_service() {
     helper::set_up();
 
     let (node, _) = helper::build_node("localhost:3021", &[], None);
-    let relay = helper::build_http_static_relay(&node, Some("localhost:4020"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4020"));
 
     let mut response = Client::new().post("http://localhost:4020").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
     helper::assert_response(StatusCode::BadGateway, b"service [echo] not found", &mut response);
@@ -83,11 +83,11 @@ fn http_static_with_missing_service() {
 }
 
 #[test]
-fn http_static_with_unreachable_service() {
+fn http_with_unreachable_service() {
     helper::set_up();
 
     let (node, _) = helper::build_node("localhost:3031", &[], None);
-    let relay = helper::build_http_static_relay(&node, Some("localhost:4030"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4030"));
     relay.add_service("echo", "localhost:5030");
 
     let mut response = Client::new().post("http://localhost:4030").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
@@ -95,7 +95,7 @@ fn http_static_with_unreachable_service() {
 }
 
 #[test]
-fn http_static_with_unfinished_request() {
+fn http_with_unfinished_request() {
     helper::set_up();
 
     let mut listening = Server::http("localhost:5040").unwrap().handle(|mut request: server::Request, response: server::Response| {
@@ -105,7 +105,7 @@ fn http_static_with_unfinished_request() {
     }).unwrap();
 
     let (node, _) = helper::build_node("localhost:3041", &[], None);
-    let relay = helper::build_http_static_relay(&node, Some("localhost:4040"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4040"));
     relay.add_service("echo", "localhost:5040");
 
     {
@@ -122,7 +122,7 @@ fn http_static_with_unfinished_request() {
 }
 
 #[test]
-fn http_static_with_unfinished_response() {
+fn http_with_unfinished_response() {
     helper::set_up();
 
     let join_handle = thread::spawn(move || {
@@ -139,7 +139,7 @@ fn http_static_with_unfinished_response() {
     });
 
     let (node, _) = helper::build_node("localhost:3051", &[], None);
-    let relay = helper::build_http_static_relay(&node, Some("localhost:4050"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4050"));
     relay.add_service("echo", "localhost:5050");
 
     let mut response = Client::new().post("http://localhost:4050").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();

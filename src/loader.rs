@@ -284,10 +284,7 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
             let write_timeout = configuration.i64_at("write_timeout_ms")
                                              .map(|value| Duration::milliseconds(value));
 
-            let http_static = relay::Http::new(node.clone(),
-                                               &header_field,
-                                               read_timeout,
-                                               write_timeout);
+            let http = relay::Http::new(node.clone(), &header_field, read_timeout, write_timeout);
 
             if let Some(configurations) = configuration.configurations_at("service") {
                 for configuration in configurations {
@@ -296,18 +293,18 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
                     let address = try!(configuration.string_at("address")
                                                     .ok_or(Error::MissingField("relay.service.\
                                                                                 address")));
-                    http_static.add_service(&name, &address);
+                    http.add_service(&name, &address);
                 }
             }
 
             if let Some(ref address) = address {
-                try!(http_static.bind(try!(resolve_socket_address(address))));
+                try!(http.bind(try!(resolve_socket_address(address))));
                 info!("loaded http relay - listening at {}", address);
             } else {
                 info!("loaded http relay");
             }
 
-            Ok(Box::new(http_static))
+            Ok(Box::new(http))
         }
         _ => Err(Error::InvalidValue("relay.type", relay_type.to_string(), vec!["http"])),
     }

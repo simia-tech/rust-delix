@@ -22,11 +22,11 @@ use self::time::Duration;
 use delix::node::Node;
 use delix::relay::{self, Relay};
 
-pub fn build_http_static_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::HttpStatic> {
-    let relay = relay::HttpStatic::new(node.clone(),
-                                       "X-Delix-Service",
-                                       Some(Duration::milliseconds(100)),
-                                       Some(Duration::milliseconds(100)));
+pub fn build_http_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::Http> {
+    let relay = relay::Http::new(node.clone(),
+                                 "X-Delix-Service",
+                                 Some(Duration::milliseconds(100)),
+                                 Some(Duration::milliseconds(100)));
     if let Some(address) = address {
         relay.bind(address.to_socket_addrs().unwrap().next().unwrap()).unwrap();
     }

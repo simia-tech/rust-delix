@@ -67,7 +67,7 @@ in the network must share the same key.
 In order to bind a node to an interface, `local_address` in the `transport` section must be set. If the interface
 differs from the interface visible to other nodes, the field `public_address` can be set.
 
-The `relay` section at the end, defines here a `http_static` relay that opens a port at `address` that takes HTTP
+The `relay` section at the end, defines here a `http` relay that opens a port at `address` that takes HTTP
 requests. The `header_field` in the request tells delix to which service the request should be routed to. The services
 are defined in the `relay.service` section and define a name and an address which defines the endpoint where the
 request is send. In this example it's the slashdot server.
