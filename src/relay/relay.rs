@@ -18,7 +18,7 @@ use std::net::SocketAddr;
 use std::result;
 
 pub trait Relay {
-    fn load(&self, &str) -> Result<()>;
+    fn load(&self) -> Result<()>;
     fn bind(&self, SocketAddr) -> Result<()>;
     fn unbind(&self) -> Result<()>;
 }

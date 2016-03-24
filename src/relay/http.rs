@@ -35,6 +35,7 @@ pub struct Http {
     header_field: String,
     read_timeout: Option<Duration>,
     write_timeout: Option<Duration>,
+    services_path: Option<String>,
     join_handle: RwLock<Option<(thread::JoinHandle<()>, SocketAddr)>>,
     running: Arc<RwLock<bool>>,
 }
@@ -54,13 +55,15 @@ impl Http {
     pub fn new(node: Arc<Node>,
                header_field: &str,
                read_timeout: Option<Duration>,
-               write_timeout: Option<Duration>)
+               write_timeout: Option<Duration>,
+               services_path: Option<String>)
                -> Self {
         Http {
             node: node,
             header_field: header_field.to_string(),
             read_timeout: read_timeout,
             write_timeout: write_timeout,
+            services_path: services_path,
             join_handle: RwLock::new(None),
             running: Arc::new(RwLock::new(false)),
         }
@@ -88,18 +91,20 @@ impl Http {
 }
 
 impl Relay for Http {
-    fn load(&self, services_path: &str) -> Result<()> {
-        let services_path = Path::new(services_path);
-        for entry in try!(fs::read_dir(services_path)) {
-            let entry = try!(entry);
-            if let Some(name) = entry.path().file_stem().and_then(|name| name.to_str()) {
-                let mut file = try!(fs::File::open(entry.path()));
-                let mut content = String::new();
-                try!(file.read_to_string(&mut content));
+    fn load(&self) -> Result<()> {
+        if let Some(ref services_path) = self.services_path {
+            let services_path = Path::new(services_path);
+            for entry in try!(fs::read_dir(services_path)) {
+                let entry = try!(entry);
+                if let Some(name) = entry.path().file_stem().and_then(|name| name.to_str()) {
+                    let mut file = try!(fs::File::open(entry.path()));
+                    let mut content = String::new();
+                    try!(file.read_to_string(&mut content));
 
-                let service = json::decode::<Service>(&content).unwrap();
+                    let service = json::decode::<Service>(&content).unwrap();
 
-                self.add_service(name, &service.address)
+                    self.add_service(name, &service.address)
+                }
             }
         }
         Ok(())

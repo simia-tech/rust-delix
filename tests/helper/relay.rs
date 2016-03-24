@@ -26,9 +26,14 @@ pub fn build_http_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::H
     let relay = relay::Http::new(node.clone(),
                                  "X-Delix-Service",
                                  Some(Duration::milliseconds(100)),
-                                 Some(Duration::milliseconds(100)));
+                                 Some(Duration::milliseconds(100)),
+                                 None);
+
+    relay.load().unwrap();
+
     if let Some(address) = address {
         relay.bind(address.to_socket_addrs().unwrap().next().unwrap()).unwrap();
     }
+
     Arc::new(relay)
 }

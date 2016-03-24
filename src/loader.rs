@@ -286,11 +286,13 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
                                              .map(|value| Duration::milliseconds(value));
             let services_path = configuration.string_at("services_path");
 
-            let http = relay::Http::new(node.clone(), &header_field, read_timeout, write_timeout);
+            let http = relay::Http::new(node.clone(),
+                                        &header_field,
+                                        read_timeout,
+                                        write_timeout,
+                                        services_path);
 
-            if let Some(ref services_path) = services_path {
-                try!(http.load(services_path));
-            }
+            try!(http.load());
 
             if let Some(ref address) = address {
                 try!(http.bind(try!(resolve::socket_address(address))));
