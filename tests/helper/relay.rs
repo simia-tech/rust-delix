@@ -22,18 +22,24 @@ use self::time::Duration;
 use delix::node::Node;
 use delix::relay::{self, Relay};
 
-pub fn build_http_relay(node: &Arc<Node>, address: Option<&str>) -> Arc<relay::Http> {
-    let relay = relay::Http::new(node.clone(),
-                                 "X-Delix-Service",
-                                 Some(Duration::milliseconds(100)),
-                                 Some(Duration::milliseconds(100)),
-                                 None);
+pub fn build_http_relay(node: &Arc<Node>,
+                        address: Option<&str>,
+                        api_address: Option<&str>)
+                        -> Arc<relay::Http> {
+    let relay = relay::Http::bind(node.clone(),
+                                  address.map(|value| {
+                                      value.to_socket_addrs().unwrap().next().unwrap()
+                                  }),
+                                  api_address.map(|value| {
+                                      value.to_socket_addrs().unwrap().next().unwrap()
+                                  }),
+                                  "X-Delix-Service",
+                                  Some(Duration::milliseconds(100)),
+                                  Some(Duration::milliseconds(100)),
+                                  None)
+                    .unwrap();
 
     relay.load().unwrap();
-
-    if let Some(address) = address {
-        relay.bind(address.to_socket_addrs().unwrap().next().unwrap()).unwrap();
-    }
 
     Arc::new(relay)
 }

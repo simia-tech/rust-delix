@@ -14,12 +14,11 @@
 //
 
 use std::io;
-use std::net::SocketAddr;
 use std::result;
 
 pub trait Relay {
     fn load(&self) -> Result<()>;
-    fn bind(&self, SocketAddr) -> Result<()>;
+    fn bind(&self) -> Result<()>;
     fn unbind(&self) -> Result<()>;
 }
 

@@ -14,7 +14,8 @@
 //
 
 extern crate delix;
-#[macro_use] extern crate hyper;
+#[macro_use]
+extern crate hyper;
 
 mod helper;
 
@@ -23,6 +24,7 @@ use std::net;
 use std::io::{self, Read, Write};
 use std::thread;
 
+use delix::metric::{self, Query};
 use delix::util::reader;
 
 use hyper::client::Client;
@@ -35,17 +37,25 @@ header! { (XDelixService, "X-Delix-Service") => [String] }
 fn http_with_sized_response() {
     helper::set_up();
 
-    let mut listening = Server::http("localhost:5000").unwrap().handle(|mut request: server::Request, response: server::Response| {
-        let mut body = Vec::new();
-        request.read_to_end(&mut body).unwrap();
-        response.send(&body).unwrap();
-    }).unwrap();
+    let mut listening = Server::http("localhost:5000")
+                            .unwrap()
+                            .handle(|mut request: server::Request, response: server::Response| {
+                                let mut body = Vec::new();
+                                request.read_to_end(&mut body).unwrap();
+                                response.send(&body).unwrap();
+                            })
+                            .unwrap();
 
     let (node, _) = helper::build_node("localhost:3001", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4000"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4000"), None);
     relay.add_service("echo", "localhost:5000");
 
-    let mut response = Client::new().post("http://localhost:4000").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+    let mut response = Client::new()
+                           .post("http://localhost:4000")
+                           .header(XDelixService("echo".to_owned()))
+                           .body("test message")
+                           .send()
+                           .unwrap();
     helper::assert_response(StatusCode::Ok, b"test message", &mut response);
 
     listening.close().unwrap();
@@ -55,15 +65,23 @@ fn http_with_sized_response() {
 fn http_with_chunked_response() {
     helper::set_up();
 
-    let mut listening = Server::http("localhost:5010").unwrap().handle(|mut request: server::Request, response: server::Response| {
-        io::copy(&mut request, &mut response.start().unwrap()).unwrap();
-    }).unwrap();
+    let mut listening = Server::http("localhost:5010")
+                            .unwrap()
+                            .handle(|mut request: server::Request, response: server::Response| {
+                                io::copy(&mut request, &mut response.start().unwrap()).unwrap();
+                            })
+                            .unwrap();
 
     let (node, _) = helper::build_node("localhost:3011", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4010"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4010"), None);
     relay.add_service("echo", "localhost:5010");
 
-    let mut response = Client::new().post("http://localhost:4010").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+    let mut response = Client::new()
+                           .post("http://localhost:4010")
+                           .header(XDelixService("echo".to_owned()))
+                           .body("test message")
+                           .send()
+                           .unwrap();
     helper::assert_response(StatusCode::Ok, b"test message", &mut response);
 
     listening.close().unwrap();
@@ -74,10 +92,17 @@ fn http_with_missing_service() {
     helper::set_up();
 
     let (node, _) = helper::build_node("localhost:3021", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4020"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4020"), None);
 
-    let mut response = Client::new().post("http://localhost:4020").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
-    helper::assert_response(StatusCode::BadGateway, b"service [echo] not found", &mut response);
+    let mut response = Client::new()
+                           .post("http://localhost:4020")
+                           .header(XDelixService("echo".to_owned()))
+                           .body("test message")
+                           .send()
+                           .unwrap();
+    helper::assert_response(StatusCode::BadGateway,
+                            b"service [echo] not found",
+                            &mut response);
 
     drop(relay);
 }
@@ -87,35 +112,44 @@ fn http_with_unreachable_service() {
     helper::set_up();
 
     let (node, _) = helper::build_node("localhost:3031", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4030"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4030"), None);
     relay.add_service("echo", "localhost:5030");
 
-    let mut response = Client::new().post("http://localhost:4030").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
-    helper::assert_response(StatusCode::ServiceUnavailable, b"service [echo] is unavailable", &mut response);
+    let mut response = Client::new()
+                           .post("http://localhost:4030")
+                           .header(XDelixService("echo".to_owned()))
+                           .body("test message")
+                           .send()
+                           .unwrap();
+    helper::assert_response(StatusCode::ServiceUnavailable,
+                            b"service [echo] is unavailable",
+                            &mut response);
 }
 
 #[test]
 fn http_with_unfinished_request() {
     helper::set_up();
 
-    let mut listening = Server::http("localhost:5040").unwrap().handle(|mut request: server::Request, response: server::Response| {
-        let result = io::copy(&mut request, &mut response.start().unwrap()).unwrap_err();
-        assert_eq!(io::ErrorKind::Other, result.kind());
-        assert_eq!("early eof", result.description());
-    }).unwrap();
+    let mut listening = Server::http("localhost:5040")
+                            .unwrap()
+                            .handle(|mut request: server::Request, response: server::Response| {
+                                let result = io::copy(&mut request, &mut response.start().unwrap())
+                                                 .unwrap_err();
+                                assert_eq!(io::ErrorKind::Other, result.kind());
+                                assert_eq!("early eof", result.description());
+                            })
+                            .unwrap();
 
     let (node, _) = helper::build_node("localhost:3041", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4040"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4040"), None);
     relay.add_service("echo", "localhost:5040");
 
     {
         let mut stream = net::TcpStream::connect("localhost:4040").unwrap();
-        write!(&mut stream, "POST / HTTP/1.1\r\n\
-                             Content-Type: text/plain\r\n\
-                             X-Delix-Service: echo\r\n\
-                             Content-Length: 100\r\n\
-                             \r\n\
-                             test message").unwrap();
+        write!(&mut stream,
+               "POST / HTTP/1.1\r\nContent-Type: text/plain\r\nX-Delix-Service: \
+                echo\r\nContent-Length: 100\r\n\r\ntest message")
+            .unwrap();
     }
 
     listening.close().unwrap();
@@ -132,21 +166,43 @@ fn http_with_unfinished_response() {
             let mut reader = reader::Http::new(stream.try_clone().unwrap());
             assert!(io::copy(&mut reader, &mut io::sink()).is_ok());
         }
-        write!(&mut stream, "HTTP/1.1 201 Created\r\n\
-                             Content-Length: 1000\r\n\
-                             \r\n\
-                             test message").unwrap();
+        write!(&mut stream,
+               "HTTP/1.1 201 Created\r\nContent-Length: 1000\r\n\r\ntest message")
+            .unwrap();
     });
 
     let (node, _) = helper::build_node("localhost:3051", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4050"));
+    let relay = helper::build_http_relay(&node, Some("localhost:4050"), None);
     relay.add_service("echo", "localhost:5050");
 
-    let mut response = Client::new().post("http://localhost:4050").header(XDelixService("echo".to_owned())).body("test message").send().unwrap();
+    let mut response = Client::new()
+                           .post("http://localhost:4050")
+                           .header(XDelixService("echo".to_owned()))
+                           .body("test message")
+                           .send()
+                           .unwrap();
     assert_eq!(StatusCode::Created, response.status);
     let result = io::copy(&mut response, &mut io::sink()).unwrap_err();
     assert_eq!(io::ErrorKind::Other, result.kind());
     assert_eq!("early eof", result.description());
 
     join_handle.join().unwrap();
+}
+
+#[test]
+#[allow(unused_variables)]
+fn http_api_create_service() {
+    helper::set_up();
+
+    let (node, metric) = helper::build_node("localhost:3061", &[], None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4060"), Some("localhost:4160"));
+
+    let mut response = Client::new()
+                           .put("http://localhost:4160/services/test")
+                           .body("{\"address\":\"example.org:80\"}")
+                           .send()
+                           .unwrap();
+    helper::assert_response(StatusCode::Created, b"", &mut response);
+
+    assert_eq!(Some(metric::Value::Gauge(1)), metric.get("services"));
 }

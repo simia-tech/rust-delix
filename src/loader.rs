@@ -277,7 +277,10 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
 
     match relay_type.as_ref() {
         "http" => {
-            let address = configuration.string_at("address");
+            let address = match configuration.string_at("address") {
+                Some(address) => Some(try!(resolve::socket_address(&address))),
+                None => None,
+            };
             let header_field = configuration.string_at("header_field")
                                             .unwrap_or("X-Delix-Service".to_string());
             let read_timeout = configuration.i64_at("read_timeout_ms")
@@ -286,20 +289,22 @@ fn load_relay(configuration: &Configuration, node: &Arc<Node>) -> Result<Box<Rel
                                              .map(|value| Duration::milliseconds(value));
             let services_path = configuration.string_at("services_path");
 
-            let http = relay::Http::new(node.clone(),
-                                        &header_field,
-                                        read_timeout,
-                                        write_timeout,
-                                        services_path);
+            let api_address = match configuration.string_at("api.address") {
+                Some(address) => Some(try!(resolve::socket_address(&address))),
+                None => None,
+            };
+
+            let http = try!(relay::Http::bind(node.clone(),
+                                              address,
+                                              api_address,
+                                              &header_field,
+                                              read_timeout,
+                                              write_timeout,
+                                              services_path));
 
             try!(http.load());
 
-            if let Some(ref address) = address {
-                try!(http.bind(try!(resolve::socket_address(address))));
-                info!("loaded http relay - listening at {}", address);
-            } else {
-                info!("loaded http relay");
-            }
+            info!("loaded http relay");
 
             Ok(Box::new(http))
         }
