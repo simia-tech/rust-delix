@@ -15,7 +15,7 @@
 extern crate rustc_serialize;
 
 use std::fs;
-use std::io::{self, Read};
+use std::io::{self, Read, Write};
 use std::net;
 use std::path::Path;
 use std::sync::Arc;
@@ -76,5 +76,14 @@ impl Logic {
                           Ok(Box::new(reader::Http::new(stream)))
                       }))
             .unwrap();
+
+        if let Some(ref services_path) = self.services_path {
+            let services_path = Path::new(services_path);
+            let mut file = fs::File::create(services_path.join(format!("{}.json", name))).unwrap();
+
+            let service = Service { address: address.to_string() };
+            let content = json::encode(&service).unwrap();
+            file.write_all(&content.into_bytes()).unwrap();
+        }
     }
 }

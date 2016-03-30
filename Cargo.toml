@@ -26,6 +26,7 @@ toml = "0.1"
 
 [dev-dependencies]
 hyper = "0.7"
+tempdir = "0.3"
 
 [[bin]]
 name = "delix"

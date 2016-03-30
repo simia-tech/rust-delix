@@ -24,7 +24,8 @@ use delix::relay::{self, Relay};
 
 pub fn build_http_relay(node: &Arc<Node>,
                         address: Option<&str>,
-                        api_address: Option<&str>)
+                        api_address: Option<&str>,
+                        services_path: Option<&str>)
                         -> Arc<relay::Http> {
     let relay = relay::Http::bind(node.clone(),
                                   address.map(|value| {
@@ -36,7 +37,7 @@ pub fn build_http_relay(node: &Arc<Node>,
                                   "X-Delix-Service",
                                   Some(Duration::milliseconds(100)),
                                   Some(Duration::milliseconds(100)),
-                                  None)
+                                  services_path.map(|value| value.to_string()))
                     .unwrap();
 
     relay.load().unwrap();

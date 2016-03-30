@@ -98,14 +98,6 @@ impl Relay for Http {
         try!(self.logic.load_services());
         Ok(())
     }
-
-    fn bind(&self) -> Result<()> {
-        Ok(())
-    }
-
-    fn unbind(&self) -> Result<()> {
-        Ok(())
-    }
 }
 
 impl From<io::Error> for service::Error {
@@ -121,6 +113,7 @@ fn handle_connection(stream: &mut net::TcpStream,
                      node: &Arc<Node>,
                      header_field: &str)
                      -> io::Result<()> {
+    let header_field = header_field.to_lowercase();
     let mut http_reader = reader::Http::new(stream.try_clone().unwrap());
     let mut service_name = String::new();
     try!(http_reader.read_header(|name, value| {

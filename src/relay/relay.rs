@@ -18,8 +18,6 @@ use std::result;
 
 pub trait Relay {
     fn load(&self) -> Result<()>;
-    fn bind(&self) -> Result<()>;
-    fn unbind(&self) -> Result<()>;
 }
 
 pub type Result<T> = result::Result<T, Error>;

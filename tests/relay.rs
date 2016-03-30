@@ -16,6 +16,7 @@
 extern crate delix;
 #[macro_use]
 extern crate hyper;
+extern crate tempdir;
 
 mod helper;
 
@@ -30,6 +31,7 @@ use delix::util::reader;
 use hyper::client::Client;
 use hyper::server::{self, Server};
 use hyper::status::StatusCode;
+use tempdir::TempDir;
 
 header! { (XDelixService, "X-Delix-Service") => [String] }
 
@@ -47,7 +49,7 @@ fn http_with_sized_response() {
                             .unwrap();
 
     let (node, _) = helper::build_node("localhost:3001", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4000"), None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4000"), None, None);
     relay.add_service("echo", "localhost:5000");
 
     let mut response = Client::new()
@@ -73,7 +75,7 @@ fn http_with_chunked_response() {
                             .unwrap();
 
     let (node, _) = helper::build_node("localhost:3011", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4010"), None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4010"), None, None);
     relay.add_service("echo", "localhost:5010");
 
     let mut response = Client::new()
@@ -92,7 +94,7 @@ fn http_with_missing_service() {
     helper::set_up();
 
     let (node, _) = helper::build_node("localhost:3021", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4020"), None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4020"), None, None);
 
     let mut response = Client::new()
                            .post("http://localhost:4020")
@@ -112,7 +114,7 @@ fn http_with_unreachable_service() {
     helper::set_up();
 
     let (node, _) = helper::build_node("localhost:3031", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4030"), None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4030"), None, None);
     relay.add_service("echo", "localhost:5030");
 
     let mut response = Client::new()
@@ -141,7 +143,7 @@ fn http_with_unfinished_request() {
                             .unwrap();
 
     let (node, _) = helper::build_node("localhost:3041", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4040"), None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4040"), None, None);
     relay.add_service("echo", "localhost:5040");
 
     {
@@ -172,7 +174,7 @@ fn http_with_unfinished_response() {
     });
 
     let (node, _) = helper::build_node("localhost:3051", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4050"), None);
+    let relay = helper::build_http_relay(&node, Some("localhost:4050"), None, None);
     relay.add_service("echo", "localhost:5050");
 
     let mut response = Client::new()
@@ -194,8 +196,13 @@ fn http_with_unfinished_response() {
 fn http_api_create_service() {
     helper::set_up();
 
+    let temporary_directory = TempDir::new("services").unwrap();
+
     let (node, metric) = helper::build_node("localhost:3061", &[], None);
-    let relay = helper::build_http_relay(&node, Some("localhost:4060"), Some("localhost:4160"));
+    let relay = helper::build_http_relay(&node,
+                                         Some("localhost:4060"),
+                                         Some("localhost:4160"),
+                                         temporary_directory.path().to_str());
 
     let mut response = Client::new()
                            .put("http://localhost:4160/services/test")
@@ -205,4 +212,6 @@ fn http_api_create_service() {
     helper::assert_response(StatusCode::Created, b"", &mut response);
 
     assert_eq!(Some(metric::Value::Gauge(1)), metric.get("services"));
+
+    assert!(temporary_directory.path().join("test.json").exists());
 }
