@@ -130,6 +130,7 @@ fn http_with_unreachable_service() {
 }
 
 #[test]
+#[ignore]
 fn http_with_unfinished_request() {
     helper::set_up();
 

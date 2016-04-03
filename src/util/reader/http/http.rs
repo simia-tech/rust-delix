@@ -23,7 +23,8 @@ pub struct Http<R>
     computed_reader: Option<Box<io::Read + Send>>,
 }
 
-impl<R> Http<R> where R: Send
+impl<R> Http<R>
+    where R: Send
 {
     pub fn new(reader: R) -> Http<R> {
         Http {
@@ -37,7 +38,8 @@ impl<R> Http<R> where R: Send
     }
 }
 
-impl<R> Http<R> where R: io::Read + Send + 'static
+impl<R> Http<R>
+    where R: io::Read + Send + 'static
 {
     pub fn read_header<F: FnMut(&str, &str)>(&mut self, mut f: F) -> io::Result<usize> {
         let mut buf_reader = io::BufReader::new(self.reader.take().unwrap());
@@ -87,7 +89,8 @@ impl<R> Http<R> where R: io::Read + Send + 'static
     }
 }
 
-impl<R> io::Read for Http<R> where R: io::Read + Send + 'static
+impl<R> io::Read for Http<R>
+    where R: io::Read + Send + 'static
 {
     fn read(&mut self, buffer: &mut [u8]) -> io::Result<usize> {
         if let None = self.computed_reader {

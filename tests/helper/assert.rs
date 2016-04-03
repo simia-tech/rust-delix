@@ -26,7 +26,6 @@ pub fn assert_response(expected_status_code: StatusCode,
     assert_eq!(expected_status_code, response.status);
     if expected_body.len() > 0 {
         let mut response_body = String::new();
-        println!("read body");
         response.read_to_string(&mut response_body).unwrap();
         assert_eq!(String::from_utf8_lossy(expected_body), response_body);
     }
