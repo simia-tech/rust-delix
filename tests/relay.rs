@@ -20,6 +20,7 @@ extern crate tempdir;
 
 mod helper;
 
+use std::fs;
 use std::error::Error;
 use std::net;
 use std::io::{self, Read, Write};
@@ -212,6 +213,35 @@ fn http_api_create_service() {
     helper::assert_response(StatusCode::Created, b"", &mut response);
 
     assert_eq!(Some(metric::Value::Gauge(1)), metric.get("services"));
-
     assert!(temporary_directory.path().join("test.json").exists());
+}
+
+#[test]
+#[allow(unused_variables)]
+fn http_api_delete_service() {
+    helper::set_up();
+
+    let temporary_directory = TempDir::new("services").unwrap();
+    let file_name = temporary_directory.path().join("test.json");
+    {
+        let mut file = fs::File::create(&file_name).unwrap();
+        file.write_all(b"{\"address\":\"example.or:80\"}").unwrap();
+    }
+
+    let (node, metric) = helper::build_node("localhost:3071", &[], None);
+    let relay = helper::build_http_relay(&node,
+                                         Some("localhost:4070"),
+                                         Some("localhost:4170"),
+                                         temporary_directory.path().to_str());
+
+    assert_eq!(Some(metric::Value::Gauge(1)), metric.get("services"));
+
+    let mut response = Client::new()
+                           .delete("http://localhost:4170/services/test")
+                           .send()
+                           .unwrap();
+    helper::assert_response(StatusCode::Ok, b"", &mut response);
+
+    assert_eq!(Some(metric::Value::Gauge(0)), metric.get("services"));
+    assert!(!file_name.exists());
 }

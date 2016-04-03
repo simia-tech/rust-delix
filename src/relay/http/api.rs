@@ -80,6 +80,13 @@ fn handle(logic: &Arc<Logic>, request: Request, mut response: Response) -> Resul
                     *response.status_mut() = StatusCode::Created;
                     response.send(b"").unwrap();
                 }
+                Method::Delete if path.starts_with("/services/") => {
+                    let (_, name) = path.split_at(10);
+
+                    logic.remove_service(name);
+
+                    *response.status_mut() = StatusCode::Ok;
+                }
                 _ => {
                     *response.status_mut() = StatusCode::NotFound;
                 }

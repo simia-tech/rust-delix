@@ -79,11 +79,22 @@ impl Logic {
 
         if let Some(ref services_path) = self.services_path {
             let services_path = Path::new(services_path);
-            let mut file = fs::File::create(services_path.join(format!("{}.json", name))).unwrap();
+            let file_name = services_path.join(format!("{}.json", name));
+            let mut file = fs::File::create(file_name).unwrap();
 
             let service = Service { address: address.to_string() };
             let content = json::encode(&service).unwrap();
             file.write_all(&content.into_bytes()).unwrap();
+        }
+    }
+
+    pub fn remove_service(&self, name: &str) {
+        self.node.deregister(name).unwrap();
+
+        if let Some(ref services_path) = self.services_path {
+            let services_path = Path::new(services_path);
+            let file_name = services_path.join(format!("{}.json", name));
+            fs::remove_file(file_name).unwrap();
         }
     }
 }
