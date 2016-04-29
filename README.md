@@ -51,10 +51,7 @@ balancer = { type = "dynamic_round_robin" }
 type = "http"
 address = "localhost:4200"
 header_field = "X-Delix-Service"
-
-[[relay.service]]
-name = "slashdot"
-address = "slashdot.org:80"
+services_path = "/etc/delix/services"
 ```
 
 The `discovery` section contains the field `addresses` which holds a list of IPs (with ports) that is used during
@@ -69,8 +66,8 @@ differs from the interface visible to other nodes, the field `public_address` ca
 
 The `relay` section at the end, defines here a `http` relay that opens a port at `address` that takes HTTP
 requests. The `header_field` in the request tells delix to which service the request should be routed to. The services
-are defined in the `relay.service` section and define a name and an address which defines the endpoint where the
-request is send. In this example it's the slashdot server.
+are defined in JSON files in the `services_path` directory. An example can be found in the example directory of this
+repository.
 
 ## License
 
